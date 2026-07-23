@@ -1,6 +1,10 @@
 [package]
-name = "rust"
+name = "syncer-rs"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
+libc = "0.2"
+
+[build-dependencies]
+cc = "1.0"

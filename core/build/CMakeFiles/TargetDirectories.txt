@@ -1,0 +1,3 @@
+/Users/maca5/codes/opto-sync/syncer.c/core/build/CMakeFiles/syncer.dir
+/Users/maca5/codes/opto-sync/syncer.c/core/build/CMakeFiles/edit_cache.dir
+/Users/maca5/codes/opto-sync/syncer.c/core/build/CMakeFiles/rebuild_cache.dir

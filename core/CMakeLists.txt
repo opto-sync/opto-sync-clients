@@ -11,6 +11,7 @@ include_directories(include)
 # Define the library
 add_library(syncer SHARED
     src/syncer.c
+    src/yyjson.c
 )
 
 # Export options

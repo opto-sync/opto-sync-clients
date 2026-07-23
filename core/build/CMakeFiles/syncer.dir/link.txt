@@ -1,0 +1,1 @@
+/usr/bin/cc  -arch arm64 -dynamiclib -Wl,-headerpad_max_install_names -o libsyncer.dylib -install_name @rpath/libsyncer.dylib CMakeFiles/syncer.dir/src/syncer.c.o CMakeFiles/syncer.dir/src/yyjson.c.o
