@@ -1,0 +1,7 @@
+name: syncer_dart
+description: Dart FFI bindings for the syncer.c library.
+version: 0.1.0
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
