@@ -4,9 +4,13 @@
   "description": "TypeScript bindings for syncer.c",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "node-gyp rebuild",
+    "test": "node test.js"
   },
   "keywords": [],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "node-addon-api": "^8.9.0"
+  }
 }

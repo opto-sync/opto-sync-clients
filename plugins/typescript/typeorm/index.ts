@@ -1,0 +1,52 @@
+import { BaseMergeStrategy } from '../../../bindings/typescript/BaseMergeStrategy';
+import { mergeJson } from '../../../bindings/typescript/build/Release/syncer.node';
+
+/**
+ * A TypeORM ValueTransformer for JSONB columns.
+ * While TypeORM normally calls this on every read/write, 
+ * this transformer can store the strategy to be used by a custom repository method.
+ */
+export function SyncerJsonbTransformer<T>(strategy: BaseMergeStrategy<T>) {
+  return {
+    to: (value: T) => {
+      return value; // TypeORM handles JSON stringification internally usually
+    },
+    from: (value: any) => {
+      return value;
+    }
+  };
+}
+
+/**
+ * TypeORM utility for zero-deserialization merge.
+ * Requires querying the DB using QueryBuilder to get the raw string.
+ */
+export async function typeOrmSyncMerge<T>(
+  repository: any, 
+  id: string | number, 
+  columnName: string, 
+  incomingRawJson: string, 
+  strategy: BaseMergeStrategy<T>
+): Promise<void> {
+  // 1. Query raw string
+  const rawResult = await repository
+    .createQueryBuilder('entity')
+    .select(`entity.${columnName}::text`, 'raw_json')
+    .where('entity.id = :id', { id })
+    .getRawOne();
+
+  const currentRawJson = rawResult ? rawResult.raw_json : '{}';
+
+  // 2. Merge in C
+  const mergedString = mergeJson(currentRawJson, incomingRawJson, strategy.handleConflict.bind(strategy));
+
+  // 3. Update using raw string (bypassing object creation entirely)
+  await repository
+    .createQueryBuilder()
+    .update()
+    .set({
+      [columnName]: () => `'${mergedString}'::jsonb`
+    })
+    .where('id = :id', { id })
+    .execute();
+}
