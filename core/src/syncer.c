@@ -178,15 +178,6 @@ static merge_frame_t* stack_top(merge_stack_t* s) {
 /*  JSON value comparison (for UNION strategy)                                */
 /* ========================================================================== */
 
-static bool json_vals_equal(yyjson_mut_val* a, yyjson_val* b) {
-    char* sa = yyjson_mut_val_write(a, 0, NULL);
-    char* sb = yyjson_val_write(b, 0, NULL);
-    if (!sa || !sb) { free(sa); free(sb); return false; }
-    bool eq = (strcmp(sa, sb) == 0);
-    free(sa);
-    free(sb);
-    return eq;
-}
 
 static bool array_contains(yyjson_mut_val* arr, yyjson_val* needle) {
     yyjson_mut_arr_iter iter;
@@ -201,6 +192,36 @@ static bool array_contains(yyjson_mut_val* arr, yyjson_val* needle) {
         free(sn);
         if (eq) return true;
     }
+    return false;
+}
+
+/* ========================================================================== */
+/*  CRDT Timestamp Resolution                                                 */
+/* ========================================================================== */
+
+static bool should_reject_by_timestamp(yyjson_mut_val* v1, yyjson_val* v2, const char* ts_key) {
+    if (!v1 || !v2 || !yyjson_mut_is_obj(v1) || !yyjson_is_obj(v2)) return false;
+
+    yyjson_mut_val* t1 = yyjson_mut_obj_get(v1, ts_key);
+    yyjson_val* t2 = yyjson_obj_get(v2, ts_key);
+
+    if (!t1 || !t2) return false;
+
+    /* Check if they are 64-bit integers (e.g., nanosecond epochs) */
+    if (yyjson_mut_is_int(t1) && yyjson_is_int(t2)) {
+        int64_t i1 = yyjson_mut_get_sint(t1);
+        int64_t i2 = yyjson_get_sint(t2);
+        return i1 > i2;
+    }
+
+    /* Fallback to string comparison (works for ISO-8601 or stringified ints) */
+    const char* s1 = yyjson_mut_get_str(t1);
+    const char* s2 = yyjson_get_str(t2);
+    if (s1 && s2) {
+        return strcmp(s1, s2) > 0;
+    }
+
+    /* Different types or unsupported type -> don't reject */
     return false;
 }
 
@@ -249,14 +270,21 @@ static void do_merge(
     path_buf_t path;
     path_init(&path);
 
-    visited_set_t visited;
+    visited_set_t visited = {0};
     if (opts && opts->detect_circular_refs) visited_init(&visited);
 
     syncer_array_strategy_t arr_strat = opts ? opts->array_strategy : SYNCER_ARRAY_REPLACE;
     uint32_t max_depth = opts ? opts->max_depth : 0;
+    bool resolve_ts = opts ? opts->resolve_by_timestamp : false;
+    const char* ts_key = (opts && opts->timestamp_key) ? opts->timestamp_key : "updatedAt";
 
     /* Seed: if both roots are objects, push a frame; otherwise leaf-merge at root */
     if (yyjson_mut_is_obj(root1) && yyjson_is_obj(root2)) {
+        if (resolve_ts && should_reject_by_timestamp(root1, root2, ts_key)) {
+            /* Root v1 is newer; abort merge and keep v1 entirely */
+            if (opts && opts->detect_circular_refs) visited_free(&visited);
+            return;
+        }
         if (opts && opts->detect_circular_refs) {
             visited_add(&visited, root1, root2);
         }
@@ -326,6 +354,12 @@ static void do_merge(
 
             /* Both objects: push a new frame */
             if (yyjson_mut_is_obj(val1) && yyjson_is_obj(val2)) {
+                if (resolve_ts && should_reject_by_timestamp(val1, val2, ts_key)) {
+                    /* v1 is newer -> keep v1, don't descend or overwrite */
+                    path_restore(&path, saved);
+                    continue;
+                }
+
                 /* Try callback first */
                 if (opts && opts->override_cb) {
                     char* s1 = yyjson_mut_val_write(val1, 0, NULL);
@@ -431,15 +465,19 @@ static void do_merge(
                     path_push_index(&path, i);
 
                     if (yyjson_mut_is_obj(e1) && yyjson_is_obj(e2)) {
-                        /* Push a child object frame — the outer while loop
-                           will process it, and when it pops, we'll come back
-                           here with arr_idx already advanced. */
-                        merge_frame_t* f = stack_push(&stack);
-                        f->kind = FRAME_OBJECT;
-                        f->v1 = e1;
-                        f->v2 = e2;
-                        yyjson_obj_iter_init(e2, &f->obj_iter);
-                        f->path_saved = path_save(&path);
+                        if (resolve_ts && should_reject_by_timestamp(e1, e2, ts_key)) {
+                            /* v1 is newer -> keep v1 as-is */
+                        } else {
+                            /* Push a child object frame — the outer while loop
+                               will process it, and when it pops, we'll come back
+                               here with arr_idx already advanced. */
+                            merge_frame_t* f = stack_push(&stack);
+                            f->kind = FRAME_OBJECT;
+                            f->v1 = e1;
+                            f->v2 = e2;
+                            yyjson_obj_iter_init(e2, &f->obj_iter);
+                            f->path_saved = path_save(&path);
+                        }
                     } else {
                         /* Leaf merge for this index */
                         yyjson_mut_val* merged = merge_leaf(doc, &path, e1, e2, opts);

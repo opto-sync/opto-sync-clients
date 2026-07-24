@@ -19,3 +19,15 @@ target_include_directories(syncer PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
+
+enable_testing()
+
+add_executable(test_syncer
+    test/test_syncer.c
+    src/syncer.c
+    src/yyjson.c
+)
+
+target_include_directories(test_syncer PRIVATE include)
+add_test(NAME test_syncer COMMAND test_syncer)
+

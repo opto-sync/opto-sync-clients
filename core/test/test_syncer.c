@@ -270,6 +270,41 @@ static void test_circular_ref_detection(void) {
 }
 
 /* ========================================================================== */
+/*  Test: CRDT Timestamp Resolution                                           */
+/* ========================================================================== */
+
+static void test_crdt_timestamp_resolution(void) {
+    syncer_merge_options_t opts = syncer_default_options();
+    opts.resolve_by_timestamp = true;
+    opts.timestamp_key = "updatedAt";
+
+    /* Case 1: Base is newer (Integer nanoseconds). Incoming should be dropped. */
+    const char* j1 = "{\"doc\":{\"updatedAt\":1689940800,\"val\":\"base\"}}";
+    const char* j2 = "{\"doc\":{\"updatedAt\":1689940000,\"val\":\"incoming\"}}";
+    char* r1 = syncer_merge_json_ex(j1, j2, &opts);
+    assert(r1 != NULL);
+    assert(json_has_str(r1, "val", "base")); /* kept base */
+    syncer_free(r1);
+
+    /* Case 2: Incoming is newer. Incoming should overwrite. */
+    const char* j3 = "{\"doc\":{\"updatedAt\":1689940000,\"val\":\"base\"}}";
+    const char* j4 = "{\"doc\":{\"updatedAt\":1689940800,\"val\":\"incoming\"}}";
+    char* r2 = syncer_merge_json_ex(j3, j4, &opts);
+    assert(r2 != NULL);
+    assert(json_has_str(r2, "val", "incoming")); /* took incoming */
+    syncer_free(r2);
+
+    /* Case 3: Same key inside array elements (MERGE_BY_INDEX) */
+    opts.array_strategy = SYNCER_ARRAY_MERGE_BY_INDEX;
+    const char* j5 = "{\"arr\":[{\"updatedAt\":100,\"v\":1}]}";
+    const char* j6 = "{\"arr\":[{\"updatedAt\":50,\"v\":2}]}";
+    char* r3 = syncer_merge_json_ex(j5, j6, &opts);
+    assert(r3 != NULL);
+    assert(json_has_num(r3, "v", 1)); /* kept base element */
+    syncer_free(r3);
+}
+
+/* ========================================================================== */
 /*  Main                                                                      */
 /* ========================================================================== */
 
@@ -290,6 +325,7 @@ int main(void) {
     TEST(test_invalid_json);
     TEST(test_legacy_api);
     TEST(test_circular_ref_detection);
+    TEST(test_crdt_timestamp_resolution);
 
     printf("\n=== Results: %d/%d passed ===\n\n", tests_passed, tests_run);
     return tests_passed == tests_run ? 0 : 1;

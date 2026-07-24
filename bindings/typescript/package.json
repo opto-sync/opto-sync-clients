@@ -4,6 +4,7 @@
   "description": "TypeScript bindings for syncer.c",
   "main": "index.js",
   "scripts": {
+    "install": "node-gyp rebuild",
     "build": "node-gyp rebuild",
     "test": "node test.js"
   },

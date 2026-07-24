@@ -1,0 +1,9 @@
+[package]
+name = "opto-sync-diesel"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+diesel = { version = "2.1", features = ["postgres", "serde_json"] }
+serde_json = "1.0"
+opto-sync-syncer = { path = "../../../bindings/rust" }

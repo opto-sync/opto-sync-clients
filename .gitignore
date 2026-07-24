@@ -1,0 +1,15 @@
+# Build artifacts
+core/build/
+bindings/typescript/build/
+bindings/typescript/node_modules/
+bindings/rust/target/
+bindings/dart/.dart_tool/
+
+# OS files
+.DS_Store
+*.swp
+*.swo
+
+# IDE
+.vscode/
+.idea/

@@ -45,6 +45,8 @@ typedef struct {
     syncer_array_strategy_t     array_strategy; /* default: SYNCER_ARRAY_REPLACE */
     uint32_t                    max_depth;      /* 0 = unlimited */
     bool                        detect_circular_refs;
+    bool                        resolve_by_timestamp; /* Enable CRDT-like timestamp resolution */
+    const char*                 timestamp_key;        /* e.g., "updatedAt", "syncedAt" (if NULL, defaults to "updatedAt") */
 } syncer_merge_options_t;
 
 /**
@@ -56,6 +58,8 @@ static inline syncer_merge_options_t syncer_default_options(void) {
     opts.array_strategy = SYNCER_ARRAY_REPLACE;
     opts.max_depth = 0;
     opts.detect_circular_refs = false;
+    opts.resolve_by_timestamp = false;
+    opts.timestamp_key = NULL;
     return opts;
 }
 

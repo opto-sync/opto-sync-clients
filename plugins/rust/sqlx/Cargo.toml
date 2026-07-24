@@ -1,0 +1,9 @@
+[package]
+name = "opto-sync-sqlx"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sqlx = { version = "0.7", features = ["postgres", "json"] }
+serde_json = "1.0"
+opto-sync-syncer = { path = "../../../bindings/rust" }

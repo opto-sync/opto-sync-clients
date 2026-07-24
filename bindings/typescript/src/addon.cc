@@ -2,18 +2,19 @@
 #include "syncer.h"
 #include <string.h>
 #include <stdlib.h>
+#include <string>
 
 // Global reference for the JS callback
 Napi::FunctionReference g_callback;
 
-char* cpp_override_cb(const char* key, const char* v1, const char* v2) {
+char* cpp_override_cb(const char* json_path, const char* v1, const char* v2) {
     if (g_callback.IsEmpty()) return nullptr;
 
     Napi::Env env = g_callback.Env();
     Napi::HandleScope scope(env);
 
     napi_value args[3] = {
-        Napi::String::New(env, key),
+        Napi::String::New(env, json_path),
         Napi::String::New(env, v1),
         Napi::String::New(env, v2)
     };
@@ -38,16 +39,43 @@ Napi::Value MergeJsonNode(const Napi::CallbackInfo& info) {
     std::string j1 = info[0].As<Napi::String>().Utf8Value();
     std::string j2 = info[1].As<Napi::String>().Utf8Value();
 
-    syncer_merge_override_cb cb = nullptr;
+    syncer_merge_options_t opts = syncer_default_options();
+    std::string ts_key_storage; /* to keep the string alive if we copy it */
 
-    if (info.Length() >= 3 && info[2].IsFunction()) {
+    if (info.Length() >= 3 && info[2].IsObject()) {
+        Napi::Object jOpts = info[2].As<Napi::Object>();
+        
+        if (jOpts.Has("arrayStrategy") && jOpts.Get("arrayStrategy").IsNumber()) {
+            opts.array_strategy = (syncer_array_strategy_t)jOpts.Get("arrayStrategy").As<Napi::Number>().Int32Value();
+        }
+        if (jOpts.Has("maxDepth") && jOpts.Get("maxDepth").IsNumber()) {
+            opts.max_depth = jOpts.Get("maxDepth").As<Napi::Number>().Uint32Value();
+        }
+        if (jOpts.Has("detectCircularRefs") && jOpts.Get("detectCircularRefs").IsBoolean()) {
+            opts.detect_circular_refs = jOpts.Get("detectCircularRefs").As<Napi::Boolean>().Value();
+        }
+        if (jOpts.Has("resolveByTimestamp") && jOpts.Get("resolveByTimestamp").IsBoolean()) {
+            opts.resolve_by_timestamp = jOpts.Get("resolveByTimestamp").As<Napi::Boolean>().Value();
+        }
+        if (jOpts.Has("timestampKey") && jOpts.Get("timestampKey").IsString()) {
+            ts_key_storage = jOpts.Get("timestampKey").As<Napi::String>().Utf8Value();
+            opts.timestamp_key = ts_key_storage.c_str();
+        }
+        if (jOpts.Has("overrideCb") && jOpts.Get("overrideCb").IsFunction()) {
+            g_callback.Reset(jOpts.Get("overrideCb").As<Napi::Function>(), 1);
+            opts.override_cb = cpp_override_cb;
+        }
+    } else if (info.Length() >= 3 && info[2].IsFunction()) {
+        /* Legacy fallback: 3rd arg is directly the callback */
         g_callback.Reset(info[2].As<Napi::Function>(), 1);
-        cb = cpp_override_cb;
+        opts.override_cb = cpp_override_cb;
     }
 
-    char* result = syncer_merge_json(j1.c_str(), j2.c_str(), cb);
+    char* result = syncer_merge_json_ex(j1.c_str(), j2.c_str(), &opts);
 
-    g_callback.Reset(); // free the reference
+    if (opts.override_cb) {
+        g_callback.Reset(); // free the reference
+    }
 
     if (!result) {
         return env.Null();
