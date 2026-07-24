@@ -6,36 +6,86 @@ extern "C" {
 #endif
 
 #include <stddef.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+/* --------------------------------------------------------------------------
+ * Array merge strategies
+ * -------------------------------------------------------------------------- */
+typedef enum {
+    SYNCER_ARRAY_REPLACE = 0,      /* v2 array completely replaces v1 (default) */
+    SYNCER_ARRAY_APPEND,           /* concatenate v2 elements after v1 */
+    SYNCER_ARRAY_UNION,            /* append only elements from v2 not already in v1 */
+    SYNCER_ARRAY_MERGE_BY_INDEX    /* merge element-wise: v1[i] deep-merged with v2[i] */
+} syncer_array_strategy_t;
+
+/* --------------------------------------------------------------------------
+ * Callback typedefs
+ * -------------------------------------------------------------------------- */
 
 /**
- * Type of the callback function that the user can provide.
- * It is invoked when merging two keys to resolve a conflict or apply custom behavior.
- * 
- * @param key The string key being merged (can be a JSON path or just the property name).
- * @param val1 The JSON representation of the first value (as a string).
- * @param val2 The JSON representation of the second value (as a string).
- * @return A dynamically allocated string containing the merged JSON value, 
- *         or NULL if the default merge behavior should be used.
- *         The caller (syncer core) is responsible for freeing this memory if not NULL.
+ * Legacy callback: receives the immediate key name.
  */
-typedef char* (*syncer_merge_override_cb)(const char* key, const char* val1, const char* val2);
+typedef char* (*syncer_merge_override_cb)(const char* key,
+                                          const char* val1,
+                                          const char* val2);
 
 /**
- * Perform a deep merge of two JSON strings.
- * 
- * @param json1 The first JSON string (base).
- * @param json2 The second JSON string (mixin).
- * @param cb    An optional callback for custom merge overrides. Can be NULL.
- * @return A dynamically allocated string containing the merged JSON.
- *         The caller is responsible for freeing this string.
- *         Returns NULL on parsing error or failure.
+ * Extended callback: receives the full JSON path (e.g. "$.users[0].profile").
  */
-char* syncer_merge_json(const char* json1, const char* json2, syncer_merge_override_cb cb);
+typedef char* (*syncer_merge_override_cb_ex)(const char* json_path,
+                                             const char* val1,
+                                             const char* val2);
+
+/* --------------------------------------------------------------------------
+ * Options struct for the extended API
+ * -------------------------------------------------------------------------- */
+typedef struct {
+    syncer_merge_override_cb_ex override_cb;   /* NULL = use default merge */
+    syncer_array_strategy_t     array_strategy; /* default: SYNCER_ARRAY_REPLACE */
+    uint32_t                    max_depth;      /* 0 = unlimited */
+    bool                        detect_circular_refs;
+} syncer_merge_options_t;
+
+/**
+ * Helper to get a zero-initialized default options struct.
+ */
+static inline syncer_merge_options_t syncer_default_options(void) {
+    syncer_merge_options_t opts;
+    opts.override_cb = NULL;
+    opts.array_strategy = SYNCER_ARRAY_REPLACE;
+    opts.max_depth = 0;
+    opts.detect_circular_refs = false;
+    return opts;
+}
+
+/* --------------------------------------------------------------------------
+ * Core API
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Extended deep merge with full options.
+ *
+ * @param json1   Base JSON string.
+ * @param json2   Incoming JSON string to merge on top.
+ * @param opts    Pointer to options struct. NULL = use defaults.
+ * @return Heap-allocated merged JSON string. Caller must call syncer_free().
+ *         Returns NULL on parse error.
+ */
+char* syncer_merge_json_ex(const char* json1,
+                            const char* json2,
+                            const syncer_merge_options_t* opts);
+
+/**
+ * Legacy deep merge (backwards compatible).
+ * Equivalent to syncer_merge_json_ex with SYNCER_ARRAY_REPLACE and legacy cb.
+ */
+char* syncer_merge_json(const char* json1,
+                         const char* json2,
+                         syncer_merge_override_cb cb);
 
 /**
  * Free memory allocated by the syncer library.
- * 
- * @param ptr Pointer to the memory to free.
  */
 void syncer_free(void* ptr);
 
@@ -43,4 +93,4 @@ void syncer_free(void* ptr);
 }
 #endif
 
-#endif // SYNCER_H
+#endif /* SYNCER_H */
