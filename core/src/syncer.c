@@ -378,7 +378,6 @@ static void do_merge(
             yyjson_val*     arr2 = top->v2;
 
             if (arr_strat == SYNCER_ARRAY_APPEND) {
-                /* Append all of v2 to v1 */
                 yyjson_arr_iter it2;
                 yyjson_arr_iter_init(arr2, &it2);
                 yyjson_val* elem;
@@ -392,7 +391,6 @@ static void do_merge(
             }
 
             if (arr_strat == SYNCER_ARRAY_UNION) {
-                /* Append only elements not already in v1 */
                 yyjson_arr_iter it2;
                 yyjson_arr_iter_init(arr2, &it2);
                 yyjson_val* elem;
@@ -408,56 +406,58 @@ static void do_merge(
             }
 
             if (arr_strat == SYNCER_ARRAY_MERGE_BY_INDEX) {
-                /* Merge element-wise */
+                /* Process one element per outer-loop iteration */
+                size_t i = top->arr_idx;
                 size_t len1 = yyjson_mut_arr_size(arr1);
-                size_t len2 = yyjson_arr_size(arr2);
+                size_t len2 = top->arr_len_v2;
                 size_t max_len = len1 > len2 ? len1 : len2;
 
-                for (size_t i = 0; i < max_len; i++) {
-                    path_push_index(&path, i);
-                    yyjson_mut_val* e1 = yyjson_mut_arr_get(arr1, i);
-                    yyjson_val*     e2 = yyjson_arr_get(arr2, i);
-
-                    if (e1 && e2) {
-                        if (yyjson_mut_is_obj(e1) && yyjson_is_obj(e2)) {
-                            /* Push a sub-frame for this pair of objects */
-                            /* For simplicity in the iterative model, we do a
-                               mini recursive call here since array-of-objects
-                               merging is bounded by the array length, not depth.
-                               The depth-critical recursion (nested objects) is
-                               already iterative. */
-                            merge_frame_t* f = stack_push(&stack);
-                            f->kind = FRAME_OBJECT;
-                            f->v1 = e1;
-                            f->v2 = e2;
-                            yyjson_obj_iter_init(e2, &f->obj_iter);
-                            f->path_saved = path_save(&path);
-                            /* Don't pop the array frame yet — but we've
-                               processed all indices in this loop, so after
-                               the inner frame completes we'll fall through. */
-                        } else {
-                            /* Leaf merge for this index */
-                            yyjson_mut_val* merged = merge_leaf(doc, &path, e1, e2, opts);
-                            yyjson_mut_arr_replace(arr1, i, merged);
-                        }
-                    } else if (!e1 && e2) {
-                        /* v1 shorter: append */
-                        yyjson_mut_val* cp = yyjson_val_mut_copy(doc, e2);
-                        yyjson_mut_arr_append(arr1, cp);
-                    }
-                    /* else e1 && !e2: v2 shorter, keep v1 element */
-
+                if (i >= max_len) {
+                    /* All indices processed — pop this frame */
                     path_restore(&path, top->path_saved);
+                    stack_pop(&stack);
+                    continue;
                 }
-                stack_pop(&stack);
+
+                /* Advance index for next iteration */
+                top->arr_idx = i + 1;
+
+                yyjson_mut_val* e1 = (i < len1) ? yyjson_mut_arr_get(arr1, i) : NULL;
+                yyjson_val*     e2 = (i < len2) ? yyjson_arr_get(arr2, i) : NULL;
+
+                if (e1 && e2) {
+                    size_t path_before = path_save(&path);
+                    path_restore(&path, top->path_saved);
+                    path_push_index(&path, i);
+
+                    if (yyjson_mut_is_obj(e1) && yyjson_is_obj(e2)) {
+                        /* Push a child object frame — the outer while loop
+                           will process it, and when it pops, we'll come back
+                           here with arr_idx already advanced. */
+                        merge_frame_t* f = stack_push(&stack);
+                        f->kind = FRAME_OBJECT;
+                        f->v1 = e1;
+                        f->v2 = e2;
+                        yyjson_obj_iter_init(e2, &f->obj_iter);
+                        f->path_saved = path_save(&path);
+                    } else {
+                        /* Leaf merge for this index */
+                        yyjson_mut_val* merged = merge_leaf(doc, &path, e1, e2, opts);
+                        yyjson_mut_arr_replace(arr1, i, merged);
+                    }
+                    /* Don't restore path here — child frame will do it,
+                       or the next iteration will restore via path_saved */
+                    (void)path_before;
+                } else if (!e1 && e2) {
+                    /* v1 shorter: append from v2 */
+                    yyjson_mut_val* cp = yyjson_val_mut_copy(doc, e2);
+                    yyjson_mut_arr_append(arr1, cp);
+                }
+                /* else e1 && !e2: v2 shorter, keep v1 element as-is */
                 continue;
             }
 
-            /* Fallthrough: SYNCER_ARRAY_REPLACE (shouldn't reach here but safety) */
-            yyjson_mut_val* cp = yyjson_val_mut_copy(doc, arr2);
-            /* Replace the array contents */
-            /* Since we can't easily replace in-place via the parent, 
-               this case is handled at the leaf-merge level. */
+            /* Fallthrough: SYNCER_ARRAY_REPLACE (shouldn't reach here) */
             path_restore(&path, top->path_saved);
             stack_pop(&stack);
         }
