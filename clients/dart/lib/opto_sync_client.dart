@@ -289,8 +289,9 @@ class OptoSyncClient {
   })  : lwwKeys = lwwKeys ??
             (syncer is FfiSyncer ? syncer.lwwKeys : null) ??
             'updatedAt,syncedAt',
-        // ignore: prefer_initializing_formals -- the field is private, the
-        // parameter is public API, so an initializing formal is not possible.
+        // The field is private and the parameter is public API, so an
+        // initializing formal is not possible.
+        // ignore: prefer_initializing_formals
         _now = now;
 
   /// This client's hybrid logical clock, created on first use and backed by the
