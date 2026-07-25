@@ -319,11 +319,3 @@ test('report whether a real browser was exercised', () => {
   }
   assert.ok(true);
 });
-
-test.after?.(async () => {
-  if (browser) await browser.close();
-});
-
-process.on('beforeExit', () => {
-  if (browser) browser.close().catch(() => {});
-});
