@@ -97,6 +97,20 @@ class FfiSyncer implements ISyncer {
   /// Version of the loaded native core ("major.minor.patch").
   String get nativeVersion => _native.version;
 
+  /// A copy of this syncer with timestamp resolution disabled, for replaying
+  /// this client's own un-confirmed writes. See [rebasePending] for why the
+  /// overlay must not be timestamp-gated.
+  FfiSyncer overlay({String? libraryPath}) => FfiSyncer(
+        libraryPath: libraryPath,
+        resolveByTimestamp: false,
+        lwwKeys: lwwKeys,
+        fwwKeys: fwwKeys,
+        arrayStrategy: arrayStrategy,
+        arrayMatchKeys: arrayMatchKeys,
+        maxDepth: maxDepth,
+        detectCircularRefs: detectCircularRefs,
+      );
+
   @override
   String merge(String base, String incoming) {
     final result = _native.tryMerge(
@@ -120,13 +134,51 @@ class FfiSyncer implements ISyncer {
   }
 }
 
+/// Rebase un-confirmed local writes on top of authoritative server state.
+///
+/// This is the invariant that makes optimistic writes safe. A pull replaces the
+/// base with server state, then every mutation the server has not yet confirmed
+/// is replayed on top, so a user never watches their un-pushed edit disappear.
+/// Replicache describes the same operation as a git rebase.
+///
+/// ## Why the overlay must not be timestamp-gated
+///
+/// Engines that replay *mutator functions* get this for free. opto-sync merges
+/// *documents* under last-write-wins, so a naive replay reintroduces the bug
+/// rebase exists to prevent: a pending edit stamped before the server's newer
+/// `updatedAt` is rejected as stale and vanishes from the view while still
+/// sitting in the queue, so the record flips back once the push lands.
+///
+/// Pass an [ISyncer] with `resolveByTimestamp: false` — [FfiSyncer.overlay]
+/// builds one. Passing a gated syncer restores strict last-write-wins, which
+/// drops pending writes older than the server's timestamp.
+///
+/// [pendingJson] must be **oldest first** — the order they will reach the
+/// server. Merge failures surface as exceptions, never as an empty document.
+String rebasePending(
+  ISyncer overlaySyncer,
+  String serverJson,
+  Iterable<String> pendingJson,
+) {
+  var view = serverJson;
+  for (final payload in pendingJson) {
+    view = overlaySyncer.merge(view, payload);
+  }
+  return view;
+}
+
 class OptoSyncClient {
   final OptoSyncDatabase db;
   final ISyncer syncer;
 
+  /// Syncer used to replay this client's un-confirmed writes in [localView].
+  /// Must have timestamp resolution disabled — see [rebasePending].
+  final ISyncer? overlaySyncer;
+
   OptoSyncClient({
     required this.db,
     required this.syncer,
+    this.overlaySyncer,
   });
 
   /// Queue an optimistic local write. The row is persisted with
@@ -154,6 +206,41 @@ class OptoSyncClient {
     final incomingJson = jsonEncode(incomingPayload);
     final mergedJson = syncer.merge(baseJson, incomingJson);
     return jsonDecode(mergedJson) as Map<String, dynamic>;
+  }
+
+  /// The view to render for one record: authoritative server state with this
+  /// client's still-pending writes replayed on top.
+  ///
+  /// Prefer this over [reconcileIncoming] whenever the queue is in play.
+  /// `reconcileIncoming` reconciles two documents and knows nothing about
+  /// mutations awaiting push, so rendering its result drops any pending edit
+  /// the server's timestamp outranks — the edit reappears when the push lands,
+  /// which reads as the UI undoing and redoing the user's work.
+  ///
+  /// Requires an [overlaySyncer] (see [FfiSyncer.overlay]); without one there
+  /// is no way to replay a pending write that the server's timestamp outranks.
+  Future<Map<String, dynamic>> localView(
+    String tableName,
+    String recordId,
+    Map<String, dynamic> serverPayload,
+  ) async {
+    final overlay = overlaySyncer;
+    if (overlay == null) {
+      throw StateError(
+          'localView requires an overlaySyncer (see FfiSyncer.overlay()); '
+          'without it a pending write older than the server cannot be replayed');
+    }
+    final rows = await (db.select(db.localMutations)
+          ..where((t) =>
+              t.targetTable.equals(tableName) & t.recordId.equals(recordId))
+          // Insertion order: the order these will reach the server, and so the
+          // order they must be replayed in.
+          ..orderBy([(t) => OrderingTerm.asc(t.id)]))
+        .get();
+
+    final pending = rows.map((r) => r.jsonPayload).toList(growable: false);
+    return jsonDecode(rebasePending(overlay, jsonEncode(serverPayload), pending))
+        as Map<String, dynamic>;
   }
 
   void _triggerBackgroundSync() {
