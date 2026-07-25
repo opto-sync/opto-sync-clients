@@ -49,7 +49,23 @@ pub struct ReconcileOptions {
     pub resolve_by_timestamp: bool,
     /// Comma-separated Last-Write-Wins keys. Default: `"updatedAt,syncedAt"`.
     pub lww_keys: String,
-    /// Comma-separated First-Write-Wins keys. Default: `"createdAt"`.
+    /// Comma-separated First-Write-Wins keys. **Default: empty** — see below.
+    ///
+    /// First-write-wins is not field protection, it is a **node-level veto**: if
+    /// the incoming document's FWW key is newer, the engine rejects that whole
+    /// node, discarding every other field of the write. `createdAt` used to be
+    /// the default here, which meant a replica holding a later `createdAt` for a
+    /// record could never be written to again — silently, with a successful
+    /// merge. Two devices creating the same id offline guarantees it:
+    ///
+    /// ```text
+    /// base     {"createdAt":100,"updatedAt":100,"v":"base"}
+    /// incoming {"createdAt":200,"updatedAt":999999,"v":"NEWEST"}
+    /// result   base, unchanged — the vastly newer write is thrown away
+    /// ```
+    ///
+    /// The capability is intact for callers who genuinely want
+    /// first-writer-owns-the-node; set this explicitly to opt in.
     pub fww_keys: String,
     /// Maximum merge recursion depth; `0` = unlimited. Default: `0`.
     pub max_depth: u32,
@@ -62,7 +78,8 @@ impl Default for ReconcileOptions {
             array_match_keys: "id".to_string(),
             resolve_by_timestamp: true,
             lww_keys: "updatedAt,syncedAt".to_string(),
-            fww_keys: "createdAt".to_string(),
+            // Deliberately empty. See the field docs: FWW vetoes the whole node.
+            fww_keys: String::new(),
             max_depth: 0,
         }
     }
