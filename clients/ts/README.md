@@ -97,7 +97,7 @@ which is far better than a merge that quietly drops writes.
   arrayMatchKeys:     'id',
   resolveByTimestamp: true,
   lwwKeys:            'updatedAt,syncedAt',
-  fwwKeys:            'createdAt',
+  // no fwwKeys — see below
 }
 ```
 
@@ -109,6 +109,27 @@ platform, so it is pinned by tests on both the native and the wasm tier.
 REPLACE, under which an incoming array discards local elements the server never
 saw *and* applies elements the timestamp guard should have rejected
 (element-level resolution only happens under MERGE_BY_KEY).
+
+### `fwwKeys` is not in the default policy
+
+First-write-wins is a **node-level veto**, not protection of one field. If the
+incoming node's FWW key is newer than the base's, the core rejects the *entire*
+incoming node — however new its `updatedAt` is:
+
+```ts
+reconcileIncoming(
+  { doc: { createdAt: 100, updatedAt: 100,    v: 'base' } },
+  { doc: { createdAt: 200, updatedAt: 999999, v: 'NEWEST WRITE' } },
+  { fwwKeys: 'createdAt' },
+)
+// -> { doc: { createdAt: 100, updatedAt: 100, v: 'base' } }   the write is gone
+```
+
+`createdAt` used to be in this policy. Under it, any replica that ended up
+holding a later `createdAt` for a record — two devices creating the same id
+offline is enough — could never write to that record again: permanently,
+silently, behind a successful response. Pass `fwwKeys` explicitly when "the
+first writer owns this whole node, forever" really is the semantics you want.
 
 ---
 
