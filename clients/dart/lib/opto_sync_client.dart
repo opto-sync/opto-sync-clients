@@ -102,14 +102,32 @@ class SyncerMergeException implements Exception {
 ///
 /// Defaults implement the opto-sync reconciliation policy:
 /// timestamp-based CRDT resolution with Last-Write-Wins on
-/// `updatedAt`/`syncedAt`, First-Write-Wins on `createdAt`, and
-/// arrays of objects merged element-wise by their `id`. Every option is
-/// overridable via the constructor.
+/// `updatedAt`/`syncedAt`, **no First-Write-Wins keys**, and arrays of objects
+/// merged element-wise by their `id`. Every option is overridable via the
+/// constructor.
 class FfiSyncer implements ISyncer {
   final syncer_ffi.Syncer _native;
 
   final bool resolveByTimestamp;
   final String? lwwKeys;
+
+  /// Comma-separated First-Write-Wins keys. **Defaults to null (none).**
+  ///
+  /// First-write-wins is not field protection, it is a **node-level veto**: when
+  /// the incoming document's FWW key is newer the engine rejects that whole
+  /// node, discarding every other field of the write. `createdAt` used to be the
+  /// default here, which meant any replica holding a later `createdAt` for a
+  /// record could never be written to again — silently, with a successful merge:
+  ///
+  /// ```text
+  /// base     {"createdAt":100,"updatedAt":100,"v":"base"}
+  /// incoming {"createdAt":200,"updatedAt":999999,"v":"NEWEST"}
+  /// result   base, unchanged — the vastly newer write is thrown away
+  /// ```
+  ///
+  /// Two devices creating the same record id offline guarantees that state. The
+  /// capability is intact for callers who genuinely want first-writer-owns-the-
+  /// node semantics; pass `fwwKeys: 'createdAt'` to opt in.
   final String? fwwKeys;
   final syncer_ffi.ArrayMergeStrategy arrayStrategy;
   final String? arrayMatchKeys;
