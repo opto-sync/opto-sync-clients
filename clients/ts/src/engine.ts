@@ -26,7 +26,7 @@
  * Declared here rather than re-exported from an engine package because these
  * numbers are a wire contract shared with the Dart and Rust clients and with
  * every opto-sync server; they must not depend on which engine happens to be
- * loaded. `test/engine-parity.test.js` asserts this map matches both engines'.
+ * loaded. `test/engine-parity.test.mjs` asserts this map matches both engines'.
  */
 export const ArrayStrategy = Object.freeze({
   REPLACE: 0,
@@ -37,7 +37,7 @@ export const ArrayStrategy = Object.freeze({
 });
 
 /**
- * Full merge option surface of the syncer.c v0.2.0 core, in the camelCase form
+ * Full merge option surface of the syncer.c core (v0.2.1+), in the camelCase form
  * both engines accept.
  *
  * Note that `undefined` and `''` are different requests: the core reads an

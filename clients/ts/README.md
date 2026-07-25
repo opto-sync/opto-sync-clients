@@ -47,7 +47,7 @@ it).
 ```ts
 import { reconcileIncoming, engineVersion } from '@opto-sync/client';
 
-engineVersion();                       // "0.2.0"
+engineVersion();                       // "0.2.1"
 reconcileIncoming(localPayload, serverPayload);   // ready immediately, no init
 ```
 

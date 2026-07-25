@@ -24,7 +24,7 @@ export {
   resetMergeEngine,
 } from './engine.js';
 
-/** Full merge option surface of the syncer.c v0.2.0 core. */
+/** Full merge option surface of the syncer.c core (v0.2.1+). */
 export interface ReconcileOptions {
   /** One of ArrayStrategy.* — REPLACE (0), APPEND (1), UNION (2), MERGE_BY_INDEX (3), MERGE_BY_KEY (4). */
   arrayStrategy?: number;

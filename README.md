@@ -58,6 +58,15 @@ in `../opto-sync-e2e/test/cross-server/`.
 Millisecond timestamps (13 digits) and ISO-8601 strings are unaffected; the
 issue only arises at microsecond precision and beyond.
 
+## Documentation
+
+- [Getting started](docs/GETTING_STARTED.md) — install and a minimal example per client
+- [Browser](docs/BROWSER.md) — the WebAssembly engine, bundlers, workers
+- [Offline queue](docs/OFFLINE_QUEUE.md) — the queue model and durability guarantees
+- [Reconciliation](docs/RECONCILIATION.md) — policy, schema guidance, timestamp conventions
+- [Merge semantics](../syncer.c/docs/MERGE_SEMANTICS.md) — the underlying contract
+- [Troubleshooting](../syncer.c/docs/TROUBLESHOOTING.md) — real failure modes
+
 ## Building
 
 The C core builds automatically with each binding (static compile for TS/Rust,
