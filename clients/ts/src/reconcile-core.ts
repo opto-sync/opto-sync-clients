@@ -63,13 +63,29 @@ export interface ReconcileOptions {
  * REPLACE, under which an incoming array discards local elements the server
  * never saw and applies elements the timestamp guard should have rejected
  * (element-level resolution only happens under MERGE_BY_KEY).
+ *
+ * No `fwwKeys`, deliberately
+ * ---------------------------
+ * `createdAt` used to be here. It is not, because first-write-wins in the core
+ * is a node-level VETO rather than protection of one field: an incoming node
+ * whose FWW key is newer than the base's is discarded WHOLESALE, however new
+ * its `updatedAt` is.
+ *
+ *   base     {"doc":{"createdAt":100,"updatedAt":100,"v":"base"}}
+ *   incoming {"doc":{"createdAt":200,"updatedAt":999999,"v":"NEWEST WRITE"}}
+ *   result   {"doc":{"createdAt":100,"updatedAt":100,"v":"base"}}
+ *
+ * With `createdAt` in the default policy, any replica that ends up holding a
+ * later `createdAt` for a record — two devices creating the same id offline is
+ * enough — could never write to that record again. Permanently, silently, and
+ * with a successful response. `fwwKeys` remains available for callers who
+ * genuinely want "the first writer owns this whole node".
  */
 export const DEFAULT_RECONCILE_OPTIONS: Readonly<ReconcileOptions> = Object.freeze({
   arrayStrategy: ArrayStrategy.MERGE_BY_KEY,
   arrayMatchKeys: 'id',
   resolveByTimestamp: true,
   lwwKeys: 'updatedAt,syncedAt',
-  fwwKeys: 'createdAt',
 });
 
 export function resolveReconcileOptions(options?: ReconcileOptions): ReconcileOptions {
