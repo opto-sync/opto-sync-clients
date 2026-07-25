@@ -16,3 +16,4 @@
 /* Side effect: installs the native merge engine. Must precede any reconcile. */
 export * from './reconcile.js';
 export * from './client.js';
+export * from './clock.js';
