@@ -1,39 +1,85 @@
-<!--
-This README describes the package. If you publish this package to pub.dev,
-this README's contents appear on the landing page for your package.
+# opto_sync_client
 
-For information about how to write a good package README, see the guide for
-[writing package pages](https://dart.dev/tools/pub/writing-package-pages).
+Optimistic local-first writes for Dart and Flutter: a durable SQLite mutation
+queue plus reconciliation through the shared [syncer.c](../../../syncer.c) merge
+engine over `dart:ffi`.
 
-For general information about developing packages, see the Dart guide for
-[creating packages](https://dart.dev/tools/pub/create-packages)
-and the Flutter guide for
-[developing packages and plugins](https://flutter.dev/to/develop-packages).
--->
+Merge semantics are **not** reimplemented here — every conflict is resolved by
+the same C core the TypeScript and Rust clients and all opto-sync servers use, so
+one document reconciles identically on every tier. The contract is
+[MERGE_SEMANTICS.md](../../../syncer.c/docs/MERGE_SEMANTICS.md).
 
-TODO: Put a short description of the package here that helps potential users
-know whether this package might be useful for them.
+## Install
 
-## Features
-
-TODO: List what your package can do. Maybe include images, gifs, or videos.
-
-## Getting started
-
-TODO: List prerequisites and provide or point to information on how to
-start using the package.
-
-## Usage
-
-TODO: Include short and useful examples for package users. Add longer examples
-to `/example` folder.
-
-```dart
-const like = 'sample';
+```yaml
+dependencies:
+  opto_sync_client:
+    path: ../../../opto-sync-clients/clients/dart
 ```
 
-## Additional information
+It needs the core shared library at runtime (the only binding that does). Build
+it once:
 
-TODO: Tell users more about the package: where to find more information, how to
-contribute to the package, how to file issues, what response they can expect
-from the package authors, and more.
+```sh
+cd syncer.c/core && mkdir -p build && cd build && cmake .. && make syncer
+```
+
+`FfiSyncer` locates it via `SYNCER_LIB_PATH`, falling back to a platform-specific
+name (`libsyncer.dylib` / `libsyncer.so` / `syncer.dll`) in a given directory.
+
+## Use
+
+```dart
+import 'package:drift/native.dart';
+import 'package:opto_sync_client/opto_sync_client.dart';
+
+final db = OptoSyncDatabase(NativeDatabase(File('queue.sqlite')));
+final client = OptoSyncClient(
+  db: db,
+  syncer: FfiSyncer(libraryPath: Platform.environment['SYNCER_LIB_PATH']!),
+);
+
+// Optimistic local write: persisted as pending, survives an app restart.
+await client.queueMutation('todos', 'todo-1', {
+  'title': 'buy milk',
+  'updatedAt': '1721822400000',
+});
+
+// Reconcile a server payload against the local copy. A stale incoming record
+// loses; a fresh one wins and deep-merges.
+final merged = await client.reconcileIncoming('todos', 'todo-1', incoming, local);
+```
+
+Defaults match every other tier: `mergeByKey` on `id`, `resolveByTimestamp`,
+LWW `updatedAt,syncedAt`, FWW `createdAt`. All are constructor-overridable.
+
+Merge failure raises `SyncerMergeException` — it is never a silently empty
+string.
+
+## Queue
+
+`OptoSyncDatabase.localMutations` is a Drift table (`targetTable`, `recordId`,
+`jsonPayload`, `createdAt`, `syncStatus`). Query it with Drift directly; this
+client exposes no `pendingMutations()` helper (the TypeScript client does — an
+asymmetry noted in [OFFLINE_QUEUE.md](../../docs/OFFLINE_QUEUE.md)).
+
+Durability is tested against a real file-backed database: queued payloads **and**
+status transitions survive closing and reopening the connection.
+
+There is **no built-in background flusher** — `queueMutation` calls an empty
+`_triggerBackgroundSync()` hook. Transport and scheduling are yours; see
+`opto-sync-e2e/test/clients/dart/` for a worked flush loop.
+
+## Tests
+
+```sh
+dart pub get
+dart test          # needs the core shared library (see Install)
+```
+
+## Docs
+
+- [Getting started](../../docs/GETTING_STARTED.md)
+- [Offline queue](../../docs/OFFLINE_QUEUE.md)
+- [Reconciliation](../../docs/RECONCILIATION.md)
+- [Merge semantics](../../../syncer.c/docs/MERGE_SEMANTICS.md)
