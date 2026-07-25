@@ -278,13 +278,52 @@ impl MutationStore for InMemoryStore {
 /* Client                                                                   */
 /* ------------------------------------------------------------------------ */
 
+/// Errors from the client's payload-handling entry points.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClientError {
+    /// The payload is not valid JSON.
+    InvalidJson,
+    /// The payload parsed but is not a JSON object, so there is nowhere to put
+    /// `updatedAt`. Reported rather than silently skipped: a write that quietly
+    /// goes out unstamped loses every conflict against a stamped one.
+    NotAJsonObject,
+    /// The clock refused something — in practice [`ClockError::Drift`] from
+    /// [`OptoSyncClient::observe_incoming`].
+    Clock(ClockError),
+}
+
+impl std::fmt::Display for ClientError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ClientError::InvalidJson => write!(f, "payload is not valid JSON"),
+            ClientError::NotAJsonObject => {
+                write!(f, "payload is not a JSON object, so it cannot be stamped")
+            }
+            ClientError::Clock(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+impl std::error::Error for ClientError {}
+
+impl From<ClockError> for ClientError {
+    fn from(e: ClockError) -> Self {
+        ClientError::Clock(e)
+    }
+}
+
 /// Client for optimistic writes + reconciliation.
+///
+/// Queued payloads get `updatedAt` stamped from a [`HybridLogicalClock`] unless
+/// the caller supplied one — see [`Self::queue_mutation`].
 ///
 /// ```
 /// use opto_sync_client::{InMemoryStore, MutationStore, OptoSyncClient};
 ///
 /// let mut client = OptoSyncClient::new(InMemoryStore::new());
-/// let id = client.queue_mutation(r#"{"title":"draft","updatedAt":100}"#.to_string());
+/// let id = client
+///     .queue_mutation(r#"{"title":"draft","updatedAt":100}"#.to_string())
+///     .unwrap();
 /// let merged = client
 ///     .reconcile_incoming(
 ///         r#"{"title":"draft","updatedAt":100}"#,
@@ -294,24 +333,110 @@ impl MutationStore for InMemoryStore {
 /// assert!(merged.contains("server"));
 /// client.store_mut().mark_synced(id);
 /// ```
-#[derive(Debug)]
+///
+/// A durable client persists the clock alongside the queue:
+///
+/// ```
+/// use opto_sync_client::{
+///     compose_node_id, ClockPersistence, InMemoryStore, OptoSyncClient, SystemClock,
+/// };
+///
+/// # #[derive(Default)]
+/// # struct MyStore(Option<String>);
+/// # impl ClockPersistence for MyStore {
+/// #     fn load(&self) -> Option<String> { self.0.clone() }
+/// #     fn save(&mut self, ts: &str) { self.0 = Some(ts.to_string()); }
+/// # }
+/// // `device_id` comes from your own durable storage, generated once per install
+/// // with `random_node_id(6)`; the per-instance suffix stops two writers over
+/// // one store from issuing identical timestamps.
+/// let node_id = compose_node_id("9f3a2b", None);
+/// let clock = SystemClock::system(node_id, Box::new(MyStore::default())).unwrap();
+/// let client = OptoSyncClient::new(InMemoryStore::new()).with_clock(clock);
+/// ```
 pub struct OptoSyncClient<S: MutationStore> {
     store: S,
     options: ReconcileOptions,
+    /// The clock lives on the client, NOT on [`MutationStore`].
+    ///
+    /// `MutationStore` is implemented by integrators over their own database, so
+    /// adding clock methods to it would break every existing implementation and
+    /// force everyone to hand-roll HLC persistence. It also conflates two
+    /// concerns: the queue holds writes, the clock holds one string. Keeping the
+    /// seam separate lets an integrator back both with the same database while
+    /// implementing only what they need — and lets a caller drop stamping
+    /// entirely with [`Self::without_clock`].
+    clock: Option<SystemClock>,
+}
+
+/// Manual because [`SystemClock`] holds a `Box<dyn Fn>`, which is not `Debug`.
+impl<S: MutationStore + std::fmt::Debug> std::fmt::Debug for OptoSyncClient<S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OptoSyncClient")
+            .field("store", &self.store)
+            .field("options", &self.options)
+            .field("clock_node_id", &self.clock.as_ref().map(|c| c.node_id()))
+            .finish()
+    }
 }
 
 impl<S: MutationStore> OptoSyncClient<S> {
-    /// Create a client with default (CRDT-flavored) [`ReconcileOptions`].
+    /// Create a client with default (CRDT-flavored) [`ReconcileOptions`] and a
+    /// stamping clock over the system wall clock.
+    ///
+    /// The default clock is **not durable** and its node id is fresh per
+    /// process. That is a deliberate trade: stamping by default is what keeps a
+    /// mixed fleet ordered, and a client that stamps nothing loses every
+    /// conflict to one that does. For a real device pass a persisted device id
+    /// and durable storage via [`Self::with_clock`].
     pub fn new(store: S) -> Self {
         Self::with_options(store, ReconcileOptions::default())
     }
 
     pub fn with_options(store: S, options: ReconcileOptions) -> Self {
-        Self { store, options }
+        let clock = SystemClock::system(
+            compose_node_id(&random_node_id(6), None),
+            Box::new(NoPersistence),
+        )
+        .ok();
+        Self { store, options, clock }
+    }
+
+    /// Install a clock — typically one with durable persistence and a device id
+    /// that survives a restart.
+    pub fn with_clock(mut self, clock: SystemClock) -> Self {
+        self.clock = Some(clock);
+        self
+    }
+
+    /// Stop stamping `updatedAt`.
+    ///
+    /// Only correct when something else supplies an ordered `updatedAt` — a
+    /// server-authoritative timestamp, or callers that always stamp themselves.
+    /// With no stamp at all the engine's last-write-wins falls back to raw
+    /// device clocks, and a fast or non-HLC writer wins every conflict.
+    pub fn without_clock(mut self) -> Self {
+        self.clock = None;
+        self
     }
 
     pub fn options(&self) -> &ReconcileOptions {
         &self.options
+    }
+
+    /// The clock used for stamping, if any.
+    pub fn clock(&self) -> Option<&SystemClock> {
+        self.clock.as_ref()
+    }
+
+    pub fn clock_mut(&mut self) -> Option<&mut SystemClock> {
+        self.clock.as_mut()
+    }
+
+    /// Stable identity of this writer: the clock's node id. `None` when
+    /// stamping is disabled.
+    pub fn client_id(&self) -> Option<&str> {
+        self.clock.as_ref().map(|c| c.node_id())
     }
 
     pub fn store(&self) -> &S {
@@ -323,8 +448,69 @@ impl<S: MutationStore> OptoSyncClient<S> {
     }
 
     /// Queue an optimistic local write; returns the store-assigned id.
-    pub fn queue_mutation(&mut self, payload: String) -> u64 {
-        self.store.queue_mutation(payload)
+    ///
+    /// `updatedAt` is stamped from this client's [`HybridLogicalClock`] when the
+    /// payload does not already carry one. Without a logically-ordered stamp the
+    /// engine's last-write-wins is decided by device clock skew — and worse, the
+    /// C core compares non-digit strings *lexicographically*, so a writer
+    /// supplying an ISO-8601 date beats an HLC writer on every conflict until the
+    /// year 2286. Stamping here is what stops a mixed fleet from having a
+    /// silently privileged writer.
+    ///
+    /// `createdAt` is deliberately never stamped: it belongs to whoever created
+    /// the record, and a client inventing one only manufactures conflicts.
+    ///
+    /// The payload is an opaque JSON string, so it is parsed and re-serialized
+    /// to insert the field. Key order is therefore not preserved; JSON objects
+    /// are unordered and the merge core does not depend on it.
+    pub fn queue_mutation(&mut self, payload: String) -> Result<u64, ClientError> {
+        let value: serde_json::Value =
+            serde_json::from_str(&payload).map_err(|_| ClientError::InvalidJson)?;
+        self.queue_mutation_value(value)
+    }
+
+    /// [`Self::queue_mutation`] for callers that already hold a parsed payload,
+    /// which avoids a redundant parse/serialize round trip.
+    pub fn queue_mutation_value(
+        &mut self,
+        mut payload: serde_json::Value,
+    ) -> Result<u64, ClientError> {
+        let obj = payload.as_object_mut().ok_or(ClientError::NotAJsonObject)?;
+        if let Some(clock) = self.clock.as_mut() {
+            if !obj.contains_key("updatedAt") {
+                obj.insert("updatedAt".to_string(), serde_json::Value::String(clock.next()));
+            }
+        }
+        Ok(self.store.queue_mutation(payload.to_string()))
+    }
+
+    /// Advance this client's clock past the timestamps in a payload received
+    /// from elsewhere, so its next write is ordered *after* what it has already
+    /// seen. Call this when pulling server state; [`Self::reconcile_incoming`]
+    /// is pure and cannot do it.
+    ///
+    /// Walks every LWW key (see [`ReconcileOptions::lww_keys`]) at every depth,
+    /// because a pull commonly returns a collection or a nested document rather
+    /// than one flat record.
+    ///
+    /// # Errors
+    ///
+    /// [`ClientError::Clock`] wrapping [`ClockError::Drift`] if a peer's
+    /// timestamp is implausibly far in the future. The clock keeps whatever it
+    /// legitimately adopted before the refusal; the payload itself is fine to
+    /// merge, so a caller may log and continue.
+    pub fn observe_incoming(&mut self, payload: &str) -> Result<(), ClientError> {
+        let value: serde_json::Value =
+            serde_json::from_str(payload).map_err(|_| ClientError::InvalidJson)?;
+        let Some(clock) = self.clock.as_mut() else { return Ok(()) };
+        let keys: Vec<&str> = self
+            .options
+            .lww_keys
+            .split(',')
+            .map(str::trim)
+            .filter(|k| !k.is_empty())
+            .collect();
+        observe_tree(clock, &value, &keys)
     }
 
     /// The view to render: authoritative server state with this client's
