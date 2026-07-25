@@ -60,6 +60,26 @@ export interface HlcPersistence {
   save(timestamp: string): Promise<void> | void;
 }
 
+/**
+ * How far ahead of local physical time an observed remote timestamp may be
+ * before it is refused. Without a bound, `observe()` adopts any remote value,
+ * so ONE client with a broken or hostile clock poisons every clock that syncs
+ * with it — and every honest write then loses to the poisoned timestamp
+ * forever. Reference implementations all bound this: jlongster/Actual uses
+ * 60s, uhlc-rs defaults to 500ms.
+ */
+export const DEFAULT_MAX_DRIFT_MS = 60_000;
+
+export class ClockDriftError extends Error {
+  constructor(readonly remote: string, readonly driftMs: number, readonly maxDriftMs: number) {
+    super(
+      `remote timestamp ${remote} is ${driftMs}ms ahead of local time ` +
+        `(max ${maxDriftMs}ms); refusing to adopt it`,
+    );
+    this.name = 'ClockDriftError';
+  }
+}
+
 export interface HybridLogicalClockOptions {
   /**
    * Stable identifier for this client install. Two clients must never share
@@ -70,6 +90,8 @@ export interface HybridLogicalClockOptions {
   now?: () => number;
   /** Optional durable storage; without it the clock resets on reload. */
   persistence?: HlcPersistence;
+  /** Refuse remote timestamps further ahead than this. See DEFAULT_MAX_DRIFT_MS. */
+  maxDriftMs?: number;
 }
 
 function pad(value: number, digits: number, radix: number): string {
@@ -93,9 +115,25 @@ export function compareHlc(a: string, b: string): number {
 }
 
 /**
- * Generate a node id with the platform's CSPRNG. Persist it — a client that
- * regenerates its node id on every load loses the ability to break ties
- * consistently against its own past writes.
+ * Compose a per-writer node id from a durable device id and a per-instance
+ * suffix.
+ *
+ * The suffix is essential and easy to miss: several browser tabs share one
+ * IndexedDB, so they would share a persisted device id, read the same clock
+ * state, and issue *identical* timestamps — which reintroduces exactly the tie
+ * that the node id exists to prevent. Replicache solves the same problem with
+ * per-tab "client groups". Each clock instance therefore gets its own suffix.
+ *
+ * Separator is `.` because `-` delimits the wire format.
+ */
+export function composeNodeId(deviceId: string, instanceSuffix = randomNodeId(3)): string {
+  return `${deviceId}.${instanceSuffix}`;
+}
+
+/**
+ * Generate a random id with the platform's CSPRNG. Persist the DEVICE id — a
+ * client that regenerates it on every load loses consistent tie-breaking
+ * against its own past writes.
  */
 export function randomNodeId(byteLength = 6): string {
   const bytes = new Uint8Array(byteLength);
@@ -115,12 +153,13 @@ export class HybridLogicalClock {
   readonly nodeId: string;
   private readonly nowFn: () => number;
   private readonly persistence?: HlcPersistence;
+  private readonly maxDriftMs: number;
   private millis = 0;
   private counter = 0;
 
   constructor(options: HybridLogicalClockOptions) {
     if (!options.nodeId) throw new Error('HybridLogicalClock requires a stable nodeId');
-    if (/-/.test(options.nodeId)) {
+    if (options.nodeId.includes('-')) {
       // The wire format is split on '-', so a node id containing one would
       // make parseHlc ambiguous.
       throw new Error(`nodeId must not contain "-": ${options.nodeId}`);
@@ -128,6 +167,7 @@ export class HybridLogicalClock {
     this.nodeId = options.nodeId;
     this.nowFn = options.now ?? Date.now;
     this.persistence = options.persistence;
+    this.maxDriftMs = options.maxDriftMs ?? DEFAULT_MAX_DRIFT_MS;
   }
 
   /**
@@ -181,6 +221,15 @@ export class HybridLogicalClock {
   async observe(remoteTimestamp: string): Promise<void> {
     const remote = parseHlc(remoteTimestamp);
     if (!remote) return;
+
+    // Bounded trust: a timestamp far in the future is a broken or hostile
+    // clock, not causality. Adopting it would make every honest write lose to
+    // it indefinitely, so fail loudly instead of silently propagating it.
+    const drift = remote.millis - this.nowFn();
+    if (drift > this.maxDriftMs) {
+      throw new ClockDriftError(remoteTimestamp, drift, this.maxDriftMs);
+    }
+
     if (remote.millis > this.millis) {
       this.millis = remote.millis;
       this.counter = remote.counter;
