@@ -18,11 +18,13 @@ const bundle = await bundleBrowserClient();
 test('the browser entry bundles for platform=browser with no configuration', () => {
   assert.ok(bundle.bytes > 0);
   // Sanity: the wasm engine really is in there. Emscripten's single-file mode
-  // inlines the module as a latin1 string decoded by binaryDecode(), so look
-  // for that plus the wasm magic number "\0asm".
+  // inlines the module as a latin1 string decoded by binaryDecode(); esbuild
+  // re-escapes it, so the wasm magic number appears as the escape sequence
+  // \0asm rather than a literal NUL byte.
+  assert.ok(bundle.code.includes('binaryDecode('), 'expected the inlined wasm decoder');
   assert.ok(
-    bundle.code.includes('binaryDecode(') && bundle.code.includes('\0asm'),
-    'the bundle should contain the inlined wasm binary',
+    bundle.code.includes('\\0asm') || bundle.code.includes('\0asm'),
+    'expected the inlined wasm module (magic number "\\0asm")',
   );
   assert.ok(
     bundle.code.includes('WebAssembly.instantiate'),
