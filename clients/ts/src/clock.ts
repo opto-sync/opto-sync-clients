@@ -93,9 +93,25 @@ export function compareHlc(a: string, b: string): number {
 }
 
 /**
- * Generate a node id with the platform's CSPRNG. Persist it — a client that
- * regenerates its node id on every load loses the ability to break ties
- * consistently against its own past writes.
+ * Compose a per-writer node id from a durable device id and a per-instance
+ * suffix.
+ *
+ * The suffix is essential and easy to miss: several browser tabs share one
+ * IndexedDB, so they would share a persisted device id, read the same clock
+ * state, and issue *identical* timestamps — which reintroduces exactly the tie
+ * that the node id exists to prevent. Replicache solves the same problem with
+ * per-tab "client groups". Each clock instance therefore gets its own suffix.
+ *
+ * Separator is `.` because `-` delimits the wire format.
+ */
+export function composeNodeId(deviceId: string, instanceSuffix = randomNodeId(3)): string {
+  return `${deviceId}.${instanceSuffix}`;
+}
+
+/**
+ * Generate a random id with the platform's CSPRNG. Persist the DEVICE id — a
+ * client that regenerates it on every load loses consistent tie-breaking
+ * against its own past writes.
  */
 export function randomNodeId(byteLength = 6): string {
   const bytes = new Uint8Array(byteLength);
@@ -120,7 +136,7 @@ export class HybridLogicalClock {
 
   constructor(options: HybridLogicalClockOptions) {
     if (!options.nodeId) throw new Error('HybridLogicalClock requires a stable nodeId');
-    if (/-/.test(options.nodeId)) {
+    if (options.nodeId.includes('-')) {
       // The wire format is split on '-', so a node id containing one would
       // make parseHlc ambiguous.
       throw new Error(`nodeId must not contain "-": ${options.nodeId}`);

@@ -19,6 +19,23 @@ opto-sync-clients/
     rust/   crate opto-sync-client — reconcile API + pluggable mutation store
 ```
 
+## Optimistic writes
+
+`syncer.c` answers "what is the merge of these two documents?" — nothing more.
+The queue, the clock, the identity, and the rebase live here. The one rule that
+matters:
+
+> **Render `localView`, not `reconcileIncoming`.**
+
+`reconcileIncoming` knows nothing about mutations still waiting to be pushed, so
+rendering it directly makes a queued edit disappear whenever the server's
+timestamp is newer — and reappear when the push lands. `localView` replays
+un-confirmed writes on top of server state so that window never exists.
+
+See **[docs/OPTIMISTIC_WRITES.md](docs/OPTIMISTIC_WRITES.md)** for the full
+contract: rebase, `(clientId, mutationId)` dedupe, ordering, and what a push
+loop still has to do.
+
 ## Reconciliation model
 
 All clients delegate merging to `syncer_merge_json_ex` in the C core:

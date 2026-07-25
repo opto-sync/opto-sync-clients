@@ -144,3 +144,26 @@ test('format is byte-identical to the Dart and Rust clients', () => {
     nodeId: '9f3a2b',
   });
 });
+
+test('two clients over the SAME database never issue equal timestamps', async () => {
+  // Regression guard for a real bug: tabs share one IndexedDB, so a node id
+  // that is only persisted (not per-instance) makes two tabs issue identical
+  // timestamps — the exact tie the node id exists to prevent.
+  require('fake-indexeddb/auto');
+  const { OptoSyncClient } = require('../dist/index.js');
+  const dbName = `tabs-${Date.now()}`;
+  const tabA = new OptoSyncClient({ databaseName: dbName });
+  const tabB = new OptoSyncClient({ databaseName: dbName });
+
+  const [ca, cb] = [await tabA.clock(), await tabB.clock()];
+  assert.notStrictEqual(ca.nodeId, cb.nodeId, 'tabs must not share a node id');
+
+  const stamps = new Set();
+  for (let i = 0; i < 20; i++) {
+    stamps.add(await ca.next());
+    stamps.add(await cb.next());
+  }
+  assert.strictEqual(stamps.size, 40, 'every timestamp must be unique across tabs');
+  tabA.db.close();
+  await tabB.db.delete();
+});

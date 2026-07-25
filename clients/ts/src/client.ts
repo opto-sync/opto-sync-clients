@@ -15,7 +15,7 @@ import {
   rebasePending,
   resolveReconcileOptions,
 } from './reconcile-core.js';
-import { HybridLogicalClock, HlcPersistence, randomNodeId } from './clock.js';
+import { HybridLogicalClock, HlcPersistence, randomNodeId, composeNodeId } from './clock.js';
 
 // Define the schema for the optimistic local mutations queue
 export interface LocalMutation {
@@ -119,11 +119,15 @@ export class OptoSyncClient {
   clock(): Promise<HybridLogicalClock> {
     if (!this.clockPromise) {
       this.clockPromise = (async () => {
-        let nodeId = (await this.db.meta.get(META_NODE_ID))?.value;
-        if (!nodeId) {
-          nodeId = randomNodeId();
-          await this.db.meta.put({ key: META_NODE_ID, value: nodeId });
+        // The DEVICE id is durable; the node id adds a per-instance suffix.
+        // Tabs share one IndexedDB, so a purely persisted node id would let two
+        // tabs issue identical timestamps and reintroduce non-convergent ties.
+        let deviceId = (await this.db.meta.get(META_NODE_ID))?.value;
+        if (!deviceId) {
+          deviceId = randomNodeId();
+          await this.db.meta.put({ key: META_NODE_ID, value: deviceId });
         }
+        const nodeId = composeNodeId(deviceId);
         const persistence: HlcPersistence = {
           load: async () => (await this.db.meta.get(META_CLOCK))?.value ?? null,
           save: async (ts) => {
