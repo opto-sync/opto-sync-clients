@@ -42,9 +42,10 @@ test('a wall clock that jumps BACKWARDS still yields increasing timestamps', asy
 });
 
 test('observe() advances past a remote timestamp so the next local write wins', async () => {
-  const wall = fixedClock(1_000_000_000_000);
+  const wall = fixedClock(1_721_822_400_000);
   const local = new HybridLogicalClock({ nodeId: 'aaaa', now: wall.now });
-  const remoteFuture = '1721822400000-00ff-bbbb';
+  // 10s ahead: ordinary skew, well inside the drift bound.
+  const remoteFuture = `${String(1_721_822_410_000).padStart(13, '0')}-00ff-bbbb`;
   await local.observe(remoteFuture);
   const next = await local.next();
   assert.ok(compareHlc(next, remoteFuture) > 0, `${next} must outrank observed ${remoteFuture}`);
@@ -113,7 +114,10 @@ test('THE POINT: the C merge engine orders HLC timestamps correctly', async () =
   // A device with a fast wall clock must NOT win once both sides use HLCs that
   // have observed each other. This is the end-to-end reason the module exists.
   const slowWall = fixedClock(1_721_822_400_000);
-  const fastWall = fixedClock(1_721_822_700_000); // 5 minutes ahead
+  // 30s ahead — real skew, inside the drift bound. Beyond the bound the clock
+  // refuses to adopt the remote value instead of ordering after it, which is
+  // covered by the drift test below.
+  const fastWall = fixedClock(1_721_822_430_000);
 
   const slow = new HybridLogicalClock({ nodeId: 'slow', now: slowWall.now });
   const fast = new HybridLogicalClock({ nodeId: 'fast', now: fastWall.now });
@@ -166,4 +170,21 @@ test('two clients over the SAME database never issue equal timestamps', async ()
   assert.strictEqual(stamps.size, 40, 'every timestamp must be unique across tabs');
   tabA.db.close();
   await tabB.db.delete();
+});
+
+test('observe() refuses a timestamp far in the future (bounded trust)', async () => {
+  // Without a bound, ONE client with a broken or hostile clock poisons every
+  // clock that syncs with it, and every honest write then loses forever.
+  const { ClockDriftError, DEFAULT_MAX_DRIFT_MS } = require('../dist/clock.js');
+  const wall = 1_721_822_400_000;
+  const hlc = new HybridLogicalClock({ nodeId: 'aaaa', now: () => wall });
+
+  const poisoned = `${String(wall + DEFAULT_MAX_DRIFT_MS + 60_000).padStart(13, '0')}-0000-evil`;
+  await assert.rejects(() => hlc.observe(poisoned), ClockDriftError);
+  assert.strictEqual(hlc.peek().millis, 0, 'a refused timestamp must not be adopted');
+
+  // Within the bound is still accepted — ordinary skew must not break sync.
+  const tolerable = `${String(wall + 5_000).padStart(13, '0')}-0000-bbbb`;
+  await hlc.observe(tolerable);
+  assert.strictEqual(hlc.peek().millis, wall + 5_000);
 });

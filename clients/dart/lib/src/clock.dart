@@ -75,6 +75,54 @@ String randomNodeId([int byteLength = 6]) {
       .join();
 }
 
+/// Compose a per-writer node id from a durable device id and a per-instance
+/// suffix.
+///
+/// The suffix is essential and easy to miss: several writers can share one
+/// durable store (two isolates over the same sqlite file, a background sync
+/// worker alongside the UI), so they would read the same persisted device id
+/// and the same clock state and issue *identical* timestamps — reintroducing
+/// exactly the tie the node id exists to prevent.
+///
+/// Separator is `.` because `-` delimits the wire format.
+String composeNodeId(String deviceId, [String? instanceSuffix]) =>
+    '$deviceId.${instanceSuffix ?? randomNodeId(3)}';
+
+/// How far ahead of local physical time an observed remote timestamp may be
+/// before it is refused.
+///
+/// Without a bound, [HybridLogicalClock.observe] adopts any remote value, so
+/// ONE client with a broken or hostile clock poisons every clock that syncs
+/// with it — and every honest write then loses to the poisoned timestamp
+/// forever. Reference implementations all bound this: jlongster/Actual uses
+/// 60s, uhlc-rs defaults to 500ms.
+const int defaultMaxDriftMs = 60000;
+
+/// Thrown by [HybridLogicalClock.observe] when a remote timestamp is further
+/// ahead of local physical time than the configured bound.
+///
+/// Refusing is deliberate: adopting the value would make every later local
+/// write inherit the bad time, so the damage spreads to every peer that syncs
+/// with this one. Callers should treat this as "that peer's clock is wrong",
+/// log it, and keep the rest of the payload — the merge itself is unaffected.
+class ClockDriftException implements Exception {
+  /// The remote timestamp that was refused.
+  final String remote;
+
+  /// How far ahead of local physical time it was, in milliseconds.
+  final int driftMs;
+
+  /// The bound it exceeded.
+  final int maxDriftMs;
+
+  ClockDriftException(this.remote, this.driftMs, this.maxDriftMs);
+
+  @override
+  String toString() => 'ClockDriftException: remote timestamp $remote is '
+      '${driftMs}ms ahead of local time (max ${maxDriftMs}ms); '
+      'refusing to adopt it';
+}
+
 /// Where the clock's last state is kept so it survives a restart.
 abstract class ClockPersistence {
   Future<String?> load();

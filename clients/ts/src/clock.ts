@@ -60,6 +60,26 @@ export interface HlcPersistence {
   save(timestamp: string): Promise<void> | void;
 }
 
+/**
+ * How far ahead of local physical time an observed remote timestamp may be
+ * before it is refused. Without a bound, `observe()` adopts any remote value,
+ * so ONE client with a broken or hostile clock poisons every clock that syncs
+ * with it — and every honest write then loses to the poisoned timestamp
+ * forever. Reference implementations all bound this: jlongster/Actual uses
+ * 60s, uhlc-rs defaults to 500ms.
+ */
+export const DEFAULT_MAX_DRIFT_MS = 60_000;
+
+export class ClockDriftError extends Error {
+  constructor(readonly remote: string, readonly driftMs: number, readonly maxDriftMs: number) {
+    super(
+      `remote timestamp ${remote} is ${driftMs}ms ahead of local time ` +
+        `(max ${maxDriftMs}ms); refusing to adopt it`,
+    );
+    this.name = 'ClockDriftError';
+  }
+}
+
 export interface HybridLogicalClockOptions {
   /**
    * Stable identifier for this client install. Two clients must never share
@@ -70,6 +90,8 @@ export interface HybridLogicalClockOptions {
   now?: () => number;
   /** Optional durable storage; without it the clock resets on reload. */
   persistence?: HlcPersistence;
+  /** Refuse remote timestamps further ahead than this. See DEFAULT_MAX_DRIFT_MS. */
+  maxDriftMs?: number;
 }
 
 function pad(value: number, digits: number, radix: number): string {
@@ -131,6 +153,7 @@ export class HybridLogicalClock {
   readonly nodeId: string;
   private readonly nowFn: () => number;
   private readonly persistence?: HlcPersistence;
+  private readonly maxDriftMs: number;
   private millis = 0;
   private counter = 0;
 
@@ -144,6 +167,7 @@ export class HybridLogicalClock {
     this.nodeId = options.nodeId;
     this.nowFn = options.now ?? Date.now;
     this.persistence = options.persistence;
+    this.maxDriftMs = options.maxDriftMs ?? DEFAULT_MAX_DRIFT_MS;
   }
 
   /**
@@ -197,6 +221,15 @@ export class HybridLogicalClock {
   async observe(remoteTimestamp: string): Promise<void> {
     const remote = parseHlc(remoteTimestamp);
     if (!remote) return;
+
+    // Bounded trust: a timestamp far in the future is a broken or hostile
+    // clock, not causality. Adopting it would make every honest write lose to
+    // it indefinitely, so fail loudly instead of silently propagating it.
+    const drift = remote.millis - this.nowFn();
+    if (drift > this.maxDriftMs) {
+      throw new ClockDriftError(remoteTimestamp, drift, this.maxDriftMs);
+    }
+
     if (remote.millis > this.millis) {
       this.millis = remote.millis;
       this.counter = remote.counter;
