@@ -247,18 +247,43 @@ impl<P: ClockPersistence> HybridLogicalClock<P> {
     /// Advance past a timestamp observed from another node, so the next local
     /// write outranks anything already seen. Non-HLC values are ignored: their
     /// scale is not comparable and adopting one would corrupt the clock.
-    pub fn observe(&mut self, remote: &str) {
-        let Some(remote) = parse_hlc(remote) else { return };
-        if remote.millis > self.millis {
-            self.millis = remote.millis;
-            self.counter = remote.counter;
-        } else if remote.millis == self.millis && remote.counter > self.counter {
-            self.counter = remote.counter;
+    ///
+    /// # Errors
+    ///
+    /// [`ClockError::Drift`] when `remote` is more than [`Self::max_drift_ms`]
+    /// ahead of local physical time. This is bounded trust, and it is why the
+    /// method returns a `Result`: a timestamp far in the future is a broken or
+    /// hostile clock, not causality, and adopting it would make every honest
+    /// write — on this client and on every client that later syncs with it —
+    /// lose to the poisoned value indefinitely. A refused timestamp leaves the
+    /// clock untouched.
+    ///
+    /// Refusal is not fatal to the sync itself: the merge does not depend on
+    /// this clock having observed the remote value, so a caller that just wants
+    /// to keep going can log the error and continue.
+    pub fn observe(&mut self, remote: &str) -> Result<(), ClockError> {
+        let Some(parsed) = parse_hlc(remote) else { return Ok(()) };
+
+        let now = (self.now_fn)();
+        if parsed.millis > now && parsed.millis - now > self.max_drift_ms {
+            return Err(ClockError::Drift {
+                remote: remote.to_string(),
+                drift_ms: parsed.millis - now,
+                max_drift_ms: self.max_drift_ms,
+            });
+        }
+
+        if parsed.millis > self.millis {
+            self.millis = parsed.millis;
+            self.counter = parsed.counter;
+        } else if parsed.millis == self.millis && parsed.counter > self.counter {
+            self.counter = parsed.counter;
         } else {
-            return;
+            return Ok(());
         }
         let ts = format_hlc(&self.peek());
         self.persistence.save(&ts);
+        Ok(())
     }
 }
 
