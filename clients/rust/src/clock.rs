@@ -37,11 +37,29 @@ pub struct HlcParts {
     pub node_id: String,
 }
 
-#[derive(Debug)]
+/// How far ahead of local physical time an observed remote timestamp may be
+/// before it is refused.
+///
+/// Without a bound, [`HybridLogicalClock::observe`] adopts any remote value, so
+/// ONE client with a broken or hostile clock poisons every clock that syncs with
+/// it — and every honest write then loses to the poisoned timestamp forever.
+/// Reference implementations all bound this: jlongster/Actual uses 60s, uhlc-rs
+/// defaults to 500ms.
+pub const DEFAULT_MAX_DRIFT_MS: u64 = 60_000;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClockError {
     /// The node id is empty or contains the `-` delimiter, which would make
     /// parsing ambiguous.
     InvalidNodeId(String),
+    /// A remote timestamp was further ahead of local physical time than the
+    /// configured bound, so it was refused rather than adopted. See
+    /// [`DEFAULT_MAX_DRIFT_MS`].
+    Drift {
+        remote: String,
+        drift_ms: u64,
+        max_drift_ms: u64,
+    },
 }
 
 impl fmt::Display for ClockError {
@@ -50,6 +68,11 @@ impl fmt::Display for ClockError {
             ClockError::InvalidNodeId(id) => {
                 write!(f, "node id must be non-empty and contain no '-': {id:?}")
             }
+            ClockError::Drift { remote, drift_ms, max_drift_ms } => write!(
+                f,
+                "remote timestamp {remote} is {drift_ms}ms ahead of local time \
+                 (max {max_drift_ms}ms); refusing to adopt it"
+            ),
         }
     }
 }
