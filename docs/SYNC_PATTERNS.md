@@ -170,6 +170,87 @@ single-flight, exponential backoff with jitter, online/offline detection, and
 draining in queue order. `opto-sync-e2e/test/clients/` has a working reference
 flush against the reference server.
 
+## Supabase specifics (verified against current docs, July 2026)
+
+Supabase has **no first-party offline sync engine**. Its own position (GitHub
+discussion #357, the org's most-upvoted) is "continue to use these tools" —
+PowerSync, ElectricSQL, WatermelonDB, RxDB, Replicache, Legend-State. Plan
+accordingly: you are assembling a sync engine, not enabling a feature.
+
+Four findings that should shape any Supabase integration:
+
+**1. Realtime does not guarantee delivery — treat it as a hint, never as the
+log.** From the Supabase Realtime team (May 2026): *"If a client disconnects for
+30 seconds and reconnects, the changes that happened during those 30 seconds are
+gone. Realtime does not queue them and does not track how far each client has
+read."* It is documented as best-effort, on temporary replication slots that stop
+capturing when no client is subscribed. So: subscribe, then run a cursor-based
+catch-up query, and re-run that catch-up on **every** reconnect. RxDB formalizes
+this as a `RESYNC` event.
+
+Worse, `SUBSCRIBED` is not a readiness barrier — supabase-js #1599 reports the
+client emits it before the replication listener is streaming, so writes in a
+1–3 second window are silently missed. That issue was closed by a stale bot, not
+fixed.
+
+Supabase also now recommends **Broadcast** over Postgres Changes, because
+Postgres Changes *"authorizes every event against each subscriber"* and is
+*"processed on a single thread"* — throughput scales with subscriber count, not
+write rate, and they suggest switching beyond ~3,000 subscribers.
+
+**2. A `updated_at > cursor` pull loses writes, and Supabase's own tutorial has
+the bug.** Sequence values and `now()` are assigned at transaction *start* but
+rows become visible at *commit*, so a lower-valued row can appear after you have
+already advanced past it — and it is then invisible forever. Supabase's official
+WatermelonDB tutorial filters `last_modified_at > _ts` and returns `now()` as the
+next cursor, which exhibits exactly this. `moddatetime` makes it *more* likely,
+since it stamps transaction-start time.
+
+The correct fix is a commit-order gate:
+
+```sql
+ALTER TABLE outbox ADD COLUMN transaction_id xid8 NOT NULL DEFAULT pg_current_xact_id();
+
+SELECT ... FROM outbox
+WHERE ((transaction_id = $last_txid AND position > $last_pos)
+       OR transaction_id > $last_txid)
+  AND transaction_id < pg_snapshot_xmin(pg_current_snapshot())
+ORDER BY transaction_id, position;
+```
+
+`xid8` is 64-bit, so it also avoids `xmin`'s 32-bit wraparound. Cheaper
+mitigations: lag the watermark and dedupe by primary key, or use a composite
+`(timestamp, id)` cursor — but note that only fixes *ties*, not commit ordering.
+
+**3. RLS breaks sync in three distinct ways.**
+
+- **Logical replication is not RLS-filtered per change** — Postgres checks
+  privileges once per replication connection. Every WAL-based engine reimplements
+  authorization above the stream; PowerSync literally creates a `BYPASSRLS` role.
+- **Deletes are invisible**, and in Realtime *"RLS policies are not applied to
+  DELETE statements"* — the old record is broadcast to all subscribers of that
+  table, so your replica identity must contain nothing private.
+- **Move-out is unobservable.** When a row leaves your scope, an RLS-filtered
+  read simply returns nothing, indistinguishable from "unchanged". WatermelonDB
+  states the rule to follow: a grant must appear in the feed as `created`, a
+  revoke as `deleted`, **including descendants**.
+
+Note the asymmetry PowerSync ships with: the download path bypasses RLS (using
+sync rules as the filter) while the upload path goes through RLS. That means two
+authorization definitions you must keep in agreement by hand.
+
+**4. Auth is not immediate.** `auth.jwt()` is only as fresh as the token, so a
+permission change does not take effect until refresh. On Realtime, permissions
+are computed at connect and cached for the connection's life — *"If a new JWT is
+never received on the Channel, the client will be disconnected when the JWT
+expires"* — so revocation is not immediate on an open channel. Push refreshed
+tokens explicitly with `setAuth()`; the related token-refresh issues were also
+closed as stale rather than fixed.
+
+Also worth knowing: replication slots are a **scarce, non-configurable** resource
+on Supabase, they require a direct (non-pooled, IPv6-unless-you-pay) connection,
+and each of Realtime, Pipelines, and every sync engine consumes one.
+
 ## The structural limit: intent is erased
 
 This is not a bug to patch, and it is the most important paragraph here.
