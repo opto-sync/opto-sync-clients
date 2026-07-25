@@ -7,7 +7,8 @@
  *   • Full JSON-path tracking passed to override callbacks
  *     (e.g. "$.users[0].profile.address").
  *   • Circular-reference detection via a visited-pair set.
- *   • Four configurable array merge strategies.
+ *   • Five configurable array merge strategies, including identity-keyed
+ *     reconciliation of records inside arrays.
  *   • Backwards-compatible legacy API wrapping the extended API.
  */
 
@@ -76,8 +77,12 @@ static void path_restore(path_buf_t* p, size_t saved) {
     p->buf[p->len] = '\0';
 }
 
-static void path_push_key(path_buf_t* p, const char* key) {
-    size_t klen = strlen(key);
+/* Takes an explicit length: JSON keys may legally contain an escaped NUL, so the
+ * key is never treated as a C string. The path handed to override callbacks is
+ * a `const char*` and therefore still appears truncated at an embedded NUL —
+ * unavoidable given that signature — but the buffer's own length accounting
+ * stays correct, so deeper keys appended after such a segment are not lost. */
+static void path_push_key(path_buf_t* p, const char* key, size_t klen) {
     path_ensure(p, klen + 1);
     if (p->oom) return;
     p->buf[p->len++] = '.';
@@ -582,6 +587,39 @@ static yyjson_mut_val* merge_leaf(
     return yyjson_val_mut_copy(doc, v2);
 }
 
+/* Consult the override callback for a CONTAINER node where both sides are
+ * present, returning the replacement value or NULL to fall through to the
+ * default merge (no callback, the callback declined, or it returned
+ * unparseable JSON — the last case must not drop v2's subtree).
+ *
+ * Used for objects AND for arrays under every non-REPLACE strategy. Arrays
+ * used to skip this entirely, so an override registered for an array path was
+ * silently ignored whenever a strategy other than REPLACE was in effect —
+ * which is the default policy across opto-sync. That made overrides
+ * unpredictable: the same callback fired for `$.profile` but not for
+ * `$.profile.tags`. */
+static yyjson_mut_val* try_override_node(yyjson_mut_doc*               doc,
+                                         const syncer_merge_options_t* opts,
+                                         path_buf_t*                   path,
+                                         yyjson_mut_val*               v1,
+                                         yyjson_val*                   v2)
+{
+    if (!opts || !opts->override_cb) return NULL;
+    char* s1 = yyjson_mut_val_write(v1, 0, NULL);
+    char* s2 = yyjson_val_write(v2, 0, NULL);
+    /* Never hand the callback NULL serializations. */
+    char* res = (s1 && s2) ? opts->override_cb(path->buf, s1, s2) : NULL;
+    free(s1);
+    free(s2);
+    if (!res) return NULL;
+    yyjson_doc* pd = yyjson_read(res, strlen(res), 0);
+    free(res);
+    if (!pd) return NULL;
+    yyjson_mut_val* mv = yyjson_val_mut_copy(doc, yyjson_doc_get_root(pd));
+    yyjson_doc_free(pd);
+    return mv;
+}
+
 /* Returns false when the merge had to abort (allocation failure); the caller
  * must then discard the partially merged doc and report an error. */
 static bool do_merge(
@@ -630,6 +668,15 @@ static bool do_merge(
         }
     } else if (ok && yyjson_mut_is_arr(root1) && yyjson_is_arr(root2)
                && arr_strat != SYNCER_ARRAY_REPLACE) {
+        /* A root-level array is still a node the host may override ("$"). */
+        yyjson_mut_val* ov = try_override_node(doc, opts, &path, root1, root2);
+        if (ov) {
+            yyjson_mut_doc_set_root(doc, ov);
+            stack_free(&stack);
+            path_free(&path);
+            if (opts && opts->detect_circular_refs) visited_free(&visited);
+            return true;
+        }
         merge_frame_t* f = stack_push(&stack);
         if (!f) {
             ok = false;
@@ -661,25 +708,33 @@ static bool do_merge(
             }
             yyjson_val* val2 = yyjson_obj_iter_get_val(k2);
             const char* key_str = yyjson_get_str(k2);
-            yyjson_mut_val* val1 = yyjson_mut_obj_get(top->v1, key_str);
+            /* Length-explicit throughout: a JSON key may legally contain an
+               escaped NUL (RFC 8259 permits the escape sequence backslash-
+               u-0-0-0-0 inside a string), and strlen-based lookup or key
+               creation truncates there. That silently aliases an incoming
+               key onto an unrelated shorter existing key, overwriting it AND
+               dropping the real key. Values were always length-correct via
+               yyjson_val_mut_copy; keys have to match that. */
+            size_t key_len = yyjson_get_len(k2);
+            yyjson_mut_val* val1 = yyjson_mut_obj_getn(top->v1, key_str, key_len);
 
             if (!val1) {
                 /* Key only in v2: copy it */
                 yyjson_mut_val* cp = yyjson_val_mut_copy(doc, val2);
-                yyjson_mut_obj_add(top->v1, yyjson_mut_str(doc, key_str), cp);
+                yyjson_mut_obj_add(top->v1, yyjson_mut_strn(doc, key_str, key_len), cp);
                 continue;
             }
 
             /* Build path for this key */
             size_t saved = path_save(&path);
             path_restore(&path, top->path_saved);
-            path_push_key(&path, key_str);
+            path_push_key(&path, key_str, key_len);
 
             /* Check depth */
             if (max_depth > 0 && stack.count >= max_depth) {
                 /* At max depth, do a leaf merge (overwrite or callback) */
                 yyjson_mut_val* merged = merge_leaf(doc, &path, val1, val2, opts);
-                yyjson_mut_obj_put(top->v1, yyjson_mut_str(doc, key_str), merged);
+                yyjson_mut_obj_put(top->v1, yyjson_mut_strn(doc, key_str, key_len), merged);
                 path_restore(&path, saved);
                 continue;
             }
@@ -702,26 +757,14 @@ static bool do_merge(
                     continue;
                 }
 
-                /* Try callback first. Only short-circuit when the override
-                   produced parseable JSON; an unparseable result falls back
-                   to the default deep merge (mirrors merge_leaf) instead of
-                   silently dropping v2's subtree. */
-                if (opts && opts->override_cb) {
-                    char* s1 = yyjson_mut_val_write(val1, 0, NULL);
-                    char* s2 = yyjson_val_write(val2, 0, NULL);
-                    char* res = (s1 && s2) ? opts->override_cb(path.buf, s1, s2) : NULL;
-                    free(s1);
-                    free(s2);
-                    if (res) {
-                        yyjson_doc* pd = yyjson_read(res, strlen(res), 0);
-                        free(res);
-                        if (pd) {
-                            yyjson_mut_val* mv = yyjson_val_mut_copy(doc, yyjson_doc_get_root(pd));
-                            yyjson_doc_free(pd);
-                            if (mv) yyjson_mut_obj_put(top->v1, yyjson_mut_str(doc, key_str), mv);
-                            path_restore(&path, saved);
-                            continue;
-                        }
+                /* Try the callback first; an unparseable result falls back to
+                   the default deep merge rather than dropping v2's subtree. */
+                {
+                    yyjson_mut_val* mv = try_override_node(doc, opts, &path, val1, val2);
+                    if (mv) {
+                        yyjson_mut_obj_put(top->v1, yyjson_mut_strn(doc, key_str, key_len), mv);
+                        path_restore(&path, saved);
+                        continue;
                     }
                 }
                 merge_frame_t* f = stack_push(&stack);
@@ -740,6 +783,14 @@ static bool do_merge(
             /* Both arrays with non-replace strategy: push array frame */
             if (yyjson_mut_is_arr(val1) && yyjson_is_arr(val2)
                 && arr_strat != SYNCER_ARRAY_REPLACE) {
+                /* Same contract as objects: the host gets to decide this node
+                   before the strategy descends into it. */
+                yyjson_mut_val* ov = try_override_node(doc, opts, &path, val1, val2);
+                if (ov) {
+                    yyjson_mut_obj_put(top->v1, yyjson_mut_strn(doc, key_str, key_len), ov);
+                    path_restore(&path, saved);
+                    continue;
+                }
                 merge_frame_t* f = stack_push(&stack);
                 if (!f) {
                     ok = false;
@@ -756,7 +807,7 @@ static bool do_merge(
 
             /* Leaf merge (type mismatch, primitives, or array replace) */
             yyjson_mut_val* merged = merge_leaf(doc, &path, val1, val2, opts);
-            yyjson_mut_obj_put(top->v1, yyjson_mut_str(doc, key_str), merged);
+            yyjson_mut_obj_put(top->v1, yyjson_mut_strn(doc, key_str, key_len), merged);
             path_restore(&path, saved);
 
         } else if (top->kind == FRAME_ARRAY) {
@@ -1036,5 +1087,5 @@ void syncer_free(void* ptr) {
 }
 
 const char* syncer_version(void) {
-    return "0.2.0";
+    return "0.2.1";
 }
