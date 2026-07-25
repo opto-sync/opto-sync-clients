@@ -27,10 +27,14 @@ test('native engine reports a supported core version', () => {
   assertCoreAtLeast(engineVersion(), 'native engine');
 });
 
-test('defaults: mergeByKey on id, updatedAt/syncedAt LWW, createdAt FWW', () => {
+test('defaults: mergeByKey on id, updatedAt/syncedAt LWW, NO fwwKeys', () => {
   // These defaults are a cross-tier contract: the Dart client, the Rust
   // client, and every opto-sync server use exactly this policy. Changing any
   // value here makes the same document reconcile differently per platform.
+  //
+  // `fwwKeys` is absent on purpose. It used to be "createdAt", which turned
+  // out to be a node-level veto rather than field protection — see the
+  // regression test below.
   assert.deepStrictEqual(
     { ...DEFAULT_RECONCILE_OPTIONS },
     {
@@ -38,8 +42,12 @@ test('defaults: mergeByKey on id, updatedAt/syncedAt LWW, createdAt FWW', () => 
       arrayMatchKeys: 'id',
       resolveByTimestamp: true,
       lwwKeys: 'updatedAt,syncedAt',
-      fwwKeys: 'createdAt',
     },
+  );
+  assert.strictEqual(
+    DEFAULT_RECONCILE_OPTIONS.fwwKeys,
+    undefined,
+    'no key may veto a write by being NEWER under the default policy',
   );
 });
 
