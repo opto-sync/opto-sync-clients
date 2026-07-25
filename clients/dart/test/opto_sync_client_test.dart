@@ -453,7 +453,7 @@ void main() {
       raw.execute('PRAGMA user_version = 1;');
       expect(raw.select("SELECT name FROM sqlite_master WHERE name='meta'"),
           isEmpty);
-      raw.dispose();
+      raw.close();
 
       // Reopen at v2 — drift runs onUpgrade.
       final upgradedDb = OptoSyncDatabase(NativeDatabase(file));
