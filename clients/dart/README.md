@@ -86,6 +86,10 @@ asymmetry noted in [OFFLINE_QUEUE.md](../../docs/OFFLINE_QUEUE.md)).
 Durability is tested against a real file-backed database: queued payloads **and**
 status transitions survive closing and reopening the connection.
 
+The schema is at version 2 (v2 added the `meta` table for clock state). The
+upgrade is a declared drift migration that creates only the new table, so a
+database written by v1 keeps every queued mutation — a covered test.
+
 There is **no built-in background flusher** — `queueMutation` calls an empty
 `_triggerBackgroundSync()` hook. Transport and scheduling are yours; see
 `opto-sync-e2e/test/clients/dart/` for a worked flush loop.
