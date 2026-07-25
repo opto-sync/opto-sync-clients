@@ -1,0 +1,20 @@
+{
+  /*
+   * Second output format: real ES modules, for browsers and bundlers.
+   *
+   * The CommonJS build (tsconfig.json -> dist/) stays exactly where it was so
+   * that `require('../dist/index.js')` keeps working. This build adds
+   * dist/esm/, which is what the `import` and `browser` conditions in
+   * package.json `exports` point at.
+   *
+   * Every relative import in src/ carries an explicit .js extension, which is
+   * required for the ESM output to be loadable by Node without a resolver
+   * hack — and harmless for the CommonJS output.
+   */
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "esnext",
+    "outDir": "dist/esm"
+  },
+  "include": ["src"]
+}
