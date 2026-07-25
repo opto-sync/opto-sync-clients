@@ -1,5 +1,7 @@
 # opto-sync-clients
 
+[![CI](https://github.com/opto-sync/opto-sync-clients/actions/workflows/ci.yml/badge.svg)](https://github.com/opto-sync/opto-sync-clients/actions/workflows/ci.yml)
+
 Client libraries for **opto-sync**: optimistic local-first writes (IndexedDB in the
 browser, SQLite on device) with managed sync between frontend, backend, and Supabase.
 
