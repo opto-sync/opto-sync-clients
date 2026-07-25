@@ -256,7 +256,7 @@ test(
 
 test(
   'the same bundle works inside a real web worker (no DOM available)',
-  { skip: browser ? false : 'headless Chromium could not be launched' },
+  { skip: browser ? false : 'headless Chromium could not be launched', timeout: 120_000 },
   async (t) => {
     // Merging large documents on the main thread is what causes jank, so the
     // worker path is the one a real app will use. It exercises a genuinely
