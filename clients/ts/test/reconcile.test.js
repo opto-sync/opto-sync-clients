@@ -138,7 +138,15 @@ test('other array strategies remain reachable through options', () => {
   assert.deepStrictEqual(union.tags, ['a', 'b', 'c']);
 
   const replace = reconcileIncoming({ tags: ['a', 'b'] }, { tags: ['c'] }, {
+    arrayStrategy: ArrayStrategy.REPLACE,
     resolveByTimestamp: false,
   });
-  assert.deepStrictEqual(replace.tags, ['c'], 'REPLACE is the default strategy');
+  assert.deepStrictEqual(replace.tags, ['c'], 'REPLACE must stay opt-in-able');
+
+  // The default unions scalar arrays (no identity key to match on), which is
+  // what keeps a repeated sync idempotent.
+  const defaulted = reconcileIncoming({ tags: ['a', 'b'] }, { tags: ['b', 'c'] }, {
+    resolveByTimestamp: false,
+  });
+  assert.deepStrictEqual(defaulted.tags, ['a', 'b', 'c']);
 });
