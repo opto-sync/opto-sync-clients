@@ -35,9 +35,15 @@ async function launchChromium() {
 
 const browser = await launchChromium();
 
+/* Without this the browser process keeps the event loop alive and the test
+   file never exits. */
+after(async () => {
+  if (browser) await browser.close();
+});
+
 test(
   'the bundled client runs in real Chromium against real IndexedDB',
-  { skip: browser ? false : 'headless Chromium could not be launched' },
+  { skip: browser ? false : 'headless Chromium could not be launched', timeout: 120_000 },
   async (t) => {
     const server = await serveBundle(HTML);
     const page = await (await browser.newContext()).newPage();
