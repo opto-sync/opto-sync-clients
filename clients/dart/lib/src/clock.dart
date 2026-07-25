@@ -159,8 +159,9 @@ class HybridLogicalClock {
     ClockPersistence persistence = const NoClockPersistence(),
     this.maxDriftMs = defaultMaxDriftMs,
   })  : _now = now ?? (() => DateTime.now().millisecondsSinceEpoch),
-        // ignore: prefer_initializing_formals -- the field is private, the
-        // parameter is public API, so an initializing formal is not possible.
+        // The field is private and the parameter is public API, so an
+        // initializing formal is not possible.
+        // ignore: prefer_initializing_formals
         _persistence = persistence {
     if (nodeId.isEmpty) {
       throw ArgumentError.value(nodeId, 'nodeId', 'must not be empty');
