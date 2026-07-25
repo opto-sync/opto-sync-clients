@@ -257,4 +257,225 @@ void main() {
     expect(() => syncer.merge('{not valid json', '{}'),
         throwsA(isA<SyncerMergeException>()));
   });
+
+  /* ---------------------------------------------------------------------- */
+  /* Clock stamping                                                         */
+  /* ---------------------------------------------------------------------- */
+
+  Future<Map<String, dynamic>> onlyQueuedPayload(OptoSyncDatabase target) async {
+    final rows = await target.select(target.localMutations).get();
+    expect(rows, hasLength(1));
+    return jsonDecode(rows.single.jsonPayload) as Map<String, dynamic>;
+  }
+
+  test('queueMutation stamps updatedAt from the hybrid logical clock',
+      () async {
+    // The actual bug this fixes: an unstamped payload leaves last-write-wins at
+    // the mercy of raw device clocks, and because the C core compares non-digit
+    // strings lexicographically an ISO-8601 writer beats an HLC writer on every
+    // conflict until 2286.
+    final stamping = OptoSyncClient(
+        db: db, syncer: syncer, now: () => 1721822400000);
+    await stamping.queueMutation('todos', 'todo-1', {'title': 'no timestamp'});
+
+    final payload = await onlyQueuedPayload(db);
+    final stamp = payload['updatedAt'] as String;
+    expect(parseHlc(stamp), isNotNull,
+        reason: 'the stamp must be a parseable HLC: $stamp');
+    expect(parseHlc(stamp)!.millis, 1721822400000);
+    expect(stamp, startsWith('1721822400000-0000-'));
+    expect(payload['title'], 'no timestamp',
+        reason: 'other fields must survive stamping');
+  });
+
+  test('queueMutation does not overwrite a caller-supplied updatedAt',
+      () async {
+    await client.queueMutation('todos', 'todo-1', {
+      'title': 'buy milk',
+      'updatedAt': '2026-07-24T10:00:00Z',
+    });
+    expect((await onlyQueuedPayload(db))['updatedAt'], '2026-07-24T10:00:00Z');
+  });
+
+  test('queueMutation never stamps createdAt', () async {
+    // createdAt belongs to whoever created the record; inventing one only
+    // manufactures conflicts.
+    await client.queueMutation('todos', 'todo-1', {'title': 'x'});
+    expect((await onlyQueuedPayload(db)).containsKey('createdAt'), isFalse);
+  });
+
+  test('stampUpdatedAt: false queues the payload untouched', () async {
+    final plain =
+        OptoSyncClient(db: db, syncer: syncer, stampUpdatedAt: false);
+    await plain.queueMutation('todos', 'todo-1', {'title': 'x'});
+    expect((await onlyQueuedPayload(db)).containsKey('updatedAt'), isFalse);
+  });
+
+  test('the node id is per-instance, so two clients over one database never tie',
+      () async {
+    // Regression guard: a purely persisted node id would let two writers
+    // sharing this database read the same clock state and issue *identical*
+    // timestamps — the exact tie the node id exists to prevent.
+    final a = OptoSyncClient(db: db, syncer: syncer);
+    final b = OptoSyncClient(db: db, syncer: syncer);
+    expect(await a.clientId(), isNot(equals(await b.clientId())));
+
+    final stamps = <String>{};
+    for (var i = 0; i < 20; i++) {
+      stamps.add(await (await a.clock()).next());
+      stamps.add(await (await b.clock()).next());
+    }
+    expect(stamps, hasLength(40));
+  });
+
+  test('the device id is persisted, so a restart keeps one identity', () async {
+    final dir = await Directory.systemTemp.createTemp('opto_sync_device_id');
+    final file = File('${dir.path}/queue.sqlite');
+    try {
+      final firstDb = OptoSyncDatabase(NativeDatabase(file));
+      final firstId = await OptoSyncClient(db: firstDb, syncer: syncer).clientId();
+      await firstDb.close();
+
+      final secondDb = OptoSyncDatabase(NativeDatabase(file));
+      addTearDown(secondDb.close);
+      final secondId =
+          await OptoSyncClient(db: secondDb, syncer: syncer).clientId();
+
+      expect(secondId.split('.').first, firstId.split('.').first,
+          reason: 'the device id must survive; regenerating it loses '
+              'tie-breaking against this client\'s own past writes');
+      expect(secondId, isNot(equals(firstId)),
+          reason: 'the per-instance suffix is still fresh');
+    } finally {
+      await dir.delete(recursive: true);
+    }
+  });
+
+  test('observeIncoming advances the clock past nested remote timestamps',
+      () async {
+    // A pull returns collections, not one flat record, so a top-level-only walk
+    // would leave the clock behind timestamps it has already seen.
+    final local =
+        OptoSyncClient(db: db, syncer: syncer, now: () => 1721822400000);
+    const remote = '1721822405000-00ff-peer';
+    await local.observeIncoming({
+      'rows': [
+        {'id': 'a', 'updatedAt': remote}
+      ]
+    });
+
+    await local.queueMutation('todos', 'a', {'v': 1});
+    final stamp = (await onlyQueuedPayload(db))['updatedAt'] as String;
+    expect(compareHlc(stamp, remote), greaterThan(0),
+        reason: '$stamp must outrank observed $remote');
+  });
+
+  test('observeIncoming refuses an implausible peer timestamp', () async {
+    // Bounded trust end to end: one peer with a broken clock must not drag this
+    // client into the future, or every honest write here loses forever.
+    const wall = 1721822400000;
+    final local = OptoSyncClient(db: db, syncer: syncer, now: () => wall);
+    final poisoned = '${wall + defaultMaxDriftMs + 60000}-0000-evil';
+
+    await expectLater(
+        local.observeIncoming({'id': 'a', 'updatedAt': poisoned}),
+        throwsA(isA<ClockDriftException>()));
+
+    await local.queueMutation('todos', 'a', {'v': 1});
+    final stamp = (await onlyQueuedPayload(db))['updatedAt'] as String;
+    expect(compareHlc(stamp, poisoned), lessThan(0),
+        reason: 'a refused timestamp must not be adopted');
+  });
+
+  test('observeIncoming ignores legacy timestamp scales', () async {
+    final local =
+        OptoSyncClient(db: db, syncer: syncer, now: () => 1721822400000);
+    await local.observeIncoming({
+      'a': {'updatedAt': '2026-07-25T00:00:00Z'},
+      'b': {'updatedAt': 1721822400000},
+    });
+    expect((await local.clock()).peek().millis, 0,
+        reason: 'must not adopt a scale it cannot compare');
+  });
+
+  test('THE POINT: stamped writes are ordered by the merge engine', () async {
+    // Two clients whose wall clocks disagree still converge on the causally
+    // later write — the end-to-end reason stamping exists.
+    final fastDb = OptoSyncDatabase(NativeDatabase.memory());
+    final slowDb = OptoSyncDatabase(NativeDatabase.memory());
+    addTearDown(fastDb.close);
+    addTearDown(slowDb.close);
+
+    final fast = OptoSyncClient(
+        db: fastDb, syncer: syncer, now: () => 1721822430000); // 30s ahead
+    final slow =
+        OptoSyncClient(db: slowDb, syncer: syncer, now: () => 1721822400000);
+
+    await fast.queueMutation('todos', 'r1', {'id': 'r1', 'title': 'from fast'});
+    final fastEdit = await onlyQueuedPayload(fastDb);
+
+    // The slow device sees the fast write, then makes a genuinely later edit.
+    await slow.observeIncoming(fastEdit);
+    await slow.queueMutation('todos', 'r1', {'id': 'r1', 'title': 'from slow'});
+    final slowEdit = await onlyQueuedPayload(slowDb);
+
+    expect(
+        (await client.reconcileIncoming('todos', 'r1', slowEdit, fastEdit))['title'],
+        'from slow');
+    expect(
+        (await client.reconcileIncoming('todos', 'r1', fastEdit, slowEdit))['title'],
+        'from slow');
+  });
+
+  /* ---------------------------------------------------------------------- */
+  /* Schema migration                                                       */
+  /* ---------------------------------------------------------------------- */
+
+  test('the v1 -> v2 migration preserves queued mutations', () async {
+    // Adding the `meta` table must never cost a user their un-synced work.
+    // Silently dropping the queue is the failure mode this guards.
+    final dir = await Directory.systemTemp.createTemp('opto_sync_migration');
+    final file = File('${dir.path}/queue.sqlite');
+    try {
+      // Build a faithful v1 database: drift's own DDL for local_mutations, no
+      // `meta` table, user_version = 1.
+      final seedDb = OptoSyncDatabase(NativeDatabase(file));
+      final seedClient = OptoSyncClient(db: seedDb, syncer: syncer);
+      await seedClient
+          .queueMutation('todos', 'todo-v1', {'title': 'queued before upgrade'});
+      await seedClient.queueMutation('todos', 'todo-v1b', {'title': 'also queued'});
+      await seedDb.close();
+
+      final raw = sqlite3.open(file.path);
+      raw.execute('DROP TABLE meta;');
+      raw.execute('PRAGMA user_version = 1;');
+      expect(raw.select("SELECT name FROM sqlite_master WHERE name='meta'"),
+          isEmpty);
+      raw.dispose();
+
+      // Reopen at v2 — drift runs onUpgrade.
+      final upgradedDb = OptoSyncDatabase(NativeDatabase(file));
+      addTearDown(upgradedDb.close);
+      final rows = await upgradedDb.select(upgradedDb.localMutations).get();
+
+      expect(rows, hasLength(2),
+          reason: 'queued mutations must survive the migration');
+      expect(rows.map((r) => r.recordId),
+          containsAll(<String>['todo-v1', 'todo-v1b']));
+      expect(rows.every((r) => r.syncStatus == SyncStatus.pending), isTrue,
+          reason: 'and must still be pending, not silently marked synced');
+      expect(rows.first.jsonPayload, contains('queued before upgrade'));
+
+      // The new table is usable, and the clock works on the upgraded database.
+      final upgraded = OptoSyncClient(db: upgradedDb, syncer: syncer);
+      expect(await upgraded.clientId(), isNotEmpty);
+      await upgraded.queueMutation('todos', 'todo-v2', {'title': 'after upgrade'});
+      final after = await (upgradedDb.select(upgradedDb.localMutations)
+            ..where((t) => t.recordId.equals('todo-v2')))
+          .getSingle();
+      expect(jsonDecode(after.jsonPayload)['updatedAt'], isA<String>());
+    } finally {
+      await dir.delete(recursive: true);
+    }
+  });
 }
