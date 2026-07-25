@@ -93,7 +93,9 @@ impl ReconcileOptions {
             detect_circular_refs: false,
             resolve_by_timestamp: self.resolve_by_timestamp,
             lww_keys: Some(self.lww_keys.clone()),
-            fww_keys: Some(self.fww_keys.clone()),
+            // An empty list means "no FWW keys", which the core expresses as a
+            // null pointer. Passing "" happens to work too, but None says it.
+            fww_keys: Some(self.fww_keys.clone()).filter(|k| !k.is_empty()),
             array_match_keys: Some(self.array_match_keys.clone()),
         }
     }
