@@ -31,7 +31,11 @@ pub use syncer_rs::version as core_version;
 pub use syncer_rs::ArrayMergeStrategy as ArrayStrategy;
 
 pub mod clock;
-pub use clock::{compare_hlc, format_hlc, parse_hlc, ClockPersistence, HlcParts, HybridLogicalClock, NoPersistence};
+pub use clock::{
+    compare_hlc, compose_node_id, format_hlc, parse_hlc, random_node_id, system_now_ms, ClockError,
+    ClockPersistence, HlcParts, HybridLogicalClock, NoPersistence, SystemClock,
+    DEFAULT_MAX_DRIFT_MS,
+};
 
 /// Options controlling [`reconcile`].
 #[derive(Debug, Clone)]
