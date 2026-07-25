@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:opto_sync_client/opto_sync_client.dart';
 import 'package:test/test.dart';
@@ -72,6 +73,62 @@ void main() {
     expect(row.jsonPayload, contains('"title":"buy milk"'));
     expect(row.syncStatus, SyncStatus.pending);
     expect(row.createdAt, isNotNull);
+  });
+
+  test('queued mutations survive closing and reopening the database',
+      () async {
+    // The point of an optimistic local-first queue is that a write survives
+    // the app being killed before it reaches the server. An in-memory database
+    // cannot demonstrate that, so this test uses a real file and reopens it
+    // through a brand-new connection.
+    final dir = await Directory.systemTemp.createTemp('opto_sync_durability');
+    final file = File('${dir.path}/queue.sqlite');
+    try {
+      final firstDb = OptoSyncDatabase(NativeDatabase(file));
+      final firstClient = OptoSyncClient(db: firstDb, syncer: syncer);
+      await firstClient.queueMutation('todos', 'todo-durable', {
+        'id': 'todo-durable',
+        'title': 'survive a restart',
+        'updatedAt': '2026-07-24T10:00:00Z',
+      });
+      await firstClient.queueMutation('todos', 'todo-durable-2', {
+        'id': 'todo-durable-2',
+        'title': 'also survive',
+      });
+      await firstDb.close(); // simulates process exit
+
+      expect(await file.exists(), isTrue, reason: 'queue must be on disk');
+      expect(await file.length(), greaterThan(0));
+
+      // A fresh connection over the same file — as a relaunched app would do.
+      final reopenedDb = OptoSyncDatabase(NativeDatabase(file));
+      addTearDown(reopenedDb.close);
+      final rows = await reopenedDb.select(reopenedDb.localMutations).get();
+
+      expect(rows, hasLength(2), reason: 'both pending writes must be recovered');
+      expect(rows.map((r) => r.recordId),
+          containsAll(<String>['todo-durable', 'todo-durable-2']));
+      expect(rows.every((r) => r.syncStatus == SyncStatus.pending), isTrue,
+          reason: 'recovered writes are still pending, not silently marked synced');
+      expect(rows.first.jsonPayload, contains('survive a restart'));
+
+      // A status transition must also be durable, otherwise a relaunch would
+      // re-send work the server already accepted.
+      await (reopenedDb.update(reopenedDb.localMutations)
+            ..where((t) => t.recordId.equals('todo-durable')))
+          .write(LocalMutationsCompanion(syncStatus: Value(SyncStatus.synced)));
+      await reopenedDb.close();
+
+      final thirdDb = OptoSyncDatabase(NativeDatabase(file));
+      addTearDown(thirdDb.close);
+      final after = await thirdDb.select(thirdDb.localMutations).get();
+      final synced = after.where((r) => r.syncStatus == SyncStatus.synced);
+      final pending = after.where((r) => r.syncStatus == SyncStatus.pending);
+      expect(synced.map((r) => r.recordId), ['todo-durable']);
+      expect(pending.map((r) => r.recordId), ['todo-durable-2']);
+    } finally {
+      await dir.delete(recursive: true);
+    }
   });
 
   test('reconcileIncoming: stale incoming (older updatedAt) keeps base',

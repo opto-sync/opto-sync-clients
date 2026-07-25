@@ -16,11 +16,38 @@ test('native engine is the v0.2.0 core', () => {
   assert.strictEqual(engineVersion(), '0.2.0');
 });
 
-test('defaults: resolveByTimestamp on, updatedAt/syncedAt LWW, createdAt FWW', () => {
+test('defaults: mergeByKey on id, updatedAt/syncedAt LWW, createdAt FWW', () => {
+  // These defaults are a cross-tier contract: the Dart client, the Rust
+  // client, and every opto-sync server use exactly this policy. Changing any
+  // value here makes the same document reconcile differently per platform.
   assert.deepStrictEqual(
     { ...DEFAULT_RECONCILE_OPTIONS },
-    { resolveByTimestamp: true, lwwKeys: 'updatedAt,syncedAt', fwwKeys: 'createdAt' },
+    {
+      arrayStrategy: ArrayStrategy.MERGE_BY_KEY,
+      arrayMatchKeys: 'id',
+      resolveByTimestamp: true,
+      lwwKeys: 'updatedAt,syncedAt',
+      fwwKeys: 'createdAt',
+    },
   );
+});
+
+test('default strategy protects local array elements the server has not seen', () => {
+  // Regression guard for a real defect: with the binding's own REPLACE
+  // default, this dropped the local-only element AND applied a stale one,
+  // because element-level timestamp resolution only runs under MERGE_BY_KEY.
+  const local = {
+    rows: [
+      { id: 'r1', label: 'local-only' },
+      { id: 'r2', updatedAt: 9000, label: 'fresh local edit' },
+    ],
+  };
+  const incoming = { rows: [{ id: 'r2', updatedAt: 1, label: 'stale server copy' }] };
+  const merged = reconcileIncoming(local, incoming);
+  const byId = Object.fromEntries(merged.rows.map((r) => [r.id, r]));
+  assert.ok(byId.r1, 'local-only element must survive');
+  assert.strictEqual(byId.r2.label, 'fresh local edit', 'stale element must be rejected');
+  assert.strictEqual(merged.rows.length, 2);
 });
 
 test('stale incoming record is rejected by updatedAt (LWW)', () => {
@@ -111,7 +138,15 @@ test('other array strategies remain reachable through options', () => {
   assert.deepStrictEqual(union.tags, ['a', 'b', 'c']);
 
   const replace = reconcileIncoming({ tags: ['a', 'b'] }, { tags: ['c'] }, {
+    arrayStrategy: ArrayStrategy.REPLACE,
     resolveByTimestamp: false,
   });
-  assert.deepStrictEqual(replace.tags, ['c'], 'REPLACE is the default strategy');
+  assert.deepStrictEqual(replace.tags, ['c'], 'REPLACE must stay opt-in-able');
+
+  // The default unions scalar arrays (no identity key to match on), which is
+  // what keeps a repeated sync idempotent.
+  const defaulted = reconcileIncoming({ tags: ['a', 'b'] }, { tags: ['b', 'c'] }, {
+    resolveByTimestamp: false,
+  });
+  assert.deepStrictEqual(defaulted.tags, ['a', 'b', 'c']);
 });

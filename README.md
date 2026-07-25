@@ -34,6 +34,28 @@ All clients delegate merging to `syncer_merge_json_ex` in the C core:
 
 Other array strategies: `replace` (default), `append`, `union`, `mergeByIndex`.
 
+## Timestamp representation (important)
+
+Represent high-precision timestamps as **digit strings**, not JSON numbers:
+
+```jsonc
+{ "updatedAt": "1689940800123456789" }   // ✅ exact everywhere
+{ "updatedAt": 1689940800123456789 }     // ⚠️  rounded by any JS runtime
+```
+
+The C core compares pure-digit strings **numerically** (not lexicographically),
+so `"10"` correctly outranks `"9"` and LWW/FWW resolution stays correct.
+
+The reason for the caveat is the host runtime, not the merge engine: integers
+past 2^53 cannot survive an IEEE-754 double, so any JavaScript/TypeScript layer
+— `JSON.parse` in a browser, an Express body parser, even a test harness —
+silently rounds `1689940800123456789` to `...800`. Rust and Dart preserve
+64-bit integers exactly. This is verified per runtime by the cross-server suite
+in `../opto-sync-e2e/test/cross-server/`.
+
+Millisecond timestamps (13 digits) and ISO-8601 strings are unaffected; the
+issue only arises at microsecond precision and beyond.
+
 ## Building
 
 The C core builds automatically with each binding (static compile for TS/Rust,

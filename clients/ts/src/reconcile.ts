@@ -31,7 +31,18 @@ export interface ReconcileOptions {
 }
 
 /** Client defaults applied on top of the core's own defaults. */
+/**
+ * Defaults shared with the Dart and Rust clients and with every opto-sync
+ * server, so the same document reconciles identically on every tier.
+ *
+ * `arrayStrategy` must be set explicitly: the native binding's own default is
+ * REPLACE, under which an incoming array discards local elements the server
+ * never saw and applies elements the timestamp guard should have rejected
+ * (element-level resolution only happens under MERGE_BY_KEY).
+ */
 export const DEFAULT_RECONCILE_OPTIONS: Readonly<ReconcileOptions> = Object.freeze({
+  arrayStrategy: ArrayStrategy.MERGE_BY_KEY,
+  arrayMatchKeys: 'id',
   resolveByTimestamp: true,
   lwwKeys: 'updatedAt,syncedAt',
   fwwKeys: 'createdAt',
