@@ -69,7 +69,6 @@ export async function bundleBrowserClient() {
     throw new Error(`esbuild (minified) failed:\n${JSON.stringify(minified.errors, null, 2)}`);
   }
   const minCode = await readFile(join(OUT_DIR, 'opto-sync.browser.min.js'), 'utf8');
-  const { gzipSync } = await import('node:zlib');
   const minGzipBytes = gzipSync(Buffer.from(minCode), { level: 9 }).length;
 
   cached = {
