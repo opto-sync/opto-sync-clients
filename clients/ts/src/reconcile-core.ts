@@ -102,6 +102,67 @@ export function reconcileIncoming(
   return JSON.parse(mergedJson) as JsonRecord;
 }
 
+/**
+ * Rebase un-confirmed local writes on top of authoritative server state.
+ *
+ * This is the invariant that makes optimistic writes safe, and it is the same
+ * shape every mature sync engine converges on: a pull replaces the base with
+ * server state, then every mutation the server has not yet confirmed is
+ * replayed on top, so the user never watches their un-pushed edit disappear.
+ * Replicache describes it as a git rebase; Linear's engine does the same thing.
+ *
+ * Why the overlay ignores timestamps by default
+ * ---------------------------------------------
+ * Engines that replay *mutator functions* get this for free. opto-sync merges
+ * *documents* under last-write-wins, so a naive replay reintroduces the exact
+ * bug rebase exists to prevent: a pending edit stamped before the server's
+ * newer `updatedAt` is rejected as stale and silently vanishes from the view,
+ * even though it is still queued and will be pushed later. The record would
+ * then flip back once the push lands — a visible flicker and, in between, a UI
+ * that contradicts the queue.
+ *
+ * Pending mutations are by definition this client's own latest intent, not a
+ * concurrent writer to arbitrate against, so the overlay applies them
+ * unconditionally. Authority still rests with the server: the queued payloads
+ * are untouched, and whatever the server decides comes back on the next pull.
+ * Pass `gateOverlayByTimestamp: true` to opt into strict gating instead.
+ *
+ * Pure: no storage, no clock, no I/O.
+ *
+ * @param serverPayload  Authoritative state from the server (the new base).
+ * @param pendingPayloads Un-confirmed local writes, **oldest first**. Order is
+ *                        significant — it is the order they will reach the
+ *                        server, so it must be the order applied here.
+ * @returns The view to render.
+ */
+export function rebasePending(
+  serverPayload: JsonRecord,
+  pendingPayloads: readonly JsonRecord[],
+  options?: RebaseOptions,
+): JsonRecord {
+  const { gateOverlayByTimestamp, ...reconcileOptions } = options ?? {};
+  const overlayOptions: ReconcileOptions = {
+    ...reconcileOptions,
+    ...(gateOverlayByTimestamp ? {} : { resolveByTimestamp: false }),
+  };
+
+  let view = serverPayload;
+  for (const pending of pendingPayloads) {
+    view = reconcileIncoming(view, pending, overlayOptions);
+  }
+  return view;
+}
+
+export interface RebaseOptions extends ReconcileOptions {
+  /**
+   * Subject replayed mutations to the same timestamp gating as server data.
+   * Default false — see the note on `rebasePending`. Turning this on means a
+   * pending write older than the server's timestamp is dropped from the view
+   * while still sitting in the queue.
+   */
+  gateOverlayByTimestamp?: boolean;
+}
+
 /** Version of the underlying syncer.c core ("major.minor.patch"). */
 export function engineVersion(): string {
   return getMergeEngine().version();
