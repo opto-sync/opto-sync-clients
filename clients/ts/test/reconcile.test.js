@@ -93,12 +93,53 @@ test('syncedAt participates in LWW alongside updatedAt', () => {
   assert.strictEqual(merged.v, 'local');
 });
 
-test('createdAt FWW: incoming claiming a later creation is rejected', () => {
+test('explicit fwwKeys: incoming claiming a later creation is rejected', () => {
+  // The engine feature is still there and still covered — it is just opt-in
+  // now, so the option is passed explicitly rather than inherited.
   const local = { id: 1, createdAt: 100, author: 'original' };
   const incoming = { id: 1, createdAt: 300, author: 'impostor' };
-  const merged = reconcileIncoming(local, incoming);
+  const merged = reconcileIncoming(local, incoming, { fwwKeys: 'createdAt' });
   assert.strictEqual(merged.author, 'original');
   assert.strictEqual(merged.createdAt, 100);
+});
+
+test('REGRESSION: the default policy never discards the NEWEST write', () => {
+  // `createdAt` was in DEFAULT_RECONCILE_OPTIONS.fwwKeys, and FWW in the C core
+  // is a node-level VETO, not field protection: should_reject_by_crdt_rules
+  // dropped the ENTIRE incoming node when incoming.createdAt > base.createdAt,
+  // no matter how new incoming.updatedAt was.
+  //
+  //   base     {"doc":{"createdAt":100,"updatedAt":100,"v":"base"}}
+  //   incoming {"doc":{"createdAt":200,"updatedAt":999999,"v":"NEWEST WRITE"}}
+  //   result   {"doc":{"createdAt":100,"updatedAt":100,"v":"base"}}   <-- dropped
+  //
+  // Consequence: any replica holding a later `createdAt` for a record (two
+  // devices creating the same id offline is enough) could never write to that
+  // record again — permanently, silently, behind a 200 OK.
+  const base = { doc: { createdAt: 100, updatedAt: 100, v: 'base' } };
+  const incoming = { doc: { createdAt: 200, updatedAt: 999999, v: 'NEWEST WRITE' } };
+
+  const merged = reconcileIncoming(base, incoming);
+  assert.strictEqual(
+    merged.doc.v,
+    'NEWEST WRITE',
+    'the newest write must land under the default policy',
+  );
+  assert.strictEqual(merged.doc.updatedAt, 999999);
+  assert.strictEqual(merged.doc.createdAt, 200);
+
+  // And the write is not a one-off fluke of ordering: the replica can keep
+  // writing to the same node afterwards.
+  const again = reconcileIncoming(merged, {
+    doc: { createdAt: 300, updatedAt: 1000000, v: 'AND AGAIN' },
+  });
+  assert.strictEqual(again.doc.v, 'AND AGAIN', 'the record must not become write-locked');
+
+  // Pinning the old behavior as opt-in, so the veto is proven to be a policy
+  // choice and not something the engine stopped doing.
+  const vetoed = reconcileIncoming(base, incoming, { fwwKeys: 'createdAt' });
+  assert.strictEqual(vetoed.doc.v, 'base', 'explicit fwwKeys still vetoes the whole node');
+  assert.strictEqual(vetoed.doc.updatedAt, 100, 'the veto ignores the newer updatedAt');
 });
 
 test('mergeByKey on an array-valued jsonb field with per-element LWW', () => {
