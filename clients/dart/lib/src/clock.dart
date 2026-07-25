@@ -105,6 +105,8 @@ class HybridLogicalClock {
     int Function()? now,
     ClockPersistence persistence = const NoClockPersistence(),
   })  : _now = now ?? (() => DateTime.now().millisecondsSinceEpoch),
+        // ignore: prefer_initializing_formals -- the field is private, the
+        // parameter is public API, so an initializing formal is not possible.
         _persistence = persistence {
     if (nodeId.isEmpty) {
       throw ArgumentError.value(nodeId, 'nodeId', 'must not be empty');

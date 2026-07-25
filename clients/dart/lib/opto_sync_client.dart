@@ -5,6 +5,7 @@ import 'package:syncer/syncer.dart' as syncer_ffi;
 
 export 'package:syncer/syncer.dart'
     show ArrayMergeStrategy, ArrayStrategy, resolveSyncerLibraryPath;
+export 'src/clock.dart';
 
 part 'opto_sync_client.g.dart';
 

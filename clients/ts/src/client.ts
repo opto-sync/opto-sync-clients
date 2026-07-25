@@ -9,8 +9,10 @@
 import Dexie, { Table } from 'dexie';
 import {
   ReconcileOptions,
+  RebaseOptions,
   JsonRecord,
   reconcileIncoming,
+  rebasePending,
   resolveReconcileOptions,
 } from './reconcile-core.js';
 import { HybridLogicalClock, HlcPersistence, randomNodeId } from './clock.js';
@@ -23,6 +25,22 @@ export interface LocalMutation {
   jsonPayload: string;
   createdAt: number;
   syncStatus: number; // 0 = pending, 1 = synced, 2 = failed
+  /**
+   * Stable identity of the client that authored this mutation. Paired with
+   * `mutationId` it is what lets a server dedupe a replay.
+   */
+  clientId?: string;
+  /**
+   * Per-client monotonic sequence number. Push is at-least-once — a request
+   * that times out may still have been applied — so the server records the
+   * highest `mutationId` it has seen per client and ignores anything at or
+   * below it. Without this, a retry after an ambiguous failure double-applies.
+   */
+  mutationId?: number;
+  /** Push attempts so far. Drives backoff and makes a stuck row diagnosable. */
+  attempts?: number;
+  /** Last push error, for diagnosis. Never contains the payload. */
+  lastError?: string;
 }
 
 export const SYNC_STATUS = Object.freeze({
@@ -53,11 +71,20 @@ export class OptoSyncDatabase extends Dexie {
       localMutations: '++id, tableName, recordId, syncStatus',
       meta: '&key',
     });
+    // v3 adds mutation identity. Rows queued under v1/v2 have no clientId or
+    // mutationId; they are still pushed, just without dedupe protection, which
+    // is no worse than before. Declaring the version rather than recreating the
+    // table keeps un-synced work.
+    this.version(3).stores({
+      localMutations: '++id, tableName, recordId, syncStatus, [tableName+recordId]',
+      meta: '&key',
+    });
   }
 }
 
 const META_NODE_ID = 'hlc.nodeId';
 const META_CLOCK = 'hlc.last';
+const META_MUTATION_SEQ = 'mutation.seq';
 
 export type OptoSyncClientOptions = ReconcileOptions & {
   /** Name of the underlying IndexedDB database. */
@@ -152,16 +179,46 @@ export class OptoSyncClient {
       stamped = { ...payload, updatedAt: await clock.next() };
     }
 
-    const id = await this.db.localMutations.add({
-      tableName,
-      recordId,
-      jsonPayload: JSON.stringify(stamped),
-      createdAt: Date.now(),
-      syncStatus: SYNC_STATUS.PENDING,
-    });
+    // Allocate the sequence number and enqueue in ONE transaction. Two
+    // concurrent queueMutation() calls that each read-then-wrote the counter
+    // separately could otherwise hand out the same mutationId, and a server
+    // deduping on (clientId, mutationId) would silently drop the second write.
+    const clientId = await this.clientId();
+    const { id, mutationId } = await this.db.transaction(
+      'rw',
+      this.db.localMutations,
+      this.db.meta,
+      async () => {
+        const previous = Number((await this.db.meta.get(META_MUTATION_SEQ))?.value ?? '0');
+        const nextMutationId = previous + 1;
+        await this.db.meta.put({ key: META_MUTATION_SEQ, value: String(nextMutationId) });
+        const rowId = await this.db.localMutations.add({
+          tableName,
+          recordId,
+          jsonPayload: JSON.stringify(stamped),
+          createdAt: Date.now(),
+          syncStatus: SYNC_STATUS.PENDING,
+          clientId,
+          mutationId: nextMutationId,
+          attempts: 0,
+        });
+        return { id: rowId, mutationId: nextMutationId };
+      },
+    );
+    void mutationId;
 
     this.triggerBackgroundSync();
     return id;
+  }
+
+  /**
+   * Stable per-install identity, persisted alongside the clock. Shared with the
+   * HLC node id on purpose: both answer "which replica wrote this", and keeping
+   * one value means a server correlating mutations with timestamps sees a single
+   * identity per client.
+   */
+  async clientId(): Promise<string> {
+    return (await this.clock()).nodeId;
   }
 
   /** All queued mutations still waiting to be pushed to the server. */
@@ -173,7 +230,11 @@ export class OptoSyncClient {
     if (tableName !== undefined) {
       mutations = mutations.filter((m) => m.tableName === tableName);
     }
-    return mutations;
+    // Insertion order, explicitly. Callers replay these to build the local view
+    // and push them in this order; an index-ordered result is not guaranteed to
+    // be insertion-ordered, and replaying two edits to one record backwards
+    // shows the older value.
+    return mutations.sort((a, b) => (a.id ?? 0) - (b.id ?? 0));
   }
 
   /** Mark a queued mutation as synced (or failed). */
@@ -200,6 +261,74 @@ export class OptoSyncClient {
     return reconcileIncoming(existingLocalPayload, incomingPayload, {
       ...this.options,
       ...overrides,
+    });
+  }
+
+  /**
+   * The view to render for one record: authoritative server state with this
+   * client's un-confirmed writes replayed on top.
+   *
+   * Call this instead of rendering `reconcileIncoming` directly whenever a
+   * queue is in play. `reconcileIncoming` reconciles two documents; it knows
+   * nothing about the mutations still waiting to be pushed, so rendering its
+   * result drops any pending edit the server's timestamp outranks — the edit
+   * reappears later when the push lands, which reads as the UI undoing and then
+   * redoing the user's work.
+   *
+   * Pending payloads are replayed oldest-first, matching the order they will
+   * reach the server. See `rebasePending` for why the overlay is not
+   * timestamp-gated by default.
+   */
+  async localView(
+    tableName: string,
+    recordId: string,
+    serverPayload: JsonRecord,
+    overrides?: RebaseOptions,
+  ): Promise<JsonRecord> {
+    const pending = (await this.pendingMutations(tableName)).filter(
+      (m) => m.recordId === recordId,
+    );
+    const payloads = pending.map((m) => JSON.parse(m.jsonPayload) as JsonRecord);
+    return rebasePending(serverPayload, payloads, { ...this.options, ...overrides });
+  }
+
+  /**
+   * Discard local mutations the server has confirmed.
+   *
+   * The server reports the highest `mutationId` it has durably applied for this
+   * client; everything at or below it is no longer pending. This is the other
+   * half of at-least-once push: without it a mutation that was applied but
+   * whose response was lost stays queued forever and is replayed on every
+   * rebase, so the record never settles on server truth.
+   *
+   * @returns How many rows were confirmed.
+   */
+  async confirmSyncedUpTo(lastMutationId: number, clientId?: string): Promise<number> {
+    const id = clientId ?? (await this.clientId());
+    const confirmed = await this.db.localMutations
+      .where('syncStatus')
+      .equals(SYNC_STATUS.PENDING)
+      .filter((m) => m.clientId === id && (m.mutationId ?? Infinity) <= lastMutationId)
+      .toArray();
+
+    await this.db.localMutations.bulkUpdate(
+      confirmed.map((m) => ({ key: m.id as number, changes: { syncStatus: SYNC_STATUS.SYNCED } })),
+    );
+    return confirmed.length;
+  }
+
+  /**
+   * Record a failed push attempt. Kept separate from `markMutation` so a
+   * transient failure increments the attempt count for backoff instead of
+   * burning the row to FAILED on the first network blip.
+   */
+  async recordPushFailure(id: number, error: string): Promise<void> {
+    const row = await this.db.localMutations.get(id);
+    if (!row) return;
+    await this.db.localMutations.update(id, {
+      attempts: (row.attempts ?? 0) + 1,
+      // Truncated and never the payload: this can reach logs.
+      lastError: error.slice(0, 200),
     });
   }
 

@@ -128,3 +128,19 @@ test('THE POINT: the C merge engine orders HLC timestamps correctly', async () =
   assert.strictEqual(reconcileIncoming(fastEdit, slowEdit).title, 'from slow device');
   assert.strictEqual(reconcileIncoming(slowEdit, fastEdit).title, 'from slow device');
 });
+
+test('format is byte-identical to the Dart and Rust clients', () => {
+  // Cross-client parity: this exact string is asserted in all three suites. If
+  // one drifts, timestamps from different clients stop ordering against each
+  // other and last-write-wins silently picks the wrong side.
+  const { formatHlc } = require('../dist/clock.js');
+  assert.strictEqual(
+    formatHlc({ millis: 1721822400000, counter: 255, nodeId: '9f3a2b' }),
+    '1721822400000-00ff-9f3a2b',
+  );
+  assert.deepStrictEqual(parseHlc('1721822400000-00ff-9f3a2b'), {
+    millis: 1721822400000,
+    counter: 255,
+    nodeId: '9f3a2b',
+  });
+});
