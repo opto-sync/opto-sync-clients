@@ -181,9 +181,17 @@ export const RECONCILE_SCENARIOS = [
     undefined,
   ],
   [
-    'createdAt FWW rejects a later claimed creation',
+    // Explicit options: `createdAt` is NOT in the client default policy, so
+    // relying on `undefined` here would silently stop covering FWW.
+    'explicit fwwKeys rejects a later claimed creation',
     { id: 1, createdAt: 100, author: 'original' },
     { id: 1, createdAt: 300, author: 'impostor' },
+    { fwwKeys: 'createdAt' },
+  ],
+  [
+    'default policy accepts a newer write that carries a later createdAt',
+    { doc: { createdAt: 100, updatedAt: 100, v: 'base' } },
+    { doc: { createdAt: 200, updatedAt: 999999, v: 'NEWEST WRITE' } },
     undefined,
   ],
   [
