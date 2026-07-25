@@ -29,6 +29,9 @@ pub use syncer_rs::version as core_version;
 /// matches object elements by identity keys and deep-merges matched pairs.
 pub use syncer_rs::ArrayMergeStrategy as ArrayStrategy;
 
+pub mod clock;
+pub use clock::{compare_hlc, format_hlc, parse_hlc, ClockPersistence, HlcParts, HybridLogicalClock, NoPersistence};
+
 /// Options controlling [`reconcile`].
 #[derive(Debug, Clone)]
 pub struct ReconcileOptions {
