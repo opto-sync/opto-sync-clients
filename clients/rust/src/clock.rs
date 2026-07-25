@@ -337,11 +337,12 @@ mod tests {
 
     #[test]
     fn observe_advances_past_a_remote_timestamp() {
-        let ms = Rc::new(Cell::new(1_000_000_000_000u64));
+        let ms = Rc::new(Cell::new(1_721_822_400_000u64));
         let mut c =
             HybridLogicalClock::new("aaaa", clock_at(ms.clone()), NoPersistence).unwrap();
-        let remote = "1721822400000-00ff-bbbb";
-        c.observe(remote);
+        // 10s ahead: ordinary skew, well inside the drift bound.
+        let remote = "1721822410000-00ff-bbbb";
+        c.observe(remote).unwrap();
         let next = c.next();
         assert!(next > remote.to_string(), "{next} must outrank {remote}");
     }
@@ -351,9 +352,64 @@ mod tests {
         let ms = Rc::new(Cell::new(1_721_822_400_000u64));
         let mut c =
             HybridLogicalClock::new("aaaa", clock_at(ms.clone()), NoPersistence).unwrap();
-        c.observe("2026-07-25T00:00:00Z");
-        c.observe("1721822400000");
+        c.observe("2026-07-25T00:00:00Z").unwrap();
+        c.observe("1721822400000").unwrap();
         assert_eq!(c.peek().millis, 0, "clock must not adopt an incomparable scale");
+    }
+
+    #[test]
+    fn observe_refuses_a_timestamp_far_in_the_future() {
+        // Without a bound, ONE client with a broken or hostile clock poisons
+        // every clock that syncs with it, and every honest write then loses to
+        // the poisoned timestamp forever.
+        let wall = 1_721_822_400_000u64;
+        let ms = Rc::new(Cell::new(wall));
+        let mut c =
+            HybridLogicalClock::new("aaaa", clock_at(ms.clone()), NoPersistence).unwrap();
+
+        let poisoned = format!("{}-0000-evil", wall + DEFAULT_MAX_DRIFT_MS + 60_000);
+        let err = c.observe(&poisoned).unwrap_err();
+        assert!(
+            matches!(err, ClockError::Drift { .. }),
+            "expected a drift refusal, got {err:?}"
+        );
+        assert_eq!(c.peek().millis, 0, "a refused timestamp must not be adopted");
+
+        // Within the bound is still adopted — ordinary skew must not break sync.
+        let tolerable = format!("{}-0000-bbbb", wall + 5_000);
+        c.observe(&tolerable).unwrap();
+        assert_eq!(c.peek().millis, wall + 5_000);
+    }
+
+    #[test]
+    fn observe_accepts_a_timestamp_in_the_past() {
+        // A remote clock *behind* ours is not drift: only future-skew poisons
+        // the order, and the subtraction must not underflow.
+        let ms = Rc::new(Cell::new(1_721_822_400_000u64));
+        let mut c =
+            HybridLogicalClock::new("aaaa", clock_at(ms.clone()), NoPersistence).unwrap();
+        c.observe("1000000000000-0001-bbbb").unwrap();
+        assert_eq!(c.peek().millis, 1_000_000_000_000);
+    }
+
+    #[test]
+    fn compose_node_id_uses_a_non_delimiter_separator() {
+        // '-' delimits the wire format, so composing with it would make
+        // parse_hlc ambiguous. The suffix is what stops two writers over one
+        // durable store from issuing identical timestamps.
+        let id = compose_node_id("device1", Some("t2"));
+        assert_eq!(id, "device1.t2");
+        assert!(parse_hlc(&format_hlc(&HlcParts {
+            millis: 1_721_822_400_000,
+            counter: 0,
+            node_id: id.clone(),
+        }))
+        .is_some_and(|p| p.node_id == id));
+
+        let a = compose_node_id("device1", None);
+        let b = compose_node_id("device1", None);
+        assert_ne!(a, b, "two instances sharing a device id must not share a node id");
+        assert!(!a.contains('-'), "{a}");
     }
 
     #[test]
