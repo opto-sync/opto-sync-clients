@@ -236,9 +236,11 @@ export const RECONCILE_SCENARIOS = [
     undefined,
   ],
   [
-    'nanosecond precision is not lost',
-    { doc: { updatedAt: 1689940800123456789, val: 'base' } },
-    { doc: { updatedAt: 1689940800123456788, val: 'stale' } },
+    // Nanosecond epochs have to travel as digit-strings to survive JS numbers
+    // at all; the engine still has to compare them by magnitude, not strcmp.
+    'digit-string nanosecond timestamps compare by magnitude',
+    { doc: { updatedAt: '1689940800123456789', val: 'base' } },
+    { doc: { updatedAt: '1689940800123456788', val: 'stale' } },
     undefined,
   ],
 ];
