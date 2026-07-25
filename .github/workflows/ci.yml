@@ -82,6 +82,14 @@ jobs:
           # clients/dart requires sdk ^3.12.1.
           sdk: stable
 
+      # clients/dart's tests open a real Drift queue through package:sqlite3,
+      # which dlopen()s the system libsqlite3.
+      - name: Install libsqlite3 (Drift/sqlite3 FFI)
+        if: matrix.dart
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libsqlite3-0
+
       # Rust stable is preinstalled on ubuntu-latest. Cache the dependency
       # downloads only -- never target/, which contains the statically linked
       # copy of the C core and could go stale against a newer syncer.c.
