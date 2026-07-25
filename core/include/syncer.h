@@ -16,7 +16,13 @@ typedef enum {
     SYNCER_ARRAY_REPLACE = 0,      /* v2 array completely replaces v1 (default) */
     SYNCER_ARRAY_APPEND,           /* concatenate v2 elements after v1 */
     SYNCER_ARRAY_UNION,            /* append only elements from v2 not already in v1 */
-    SYNCER_ARRAY_MERGE_BY_INDEX    /* merge element-wise: v1[i] deep-merged with v2[i] */
+    SYNCER_ARRAY_MERGE_BY_INDEX,   /* merge element-wise: v1[i] deep-merged with v2[i] */
+    SYNCER_ARRAY_MERGE_BY_KEY      /* match object elements by identity key(s), deep-merge
+                                      matched pairs (honoring timestamp resolution), append
+                                      unmatched v2 elements, keep v1-only elements.
+                                      Non-object elements behave like UNION (idempotent).
+                                      Contract: an identity value appears at most once per
+                                      array (duplicate matches bind to the first element). */
 } syncer_array_strategy_t;
 
 /* --------------------------------------------------------------------------
@@ -46,7 +52,12 @@ typedef struct {
     uint32_t                    max_depth;      /* 0 = unlimited */
     bool                        detect_circular_refs;
     bool                        resolve_by_timestamp; /* Enable CRDT-like timestamp resolution */
-    const char*                 timestamp_key;        /* e.g., "updatedAt", "syncedAt" (if NULL, defaults to "updatedAt") */
+    const char*                 lww_keys;             /* Comma-separated keys for Last-Write-Wins (e.g., "updatedAt,syncedAt") */
+    const char*                 fww_keys;             /* Comma-separated keys for First-Write-Wins (e.g., "createdAt") */
+    const char*                 array_match_keys;     /* Comma-separated identity keys for
+                                                         SYNCER_ARRAY_MERGE_BY_KEY (e.g., "id,uuid").
+                                                         The first listed key present in an incoming
+                                                         element is its identity. NULL = "id". */
 } syncer_merge_options_t;
 
 /**
@@ -59,7 +70,9 @@ static inline syncer_merge_options_t syncer_default_options(void) {
     opts.max_depth = 0;
     opts.detect_circular_refs = false;
     opts.resolve_by_timestamp = false;
-    opts.timestamp_key = NULL;
+    opts.lww_keys = NULL;
+    opts.fww_keys = NULL;
+    opts.array_match_keys = NULL;
     return opts;
 }
 
@@ -75,6 +88,11 @@ static inline syncer_merge_options_t syncer_default_options(void) {
  * @param opts    Pointer to options struct. NULL = use defaults.
  * @return Heap-allocated merged JSON string. Caller must call syncer_free().
  *         Returns NULL on parse error.
+ *
+ * Contract note: objects with DUPLICATE keys (allowed by RFC 8259 but
+ * producible by no mainstream serializer or jsonb store) are unsupported
+ * input — lookups bind to the first occurrence and merge results over such
+ * input are not guaranteed to be stable across repeated application.
  */
 char* syncer_merge_json_ex(const char* json1,
                             const char* json2,
@@ -92,6 +110,13 @@ char* syncer_merge_json(const char* json1,
  * Free memory allocated by the syncer library.
  */
 void syncer_free(void* ptr);
+
+/**
+ * Library version as "major.minor.patch". Static string — do not free.
+ * Lets bindings verify at load time that the shared library they found
+ * supports the API surface they were compiled against.
+ */
+const char* syncer_version(void);
 
 #ifdef __cplusplus
 }

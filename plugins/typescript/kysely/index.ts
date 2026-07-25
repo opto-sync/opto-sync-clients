@@ -1,11 +1,21 @@
 import { BaseMergeStrategy } from '../../../bindings/typescript/BaseMergeStrategy';
-import { mergeJson } from '../../../bindings/typescript/build/Release/syncer.node';
+import { mergeJson, MergeOptions } from '../../../bindings/typescript';
 import { Kysely, sql } from 'kysely';
 
 /**
+ * Merge options a plugin caller may tune. The override callback is always
+ * derived from the strategy, so it is not part of the public surface.
+ */
+export type SyncerMergeOptions = Omit<MergeOptions, 'overrideCb'>;
+
+/**
  * Kysely utility for zero-deserialization sync.
- * Kysely's pure SQL builder nature makes it the most efficient 
+ * Kysely's pure SQL builder nature makes it the most efficient
  * for our Zero-Deserialization architecture.
+ *
+ * @param options Optional merge tuning (arrayStrategy incl. MERGE_BY_KEY,
+ *                arrayMatchKeys, maxDepth, detectCircularRefs,
+ *                resolveByTimestamp, lwwKeys, fwwKeys) forwarded to the C core.
  */
 export async function kyselySyncJsonb<DB, TableName extends keyof DB, T>(
   db: Kysely<DB>,
@@ -14,7 +24,8 @@ export async function kyselySyncJsonb<DB, TableName extends keyof DB, T>(
   idValue: any,
   jsonColumn: keyof DB[TableName],
   incomingRawJson: string,
-  strategy: BaseMergeStrategy<T>
+  strategy: BaseMergeStrategy<T>,
+  options?: SyncerMergeOptions
 ) {
   // 1. Fetch raw string using sql`` tagged template
   const rawQuery = await db
@@ -26,7 +37,13 @@ export async function kyselySyncJsonb<DB, TableName extends keyof DB, T>(
   const currentRawJson = rawQuery ? rawQuery.raw_json : '{}';
 
   // 2. Merge via C FFI
-  const mergedString = mergeJson(currentRawJson, incomingRawJson, strategy.handleConflict.bind(strategy));
+  const mergedString = mergeJson(currentRawJson, incomingRawJson, {
+    ...options,
+    overrideCb: strategy.toNativeCallback(),
+  });
+  if (mergedString === null) {
+    throw new Error('opto-sync merge failed: input was not valid JSON');
+  }
 
   // 3. Save raw string directly back as JSONB
   await db
@@ -36,6 +53,6 @@ export async function kyselySyncJsonb<DB, TableName extends keyof DB, T>(
     } as any)
     .where(idColumn as any, '=', idValue)
     .execute();
-    
+
   return mergedString;
 }
