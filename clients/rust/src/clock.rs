@@ -154,6 +154,17 @@ pub trait ClockPersistence {
     fn save(&mut self, timestamp: &str);
 }
 
+/// Lets a clock own a type-erased persistence, so a struct holding a clock does
+/// not have to carry a persistence type parameter of its own.
+impl<T: ClockPersistence + ?Sized> ClockPersistence for Box<T> {
+    fn load(&self) -> Option<String> {
+        (**self).load()
+    }
+    fn save(&mut self, timestamp: &str) {
+        (**self).save(timestamp);
+    }
+}
+
 /// Non-durable persistence: the clock resets on restart. Fine for tests, not
 /// for a device that must not reissue timestamps after a crash.
 #[derive(Debug, Default)]
@@ -164,6 +175,38 @@ impl ClockPersistence for NoPersistence {
         None
     }
     fn save(&mut self, _timestamp: &str) {}
+}
+
+/// Milliseconds since the Unix epoch from the system wall clock.
+///
+/// A clock set before 1970 reads as 0 rather than panicking: the HLC's own
+/// monotonicity rule then carries logical time forward, which is strictly better
+/// than aborting the caller's write.
+pub fn system_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// A clock over the system wall clock with type-erased persistence.
+///
+/// This is the shape [`crate::OptoSyncClient`] holds, so an integrator can pass
+/// any persistence without the client growing a second type parameter.
+pub type SystemClock = HybridLogicalClock<Box<dyn ClockPersistence>>;
+
+impl SystemClock {
+    /// Build a clock reading the system wall clock.
+    ///
+    /// `node_id` must be stable per *writer*. Persist a device id and pass
+    /// [`compose_node_id`] of it — see that function for why the per-instance
+    /// suffix matters.
+    pub fn system(
+        node_id: impl Into<String>,
+        persistence: Box<dyn ClockPersistence>,
+    ) -> Result<Self, ClockError> {
+        HybridLogicalClock::new(node_id, Box::new(system_now_ms), persistence)
+    }
 }
 
 /// A hybrid logical clock.
