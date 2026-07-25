@@ -117,6 +117,36 @@ pub fn compare_hlc(a: &str, b: &str) -> std::cmp::Ordering {
     a.cmp(b)
 }
 
+/// Generate a delimiter-free random node id from the OS entropy source.
+///
+/// Persist the DEVICE id: a client that regenerates it on every launch loses
+/// consistent tie-breaking against its own past writes.
+pub fn random_node_id(byte_length: usize) -> String {
+    let mut bytes = vec![0u8; byte_length];
+    // Collision resistance is what a node id needs; `getrandom` reads the
+    // platform CSPRNG, so two installs cannot land on the same id in practice.
+    getrandom::fill(&mut bytes).expect("OS entropy source must be available");
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Compose a per-writer node id from a durable device id and a per-instance
+/// suffix.
+///
+/// The suffix is essential and easy to miss: several writers can share one
+/// durable store (a background sync task alongside the UI, two processes over
+/// one sqlite file), so they would read the same persisted device id and the
+/// same clock state and issue *identical* timestamps — reintroducing exactly the
+/// tie the node id exists to prevent.
+///
+/// Separator is `.` because `-` delimits the wire format. Pass `None` for the
+/// suffix to get a fresh random one per instance.
+pub fn compose_node_id(device_id: &str, instance_suffix: Option<&str>) -> String {
+    match instance_suffix {
+        Some(s) => format!("{device_id}.{s}"),
+        None => format!("{device_id}.{}", random_node_id(3)),
+    }
+}
+
 /// Where the clock's last state is kept so it survives a restart. Implement
 /// against whatever store already holds the mutation queue.
 pub trait ClockPersistence {
