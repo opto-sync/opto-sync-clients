@@ -44,7 +44,7 @@
     "README.md"
   ],
   "scripts": {
-    "preinstall": "node scripts/bootstrap-native-binding.mjs",
+    "postinstall": "node scripts/bootstrap-native-binding.mjs",
     "build": "tsc && tsc -p tsconfig.esm.json && node scripts/postbuild.mjs",
     "test": "npm run build && node --test",
     "test:node": "node --test test/queue.test.js test/reconcile.test.js",
@@ -60,7 +60,6 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@opto-sync/syncer": "file:../../../syncer.c/bindings/typescript",
     "@opto-sync/syncer-wasm": "file:../../../syncer.c/bindings/wasm",
     "dexie": "^4.4.4"
   },
@@ -71,5 +70,8 @@
     "jsdom": "^29.1.1",
     "playwright": "^1.56.0",
     "typescript": "^5.5.4"
+  },
+  "optionalDependencies": {
+    "@opto-sync/syncer": "file:../../../syncer.c/bindings/typescript"
   }
 }

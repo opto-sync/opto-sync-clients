@@ -1,0 +1,3 @@
+node_modules/
+# Bundles produced by the browser tests (regenerated on every run).
+test/.tmp/
