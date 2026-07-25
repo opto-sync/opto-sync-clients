@@ -141,7 +141,7 @@ class FfiSyncer implements ISyncer {
     String? libraryPath,
     this.resolveByTimestamp = true,
     this.lwwKeys = 'updatedAt,syncedAt',
-    this.fwwKeys = 'createdAt',
+    this.fwwKeys,
     this.arrayStrategy = syncer_ffi.ArrayMergeStrategy.mergeByKey,
     this.arrayMatchKeys = 'id',
     this.maxDepth = 0,
