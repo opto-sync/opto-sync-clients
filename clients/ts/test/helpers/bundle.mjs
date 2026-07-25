@@ -117,9 +117,3 @@ export async function serveBundle(html) {
     close: () => new Promise((resolve) => server.close(resolve)),
   };
 }
-
-/** Write an artifact next to the bundle (handy when debugging a failure). */
-export async function writeArtifact(name, contents) {
-  await mkdir(OUT_DIR, { recursive: true });
-  await writeFile(join(OUT_DIR, name), contents);
-}
