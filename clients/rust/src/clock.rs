@@ -174,6 +174,7 @@ pub struct HybridLogicalClock<P: ClockPersistence = NoPersistence> {
     node_id: String,
     millis: u64,
     counter: u32,
+    max_drift_ms: u64,
     now_fn: Box<dyn Fn() -> u64 + Send>,
     persistence: P,
 }
@@ -182,7 +183,19 @@ impl<P: ClockPersistence> HybridLogicalClock<P> {
     pub fn new(
         node_id: impl Into<String>,
         now_fn: Box<dyn Fn() -> u64 + Send>,
+        persistence: P,
+    ) -> Result<Self, ClockError> {
+        Self::with_max_drift(node_id, now_fn, persistence, DEFAULT_MAX_DRIFT_MS)
+    }
+
+    /// Same as [`Self::new`] with an explicit drift bound. Raise it only if you
+    /// genuinely trust peers whose clocks are that far off; lowering it makes
+    /// `observe` stricter. See [`DEFAULT_MAX_DRIFT_MS`].
+    pub fn with_max_drift(
+        node_id: impl Into<String>,
+        now_fn: Box<dyn Fn() -> u64 + Send>,
         mut persistence: P,
+        max_drift_ms: u64,
     ) -> Result<Self, ClockError> {
         let node_id = node_id.into();
         if node_id.is_empty() || node_id.contains('-') {
@@ -196,11 +209,16 @@ impl<P: ClockPersistence> HybridLogicalClock<P> {
             None => (0, 0),
         };
         let _ = &mut persistence;
-        Ok(Self { node_id, millis, counter, now_fn, persistence })
+        Ok(Self { node_id, millis, counter, max_drift_ms, now_fn, persistence })
     }
 
     pub fn node_id(&self) -> &str {
         &self.node_id
+    }
+
+    /// The drift bound enforced by [`Self::observe`].
+    pub fn max_drift_ms(&self) -> u64 {
+        self.max_drift_ms
     }
 
     pub fn peek(&self) -> HlcParts {
