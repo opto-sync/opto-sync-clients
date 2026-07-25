@@ -17,6 +17,8 @@ import { JSDOM } from 'jsdom';
 
 /* Install the browser-ish globals BEFORE importing the client, so the engine
    and Dexie both see them at module-evaluation time. */
+await import('fake-indexeddb/auto');
+
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'https://opto-sync.test/',
 });
@@ -24,7 +26,26 @@ globalThis.window = dom.window;
 globalThis.document = dom.window.document;
 globalThis.self = dom.window;
 
-await import('fake-indexeddb/auto');
+/* Dexie resolves its globals off `self`/`window` rather than off globalThis,
+   so once a jsdom window exists the fake IndexedDB has to be visible on it —
+   otherwise Dexie reports "IndexedDB API missing" even though the Node global
+   is set. */
+for (const name of [
+  'indexedDB',
+  'IDBFactory',
+  'IDBKeyRange',
+  'IDBRequest',
+  'IDBOpenDBRequest',
+  'IDBTransaction',
+  'IDBDatabase',
+  'IDBObjectStore',
+  'IDBIndex',
+  'IDBCursor',
+  'IDBCursorWithValue',
+  'IDBVersionChangeEvent',
+]) {
+  if (globalThis[name] !== undefined) dom.window[name] = globalThis[name];
+}
 
 const {
   initOptoSync,
