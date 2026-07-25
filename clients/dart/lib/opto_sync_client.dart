@@ -28,6 +28,21 @@ class LocalMutations extends Table {
   IntColumn get syncStatus => integer().withDefault(const Constant(0))();
 }
 
+/// Small key/value table for client state that is not a mutation: the durable
+/// device id and the hybrid logical clock's last issued timestamp.
+///
+/// Kept in the same database as the queue deliberately — the clock must not be
+/// able to move backwards relative to writes that are still queued, and one
+/// store makes that a single atomic unit for backup and restore.
+@DataClassName('MetaEntry')
+class Meta extends Table {
+  TextColumn get key => text()();
+  TextColumn get value => text()();
+
+  @override
+  Set<Column> get primaryKey => {key};
+}
+
 /// Sync status values for [LocalMutations.syncStatus].
 abstract final class SyncStatus {
   static const int pending = 0;
@@ -35,12 +50,34 @@ abstract final class SyncStatus {
   static const int failed = 2;
 }
 
-@DriftDatabase(tables: [LocalMutations])
+/// [Meta] key holding the durable per-install device id.
+const String metaDeviceIdKey = 'hlc.nodeId';
+
+/// [Meta] key holding the clock's last issued timestamp.
+const String metaClockKey = 'hlc.last';
+
+@DriftDatabase(tables: [LocalMutations, Meta])
 class OptoSyncDatabase extends _$OptoSyncDatabase {
   OptoSyncDatabase(super.e);
 
+  /// v1 shipped with only `local_mutations`; v2 adds `meta` for clock state.
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onCreate: (m) => m.createAll(),
+        onUpgrade: (m, from, to) async {
+          if (from < 2) {
+            // Create ONLY the new table. Recreating the schema (or bumping the
+            // version without a migration, which makes drift throw and tempts
+            // integrators into deleting the file) would drop `local_mutations`
+            // and silently discard the user's un-synced work — exactly the work
+            // an offline-first queue exists to protect.
+            await m.createTable(meta);
+          }
+        },
+      );
 }
 
 /// Abstract syncer to avoid hard coupling to the FFI layer.
