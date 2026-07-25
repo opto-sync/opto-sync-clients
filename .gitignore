@@ -1,0 +1,12 @@
+# Dependencies / build output
+**/node_modules/
+**/dist/
+**/target/
+**/.dart_tool/
+**/build/
+
+# OS / IDE
+.DS_Store
+*.swp
+.vscode/
+.idea/

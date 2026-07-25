@@ -1,0 +1,28 @@
+{
+  "name": "@opto-sync/client",
+  "version": "0.2.0",
+  "description": "Offline-first sync client: Dexie mutation queue + CRDT reconciliation via the syncer.c native merge engine",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test"
+  },
+  "keywords": [
+    "sync",
+    "crdt",
+    "offline-first",
+    "indexeddb",
+    "dexie"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@opto-sync/syncer": "file:../../../syncer.c/bindings/typescript",
+    "dexie": "^4.4.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "fake-indexeddb": "^6.2.5",
+    "typescript": "^5.5.4"
+  }
+}

@@ -1,0 +1,20 @@
+name: opto_sync_client
+description: Offline-first sync client - Drift-backed mutation queue with CRDT-style reconciliation via the syncer.c FFI core.
+version: 1.0.0
+publish_to: 'none'
+
+environment:
+  sdk: ^3.12.1
+
+dependencies:
+  drift: ^2.34.2
+  ffi: ^2.2.0
+  sqlite3: ^3.5.0
+  syncer:
+    path: ../../../syncer.c/bindings/dart
+
+dev_dependencies:
+  build_runner: ^2.15.2
+  drift_dev: ^2.34.5
+  lints: ^6.0.0
+  test: ^1.25.6
