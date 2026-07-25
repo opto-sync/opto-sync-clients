@@ -9,7 +9,7 @@
  * the test SKIPS rather than silently passing, and the jsdom + fake-indexeddb
  * coverage in browser-fallback.test.mjs stands in for it.
  */
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert';
 
 import { bundleBrowserClient, serveBundle } from './helpers/bundle.mjs';
