@@ -143,6 +143,11 @@ class NoClockPersistence implements ClockPersistence {
 
 class HybridLogicalClock {
   final String nodeId;
+
+  /// Remote timestamps further ahead than this are refused by [observe].
+  /// See [defaultMaxDriftMs].
+  final int maxDriftMs;
+
   final int Function() _now;
   final ClockPersistence _persistence;
   int _millis = 0;
@@ -152,6 +157,7 @@ class HybridLogicalClock {
     required this.nodeId,
     int Function()? now,
     ClockPersistence persistence = const NoClockPersistence(),
+    this.maxDriftMs = defaultMaxDriftMs,
   })  : _now = now ?? (() => DateTime.now().millisecondsSinceEpoch),
         // ignore: prefer_initializing_formals -- the field is private, the
         // parameter is public API, so an initializing formal is not possible.
