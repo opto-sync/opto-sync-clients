@@ -200,20 +200,55 @@ void main() {
     expect(byId(3)['text'], 'gamma');
   });
 
-  test('reconcileIncoming: createdAt FWW rejects impostor', () async {
-    final base = {
-      'id': 'acct-1',
-      'owner': 'original-owner',
-      'createdAt': '2026-01-01T00:00:00Z',
-    };
-    final impostor = {
-      'id': 'acct-1',
-      'owner': 'impostor',
-      'createdAt': '2026-07-01T00:00:00Z',
-    };
+  test('default policy has no first-write-wins keys', () {
+    // Pins the default. FWW is a node-level veto, so shipping `createdAt` here
+    // silently made whole records unwritable.
+    expect(syncer.lwwKeys, 'updatedAt,syncedAt');
+    expect(syncer.fwwKeys, isNull,
+        reason: 'createdAt must not be a default FWW key');
+  });
+
+  test('REGRESSION: a later createdAt no longer vetoes a newer write',
+      () async {
+    // With `createdAt` in fwwKeys the engine discarded this entire incoming
+    // node — the vastly newer write vanished, silently, with a successful
+    // merge, and any replica holding a later createdAt could never write to
+    // the record again. Two devices creating the same id offline guarantees it.
+    final base = {'createdAt': 100, 'updatedAt': 100, 'v': 'base'};
+    final incoming = {'createdAt': 200, 'updatedAt': 999999, 'v': 'NEWEST'};
 
     final merged =
-        await client.reconcileIncoming('accounts', 'acct-1', impostor, base);
+        await client.reconcileIncoming('records', 'r1', incoming, base);
+    expect(merged['v'], 'NEWEST',
+        reason: 'the newer write must land, not be thrown away');
+    expect(merged['updatedAt'], 999999);
+  });
+
+  test('createdAt still merges through when the record has none', () async {
+    // Dropping the veto must not lose the field.
+    final merged = await client.reconcileIncoming(
+      'records',
+      'r1',
+      {'id': 'r1', 'createdAt': 50, 'updatedAt': 200},
+      {'id': 'r1', 'updatedAt': 100},
+    );
+    expect(merged['createdAt'], 50);
+  });
+
+  test('first-write-wins is still available when asked for', () async {
+    // The capability is intact — it is just no longer the default.
+    final fww = FfiSyncer(libraryPath: locateCoreLibrary(), fwwKeys: 'createdAt');
+    final strict = OptoSyncClient(db: db, syncer: fww);
+    final merged = await strict.reconcileIncoming(
+      'accounts',
+      'acct-1',
+      {'id': 'acct-1', 'owner': 'impostor', 'createdAt': '2026-07-01T00:00:00Z'},
+      {
+        'id': 'acct-1',
+        'owner': 'original-owner',
+        'createdAt': '2026-01-01T00:00:00Z'
+      },
+    );
     expect(merged['owner'], 'original-owner');
     expect(merged['createdAt'], '2026-01-01T00:00:00Z');
   });
