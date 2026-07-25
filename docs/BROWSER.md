@@ -110,9 +110,10 @@ Verified by running it against a stock `--platform=browser` build with **no**
 
 ```js
 // app/index.js
-import { initOptoSync, createOptoSyncClient } from '@opto-sync/client';
+import { initOptoSync, createOptoSyncClient, reconcileIncoming, mergeEngineKind }
+  from '@opto-sync/client';
 await initOptoSync();
-window.demo = await createOptoSyncClient({ databaseName: 'my-app' });
+window.demo = { createOptoSyncClient, reconcileIncoming, mergeEngineKind };
 ```
 
 ```sh
