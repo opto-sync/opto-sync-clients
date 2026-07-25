@@ -44,6 +44,7 @@
     "README.md"
   ],
   "scripts": {
+    "preinstall": "node scripts/bootstrap-native-binding.mjs",
     "build": "tsc && tsc -p tsconfig.esm.json && node scripts/postbuild.mjs",
     "test": "npm run build && node --test",
     "test:node": "node --test test/queue.test.js test/reconcile.test.js",
