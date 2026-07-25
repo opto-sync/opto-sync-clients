@@ -14,20 +14,44 @@ because the data loss is silent.
 
 ## The canonical policy
 
-Every binding and plugin uses the same option set:
-
 | Option | Value |
 |---|---|
 | array strategy | `MERGE_BY_KEY` (4) |
 | array match keys | `"id"` |
 | resolve by timestamp | `true` |
 | LWW keys | `"updatedAt,syncedAt"` |
-| FWW keys | `"createdAt"` |
+| FWW keys | *(unset)* |
 
 Spelled per language: `POLICY` in `plugins/typescript/test/fixtures.ts`,
 `ReconcileOptions::default()` in the three Rust crates, `canonicalOptions()` in
 `plugins/go/gorm/syncer_test.go`, `Syncer.crdt_options/0` (re-exported as
 `OptoSyncEcto.crdt_options/1`) on the BEAM.
+
+### Why there is no FWW key
+
+`"createdAt"` used to be the canonical FWW key. It was removed because
+first-write-wins is a **node-level veto**, not protection of the `createdAt`
+field: an incoming node whose FWW key is newer than the base's is discarded
+**wholesale**, regardless of how new its `updatedAt` is.
+
+```
+base     {"doc":{"createdAt":100,"updatedAt":100,"v":"base"}}
+incoming {"doc":{"createdAt":200,"updatedAt":999999,"v":"NEWEST WRITE"}}
+result   {"doc":{"createdAt":100,"updatedAt":100,"v":"base"}}
+```
+
+Under that policy, **any replica that ends up holding a later `createdAt` for a
+record can never write to that record again** — permanently, silently, behind a
+successful response. Two devices creating the same id offline is enough. Set
+`fww_keys` only when "the first writer owns this whole node, forever" is the
+semantics you actually want. Full write-up in
+[`MERGE_SEMANTICS.md`](./MERGE_SEMANTICS.md#timestamp-resolution-lww--fww).
+
+> **Divergence to be aware of.** The opto-sync clients (TypeScript, Dart, Rust)
+> and all five opto-sync servers ship this policy today. Several plugin
+> defaults and test fixtures under `plugins/` still spell `FwwKeys:
+> "createdAt"` and have not been migrated yet; treat the table above as the
+> policy you should configure, and check the plugin you are using.
 
 ## Inventory
 
@@ -302,10 +326,14 @@ let merged: serde_json::Value = reconcile_values(&current_value, &incoming_value
 
 `ReconcileOptions` fields: `array_strategy`, `array_match_keys`,
 `resolve_by_timestamp`, `lww_keys`, `fww_keys`, `max_depth`. Note the defaults
-are **not** `MergeOptions::default()` from `syncer-rs` — they are the canonical
-CRDT policy (`MergeByKey` on `"id"`, timestamps on, `updatedAt,syncedAt` LWW,
-`createdAt` FWW). `detect_circular_refs` is hard-coded `false` and there is no
-override-callback surface (the Rust binding has none).
+are **not** `MergeOptions::default()` from `syncer-rs` — they are the CRDT
+policy (`MergeByKey` on `"id"`, timestamps on, `updatedAt,syncedAt` LWW).
+`detect_circular_refs` is hard-coded `false` and there is no override-callback
+surface (the Rust binding has none).
+
+⚠️ These crates still default `fww_keys` to `"createdAt"`, which the canonical
+policy no longer does — see [Why there is no FWW key](#why-there-is-no-fww-key).
+Set `fww_keys: String::new()` explicitly until they are migrated.
 
 Failure is `Err(ReconcileError::InvalidJson)` — one variant, covering invalid
 JSON, an interior NUL byte, and a result that will not deserialize.
@@ -319,7 +347,7 @@ db.Use(&syncer_gorm.SyncerPlugin{
         ArrayMatchKeys:     "id",
         ResolveByTimestamp: true,
         LwwKeys:            "updatedAt,syncedAt",
-        FwwKeys:            "createdAt",
+        // No FwwKeys — FWW is a node-level veto, see "Why there is no FWW key".
     },
     // Columns: []string{"doc"},  // default: every field whose DataType is json/jsonb
 })
@@ -391,8 +419,22 @@ mergeJson('{"updatedAt":"2026-06-01","keep":1}',
 ```
 
 **A root-level `updatedAt` therefore gates the whole document**, and a
-root-level `createdAt` under FWW freezes it against any later write. Put
-timestamps at the level whose reconciliation you actually want — typically on
+root-level `createdAt` under FWW freezes it against any later write — which is
+the sharper half of this trap, since a node is vetoed by an FWW key for being
+**newer**:
+
+```js
+mergeJson('{"doc":{"createdAt":100,"updatedAt":100,"v":"base"}}',
+          '{"doc":{"createdAt":200,"updatedAt":999999,"v":"NEWEST WRITE"}}',
+          { ...POLICY, fwwKeys: 'createdAt' })
+// -> {"doc":{"createdAt":100,"updatedAt":100,"v":"base"}}   ← the newest write is gone
+```
+
+Once a replica holds a later `createdAt` for a record it can never write to that
+record again, and the write still reports success. That is why `createdAt` is
+not in the canonical policy.
+
+Put timestamps at the level whose reconciliation you actually want — typically on
 each keyed array element and on each independently-editable subtree. This is why
 `plugins/typescript/test/fixtures.ts` deliberately keeps the root free of
 timestamp keys.
@@ -480,7 +522,7 @@ back to the id". Identity is value-normalized: `42` matches `"42"`. The contract
 is one identity value per array; duplicates bind to the first match and make
 results unstable.
 
-### Why `MERGE_BY_KEY` + LWW `updatedAt,syncedAt` + FWW `createdAt` is the default
+### Why `MERGE_BY_KEY` + LWW `updatedAt,syncedAt` + no FWW key is the default
 
 - **`MERGE_BY_KEY`** is the only strategy that reconciles *records* inside a
   jsonb column: a stale element is rejected while a fresh sibling in the same
@@ -491,10 +533,19 @@ results unstable.
 - **LWW on `updatedAt,syncedAt`** rejects a stale client write per record instead
   of per document. Two keys, because `updatedAt` is the application's edit clock
   and `syncedAt` is the transport's; a key participates only when **both** sides
-  carry it, so listing both is free.
-- **FWW on `createdAt`** protects the original creation record: an incoming
-  element with a *newer* `createdAt` is a re-creation attempt and loses. Without
-  it, a client replaying an old create can rewrite provenance.
+  carry it, so a document that never writes `syncedAt` is unaffected by its
+  presence in the list. That is *not* the same as free: the keys are an **OR of
+  vetoes**, so on a node that carries both, a `syncedAt` that says "the base is
+  newer" rejects the write even when `updatedAt` says the incoming one is. List
+  a key only if you want it to be able to veto on its own.
+- **No FWW key.** "FWW on `createdAt` protects the original creation record" is
+  the intuition, and it is wrong: FWW is a node-level veto, so an element whose
+  `createdAt` is newer is dropped *entirely* — its `updatedAt`, its edits, all of
+  it — and the replica that holds that `createdAt` can never write to the record
+  again. See [Why there is no FWW key](#why-there-is-no-fww-key). If you need
+  tamper-evident provenance, enforce `createdAt` immutability where you own the
+  write path (a DB trigger, or by stripping it from incoming payloads), not with
+  a merge-time veto.
 - **Idempotency**: with this policy, re-applying the same payload converges
   (`merge(merge(a,b), b) == merge(a,b)`), which is what makes a retried sync
   safe. Every plugin suite asserts it, and the core's `prop_test.c` asserts it
