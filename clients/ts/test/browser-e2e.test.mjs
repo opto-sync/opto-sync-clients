@@ -215,7 +215,7 @@ test(
       arrayMatchKeys: 'id',
       resolveByTimestamp: true,
       lwwKeys: 'updatedAt,syncedAt',
-      fwwKeys: 'createdAt',
+      // No fwwKeys — FWW is a node-level veto and therefore opt-in.
     });
 
     /* --- real IndexedDB --- */

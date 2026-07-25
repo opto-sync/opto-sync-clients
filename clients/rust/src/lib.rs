@@ -121,9 +121,10 @@ impl std::error::Error for ReconcileError {}
 /// Reconcile `incoming_json` on top of `base_json`.
 ///
 /// Returns the merged document as a JSON string. With default options, stale
-/// incoming writes lose by `updatedAt`/`syncedAt` (Last-Write-Wins), the
-/// earliest `createdAt` sticks (First-Write-Wins), and arrays of objects are
-/// merged by `id` identity.
+/// incoming writes lose by `updatedAt`/`syncedAt` (Last-Write-Wins), no key
+/// gets First-Write-Wins treatment (see [`ReconcileOptions::fww_keys`] for why
+/// `createdAt` no longer does), and arrays of objects are merged by `id`
+/// identity.
 pub fn reconcile(
     base_json: &str,
     incoming_json: &str,
