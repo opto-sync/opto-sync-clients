@@ -48,7 +48,6 @@ export async function bundleBrowserClient() {
     throw new Error(`esbuild failed:\n${JSON.stringify(result.errors, null, 2)}`);
   }
 
-  const { readFile } = await import('node:fs/promises');
   const code = await readFile(outfile, 'utf8');
 
   /* A second, minified build purely for a realistic size number: the
