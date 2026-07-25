@@ -5,7 +5,7 @@
  * looking at the identical artifact — the one asserted to be free of Node
  * builtins is the one actually executed in the browser.
  */
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createServer } from 'node:http';
