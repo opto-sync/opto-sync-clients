@@ -50,7 +50,36 @@ export async function bundleBrowserClient() {
 
   const { readFile } = await import('node:fs/promises');
   const code = await readFile(outfile, 'utf8');
-  cached = { code, bytes: Buffer.byteLength(code), path: outfile, metafile: result.metafile };
+
+  /* A second, minified build purely for a realistic size number: the
+     unminified bundle is what the regex assertions read (minification can
+     rename identifiers and mask a `require` reference), while what an app
+     actually ships is minified and gzipped. */
+  const minified = await esbuild.build({
+    entryPoints: [join(CLIENT_ROOT, 'dist', 'esm', 'browser.js')],
+    bundle: true,
+    outfile: join(OUT_DIR, 'opto-sync.browser.min.js'),
+    format: 'esm',
+    platform: 'browser',
+    target: ['es2022'],
+    minify: true,
+    logLevel: 'silent',
+  });
+  if (minified.errors.length) {
+    throw new Error(`esbuild (minified) failed:\n${JSON.stringify(minified.errors, null, 2)}`);
+  }
+  const minCode = await readFile(join(OUT_DIR, 'opto-sync.browser.min.js'), 'utf8');
+  const { gzipSync } = await import('node:zlib');
+  const minGzipBytes = gzipSync(Buffer.from(minCode), { level: 9 }).length;
+
+  cached = {
+    code,
+    bytes: Buffer.byteLength(code),
+    minBytes: Buffer.byteLength(minCode),
+    minGzipBytes,
+    path: outfile,
+    metafile: result.metafile,
+  };
   return cached;
 }
 
