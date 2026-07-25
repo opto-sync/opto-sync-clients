@@ -836,4 +836,155 @@ mod tests {
     fn core_version_is_linked() {
         assert!(core_version() >= "0.2.0");
     }
+
+    /* -------------------------------------------------------------------- */
+    /* Clock stamping                                                      */
+    /* -------------------------------------------------------------------- */
+
+    /// Clock pinned to a fixed wall time so stamps are assertable.
+    fn fixed_clock(node_id: &str, ms: u64) -> SystemClock {
+        HybridLogicalClock::new(node_id, Box::new(move || ms), Box::new(NoPersistence)).unwrap()
+    }
+
+    fn queued_payload<S: MutationStore>(client: &OptoSyncClient<S>) -> serde_json::Value {
+        serde_json::from_str(&client.store().pending()[0].payload).unwrap()
+    }
+
+    #[test]
+    fn queue_mutation_stamps_updated_at_from_the_clock() {
+        // The actual bug this fixes: an unstamped payload leaves last-write-wins
+        // at the mercy of raw device clocks, and the C core's lexicographic
+        // comparison lets an ISO-8601 writer beat an HLC writer until 2286.
+        let mut client = OptoSyncClient::new(InMemoryStore::new())
+            .with_clock(fixed_clock("rust1", 1_721_822_400_000));
+        client.queue_mutation(r#"{"id":"t1","title":"no timestamp"}"#.to_string()).unwrap();
+
+        let stamped = queued_payload(&client);
+        let ts = stamped["updatedAt"].as_str().expect("updatedAt must be stamped");
+        assert_eq!(ts, "1721822400000-0000-rust1");
+        assert!(parse_hlc(ts).is_some(), "the stamp must be a parseable HLC: {ts}");
+        assert_eq!(stamped["title"], "no timestamp", "other fields must survive");
+    }
+
+    #[test]
+    fn queue_mutation_does_not_overwrite_a_caller_supplied_updated_at() {
+        let mut client = OptoSyncClient::new(InMemoryStore::new())
+            .with_clock(fixed_clock("rust1", 1_721_822_400_000));
+        client
+            .queue_mutation(r#"{"id":"t1","updatedAt":"caller-owned"}"#.to_string())
+            .unwrap();
+        assert_eq!(queued_payload(&client)["updatedAt"], "caller-owned");
+    }
+
+    #[test]
+    fn queue_mutation_never_stamps_created_at() {
+        // createdAt belongs to whoever created the record. Inventing one only
+        // manufactures conflicts.
+        let mut client = OptoSyncClient::new(InMemoryStore::new())
+            .with_clock(fixed_clock("rust1", 1_721_822_400_000));
+        client.queue_mutation(r#"{"id":"t1"}"#.to_string()).unwrap();
+        assert!(queued_payload(&client).get("createdAt").is_none());
+    }
+
+    #[test]
+    fn queue_mutation_stamps_by_default() {
+        // Parity with the TypeScript client: stamping is on unless opted out. A
+        // client that silently does not stamp loses every conflict to one that
+        // does.
+        let mut client = OptoSyncClient::new(InMemoryStore::new());
+        assert!(client.client_id().is_some(), "the default client must have a clock");
+        client.queue_mutation(r#"{"id":"t1"}"#.to_string()).unwrap();
+        assert!(queued_payload(&client)["updatedAt"].is_string());
+    }
+
+    #[test]
+    fn without_clock_queues_the_payload_untouched() {
+        let mut client = OptoSyncClient::new(InMemoryStore::new()).without_clock();
+        client.queue_mutation(r#"{"id":"t1"}"#.to_string()).unwrap();
+        assert!(queued_payload(&client).get("updatedAt").is_none());
+        assert!(client.client_id().is_none());
+    }
+
+    #[test]
+    fn queue_mutation_reports_payloads_it_cannot_stamp() {
+        let mut client = OptoSyncClient::new(InMemoryStore::new());
+        assert_eq!(client.queue_mutation("{not json".to_string()), Err(ClientError::InvalidJson));
+        assert_eq!(
+            client.queue_mutation("[1,2,3]".to_string()),
+            Err(ClientError::NotAJsonObject),
+            "a non-object payload must be reported, not quietly queued unstamped"
+        );
+        assert!(client.store().pending().is_empty(), "nothing may be queued on error");
+    }
+
+    #[test]
+    fn stamped_writes_are_ordered_by_the_merge_engine() {
+        // End-to-end reason stamping exists: two clients whose wall clocks
+        // disagree still converge on the causally-later write.
+        let mut fast = OptoSyncClient::new(InMemoryStore::new())
+            .with_clock(fixed_clock("fast", 1_721_822_430_000)); // 30s ahead
+        let mut slow = OptoSyncClient::new(InMemoryStore::new())
+            .with_clock(fixed_clock("slow", 1_721_822_400_000));
+
+        fast.queue_mutation(r#"{"id":"r1","title":"from fast device"}"#.to_string()).unwrap();
+        let fast_edit = fast.store().pending()[0].payload.clone();
+
+        // The slow device sees the fast write, then makes a genuinely later edit.
+        slow.observe_incoming(&fast_edit).unwrap();
+        slow.queue_mutation(r#"{"id":"r1","title":"from slow device"}"#.to_string()).unwrap();
+        let slow_edit = slow.store().pending()[0].payload.clone();
+
+        for (base, incoming) in [(&fast_edit, &slow_edit), (&slow_edit, &fast_edit)] {
+            let merged = reconcile(base, incoming, &ReconcileOptions::default()).unwrap();
+            assert!(
+                merged.contains("from slow device"),
+                "the causally-later edit must survive in either order: {merged}"
+            );
+        }
+    }
+
+    #[test]
+    fn observe_incoming_walks_nested_payloads() {
+        // A pull returns collections, not one flat record, so a top-level-only
+        // walk would leave the clock behind timestamps it has already seen.
+        let mut client = OptoSyncClient::new(InMemoryStore::new())
+            .with_clock(fixed_clock("me", 1_721_822_400_000));
+        let remote = "1721822405000-00ff-peer";
+        client
+            .observe_incoming(&format!(r#"{{"rows":[{{"id":"a","updatedAt":"{remote}"}}]}}"#))
+            .unwrap();
+
+        client.queue_mutation(r#"{"id":"a","v":1}"#.to_string()).unwrap();
+        let stamp = queued_payload(&client)["updatedAt"].as_str().unwrap().to_string();
+        assert!(stamp > remote.to_string(), "{stamp} must outrank observed {remote}");
+    }
+
+    #[test]
+    fn observe_incoming_refuses_an_implausible_peer_timestamp() {
+        // Bounded trust end to end: one peer with a broken clock must not be
+        // able to drag this client's clock into the future, or every honest
+        // write here loses forever.
+        let wall = 1_721_822_400_000u64;
+        let mut client =
+            OptoSyncClient::new(InMemoryStore::new()).with_clock(fixed_clock("me", wall));
+        let poisoned = format!("{}-0000-evil", wall + DEFAULT_MAX_DRIFT_MS + 60_000);
+        let err = client
+            .observe_incoming(&format!(r#"{{"id":"a","updatedAt":"{poisoned}"}}"#))
+            .unwrap_err();
+        assert!(matches!(err, ClientError::Clock(ClockError::Drift { .. })), "{err:?}");
+
+        client.queue_mutation(r#"{"id":"a"}"#.to_string()).unwrap();
+        let stamp = queued_payload(&client)["updatedAt"].as_str().unwrap().to_string();
+        assert!(stamp < poisoned, "a refused timestamp must not be adopted: {stamp}");
+    }
+
+    #[test]
+    fn observe_incoming_ignores_legacy_timestamp_scales() {
+        let mut client = OptoSyncClient::new(InMemoryStore::new())
+            .with_clock(fixed_clock("me", 1_721_822_400_000));
+        client
+            .observe_incoming(r#"{"a":{"updatedAt":"2026-07-25T00:00:00Z"},"b":{"updatedAt":1}}"#)
+            .unwrap();
+        assert_eq!(client.clock().unwrap().peek().millis, 0);
+    }
 }
