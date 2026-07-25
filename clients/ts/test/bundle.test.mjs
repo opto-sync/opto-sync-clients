@@ -70,10 +70,17 @@ test('the native addon is not pulled into the browser bundle', () => {
 });
 
 test('the bundle stays within a sane size budget', () => {
-  // Dexie + the client + the whole CRDT engine, wasm inlined. The budget is
-  // here so an accidental dependency (or a switch to a debug wasm build) is
-  // noticed rather than shipped.
-  const kb = bundle.bytes / 1024;
-  assert.ok(kb < 500, `browser bundle is ${kb.toFixed(0)} KB, over the 500 KB budget`);
-  console.log(`      browser bundle: ${kb.toFixed(1)} KB (unminified, wasm inlined)`);
+  // Dexie + the client + the whole CRDT engine with the wasm inlined. The
+  // budget is on what actually ships (minified, gzipped) so that an accidental
+  // dependency, or a switch to a debug wasm build, is noticed rather than
+  // shipped.
+  const kb = (n) => (n / 1024).toFixed(1);
+  console.log(
+    `      browser bundle: ${kb(bundle.bytes)} KB raw, ` +
+      `${kb(bundle.minBytes)} KB minified, ${kb(bundle.minGzipBytes)} KB min+gzip`,
+  );
+  assert.ok(
+    bundle.minGzipBytes < 150 * 1024,
+    `minified+gzipped bundle is ${kb(bundle.minGzipBytes)} KB, over the 150 KB budget`,
+  );
 });
