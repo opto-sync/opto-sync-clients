@@ -651,7 +651,7 @@ mod tests {
     #[test]
     fn local_view_rebases_the_client_queue() {
         let mut client = OptoSyncClient::new(InMemoryStore::new());
-        client.queue_mutation(r#"{"id":"t1","title":"my edit","updatedAt":"1"}"#.to_string());
+        client.queue_mutation(r#"{"id":"t1","title":"my edit","updatedAt":"1"}"#.to_string()).unwrap();
 
         let server = r#"{"id":"t1","title":"server title","done":false,"updatedAt":"9000"}"#;
         let view = client.local_view(server).unwrap();
@@ -663,7 +663,7 @@ mod tests {
     #[test]
     fn local_view_settles_on_server_state_once_synced() {
         let mut client = OptoSyncClient::new(InMemoryStore::new());
-        let id = client.queue_mutation(r#"{"id":"t1","title":"my edit","updatedAt":"1"}"#.to_string());
+        let id = client.queue_mutation(r#"{"id":"t1","title":"my edit","updatedAt":"1"}"#.to_string()).unwrap();
         let server = r#"{"id":"t1","title":"server title","updatedAt":"9000"}"#;
         assert!(client.local_view(server).unwrap().contains("my edit"));
 
@@ -680,8 +680,8 @@ mod tests {
     #[test]
     fn queue_lifecycle() {
         let mut client = OptoSyncClient::new(InMemoryStore::new());
-        let a = client.queue_mutation(r#"{"op":"a"}"#.to_string());
-        let b = client.queue_mutation(r#"{"op":"b"}"#.to_string());
+        let a = client.queue_mutation(r#"{"op":"a"}"#.to_string()).unwrap();
+        let b = client.queue_mutation(r#"{"op":"b"}"#.to_string()).unwrap();
         assert_ne!(a, b);
 
         let pending = client.store().pending();
@@ -727,18 +727,61 @@ mod tests {
     }
 
     #[test]
-    fn created_at_first_write_wins() {
-        // An incoming "re-creation" with a newer createdAt must not clobber
-        // the original.
+    fn default_policy_has_no_first_write_wins_keys() {
+        // Pins the default. FWW is a node-level veto, so shipping `createdAt`
+        // here silently made whole records unwritable.
+        let opts = ReconcileOptions::default();
+        assert_eq!(opts.lww_keys, "updatedAt,syncedAt");
+        assert_eq!(opts.fww_keys, "", "createdAt must not be a default FWW key");
+        assert!(opts.to_merge_options().fww_keys.is_none());
+    }
+
+    #[test]
+    fn a_later_created_at_no_longer_vetoes_a_newer_write() {
+        // REGRESSION. With `createdAt` in fww_keys the engine discarded this
+        // entire incoming node — the vastly newer write vanished, silently, and
+        // any replica holding a later createdAt could never write to the record
+        // again. Two devices creating the same id offline guarantees that state.
+        let merged = reconcile(
+            r#"{"createdAt":100,"updatedAt":100,"v":"base"}"#,
+            r#"{"createdAt":200,"updatedAt":999999,"v":"NEWEST"}"#,
+            &ReconcileOptions::default(),
+        )
+        .unwrap();
+        assert!(merged.contains(r#""v":"NEWEST""#), "newer write must land: {merged}");
+        assert!(!merged.contains(r#""v":"base""#), "{merged}");
+    }
+
+    #[test]
+    fn first_write_wins_is_still_available_when_asked_for() {
+        // The capability is intact — it is just no longer the default. An
+        // incoming "re-creation" with a newer createdAt is vetoed on request.
+        let opts = ReconcileOptions {
+            fww_keys: "createdAt".to_string(),
+            ..ReconcileOptions::default()
+        };
         let merged = reconcile(
             r#"{"owner":"original","createdAt":100}"#,
             r#"{"owner":"recreated","createdAt":900}"#,
-            &ReconcileOptions::default(),
+            &opts,
         )
         .unwrap();
         assert!(merged.contains(r#""owner":"original""#), "{merged}");
         assert!(!merged.contains("recreated"), "{merged}");
         assert!(merged.contains(r#""createdAt":100"#), "{merged}");
+    }
+
+    #[test]
+    fn created_at_still_merges_without_fww() {
+        // Dropping the veto must not lose the field: an incoming createdAt on a
+        // record that has none is still adopted, and the LWW rule still decides.
+        let merged = reconcile(
+            r#"{"id":"r1","updatedAt":100}"#,
+            r#"{"id":"r1","createdAt":50,"updatedAt":200}"#,
+            &ReconcileOptions::default(),
+        )
+        .unwrap();
+        assert!(merged.contains(r#""createdAt":50"#), "{merged}");
     }
 
     #[test]
