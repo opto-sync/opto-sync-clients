@@ -843,7 +843,8 @@ mod tests {
 
     /// Clock pinned to a fixed wall time so stamps are assertable.
     fn fixed_clock(node_id: &str, ms: u64) -> SystemClock {
-        HybridLogicalClock::new(node_id, Box::new(move || ms), Box::new(NoPersistence)).unwrap()
+        let persistence: Box<dyn ClockPersistence> = Box::new(NoPersistence);
+        HybridLogicalClock::new(node_id, Box::new(move || ms), persistence).unwrap()
     }
 
     fn queued_payload<S: MutationStore>(client: &OptoSyncClient<S>) -> serde_json::Value {
