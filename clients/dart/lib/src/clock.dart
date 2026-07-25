@@ -207,9 +207,20 @@ class HybridLogicalClock {
   /// Advance past a timestamp observed from another node, so the next local
   /// write outranks anything already seen. Non-HLC values are ignored — their
   /// scale is not comparable and adopting one would corrupt the clock.
+  ///
+  /// Throws [ClockDriftException] when [remoteTimestamp] is more than
+  /// [maxDriftMs] ahead of local physical time. Bounded trust is the point: a
+  /// timestamp far in the future is a broken or hostile clock, not causality,
+  /// and adopting it would make every honest write lose to it indefinitely.
   Future<void> observe(String remoteTimestamp) async {
     final remote = parseHlc(remoteTimestamp);
     if (remote == null) return;
+
+    final drift = remote.millis - _now();
+    if (drift > maxDriftMs) {
+      throw ClockDriftException(remoteTimestamp, drift, maxDriftMs);
+    }
+
     if (remote.millis > _millis) {
       _millis = remote.millis;
       _counter = remote.counter;
