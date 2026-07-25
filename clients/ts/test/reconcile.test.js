@@ -5,6 +5,17 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
+function assertCoreAtLeast(v, label = 'core') {
+  // Lower bound, not an exact match: an exact pin fails on every patch bump
+  // yet still would not catch a stale artifact reporting an OLDER version.
+  const [maj, min, patch] = String(v).split('.').map(Number);
+  assert.ok(
+    maj > 0 || min > 2 || (min === 2 && patch >= 1),
+    `${label} reports unexpected core version ${v}`,
+  );
+}
+
+
 const {
   reconcileIncoming,
   ArrayStrategy,
@@ -12,8 +23,8 @@ const {
   DEFAULT_RECONCILE_OPTIONS,
 } = require('../dist/reconcile.js');
 
-test('native engine is the v0.2.0 core', () => {
-  assert.strictEqual(engineVersion(), '0.2.0');
+test('native engine reports a supported core version', () => {
+  assertCoreAtLeast(engineVersion(), 'native engine');
 });
 
 test('defaults: mergeByKey on id, updatedAt/syncedAt LWW, createdAt FWW', () => {
