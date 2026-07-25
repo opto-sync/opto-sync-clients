@@ -40,7 +40,17 @@ export interface ReconcileOptions {
   resolveByTimestamp?: boolean;
   /** Comma-separated Last-Write-Wins keys. Default: "updatedAt,syncedAt". */
   lwwKeys?: string;
-  /** Comma-separated First-Write-Wins keys. Default: "createdAt". */
+  /**
+   * Comma-separated First-Write-Wins keys. **No default** — deliberately not
+   * part of `DEFAULT_RECONCILE_OPTIONS`.
+   *
+   * FWW is a NODE-LEVEL VETO, not field protection: if the incoming node's FWW
+   * key is newer than the base's, the core rejects the **entire** incoming
+   * node, no matter how new its `updatedAt` is. A replica that ends up holding
+   * a later `createdAt` for a record can then never write to that record again
+   * — silently, with a successful response. Set this only when "the first
+   * writer owns this whole node, forever" is genuinely what you want.
+   */
   fwwKeys?: string;
 }
 
