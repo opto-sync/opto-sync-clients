@@ -148,10 +148,22 @@ serialized values, and may return replacement JSON. An unparseable return falls
 back to the default merge rather than dropping data. The returned pointer is
 freed by the core with `free()`, so it must be `malloc`-allocated.
 
-The callback is consulted for **every node where both sides are present** —
-objects, arrays (including a root-level array, at path `$`), and scalars —
-before the configured strategy descends into it. Returning `NULL` declines and
-leaves the strategy untouched.
+The callback is consulted for:
+
+| Node | Consulted? |
+|---|---|
+| scalars, and objects at any depth | yes |
+| arrays, under every strategy (incl. a root-level array, at path `$`) | yes |
+| a **scalar** element of an array under `MERGE_BY_INDEX` | yes |
+| a **matched object element** under `MERGE_BY_KEY` / `MERGE_BY_INDEX` | **no** |
+
+The exception is worth knowing: a matched object element is pushed straight onto
+the merge stack as a frame, so the callback sees the array (`$.arr`) and the keys
+*inside* the element (`$.arr[0].qty`) but never the element itself (`$.arr[0]`).
+Returning `NULL` declines and leaves the configured strategy untouched.
+
+Path indices under `MERGE_BY_KEY` are **base-array** indices — the position the
+identity matched at — not positions in the incoming array.
 
 > Arrays used to skip the callback entirely under every non-`REPLACE` strategy,
 > so an override registered for an array path was silently ignored under the
