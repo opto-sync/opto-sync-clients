@@ -278,6 +278,36 @@ impl MutationStore for InMemoryStore {
 /* Client                                                                   */
 /* ------------------------------------------------------------------------ */
 
+/// Recursively feed every string-valued LWW key to the clock.
+///
+/// Only strings are observed: a numeric `updatedAt` is a legacy epoch value on a
+/// different scale, and `HybridLogicalClock::observe` would ignore it anyway.
+fn observe_tree(
+    clock: &mut SystemClock,
+    node: &serde_json::Value,
+    keys: &[&str],
+) -> Result<(), ClientError> {
+    match node {
+        serde_json::Value::Array(items) => {
+            for item in items {
+                observe_tree(clock, item, keys)?;
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for key in keys {
+                if let Some(serde_json::Value::String(ts)) = map.get(*key) {
+                    clock.observe(ts)?;
+                }
+            }
+            for value in map.values() {
+                observe_tree(clock, value, keys)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 /// Errors from the client's payload-handling entry points.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClientError {
