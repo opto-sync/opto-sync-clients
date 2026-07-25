@@ -1,28 +1,73 @@
 {
   "name": "@opto-sync/client",
   "version": "0.2.0",
-  "description": "Offline-first sync client: Dexie mutation queue + CRDT reconciliation via the syncer.c native merge engine",
+  "description": "Offline-first sync client: Dexie mutation queue + CRDT reconciliation via the syncer.c merge engine (native addon in Node, WebAssembly in the browser)",
   "main": "dist/index.js",
+  "module": "dist/esm/index.js",
   "types": "dist/index.d.ts",
+  "browser": "dist/esm/browser.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "browser": {
+        "types": "./dist/esm/browser.d.ts",
+        "import": "./dist/esm/browser.js",
+        "require": "./dist/browser.js",
+        "default": "./dist/esm/browser.js"
+      },
+      "import": "./dist/esm/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./dist/esm/browser.d.ts",
+      "import": "./dist/esm/browser.js",
+      "require": "./dist/browser.js",
+      "default": "./dist/esm/browser.js"
+    },
+    "./reconcile": {
+      "types": "./dist/reconcile.d.ts",
+      "browser": {
+        "import": "./dist/esm/browser.js",
+        "require": "./dist/browser.js",
+        "default": "./dist/esm/browser.js"
+      },
+      "import": "./dist/esm/reconcile.js",
+      "require": "./dist/reconcile.js",
+      "default": "./dist/reconcile.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/",
+    "src/",
+    "README.md"
+  ],
   "scripts": {
-    "build": "tsc",
-    "test": "npm run build && node --test"
+    "build": "tsc && tsc -p tsconfig.esm.json && node scripts/postbuild.mjs",
+    "test": "npm run build && node --test",
+    "test:node": "node --test test/queue.test.js test/reconcile.test.js",
+    "test:browser": "node --test test/browser-e2e.test.mjs"
   },
   "keywords": [
     "sync",
     "crdt",
     "offline-first",
     "indexeddb",
-    "dexie"
+    "dexie",
+    "wasm"
   ],
   "license": "MIT",
   "dependencies": {
     "@opto-sync/syncer": "file:../../../syncer.c/bindings/typescript",
+    "@opto-sync/syncer-wasm": "file:../../../syncer.c/bindings/wasm",
     "dexie": "^4.4.4"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
+    "esbuild": "^0.25.0",
     "fake-indexeddb": "^6.2.5",
+    "playwright": "^1.56.0",
     "typescript": "^5.5.4"
   }
 }
