@@ -143,7 +143,7 @@ test('the client default merge policy is identical on both tiers', () => {
     arrayMatchKeys: 'id',
     resolveByTimestamp: true,
     lwwKeys: 'updatedAt,syncedAt',
-    fwwKeys: 'createdAt',
+    // No fwwKeys: FWW is a node-level veto, so it is opt-in on every tier.
   };
   assert.deepStrictEqual({ ...nativeClient.DEFAULT_RECONCILE_OPTIONS }, expected);
   assert.deepStrictEqual({ ...browserClient.DEFAULT_RECONCILE_OPTIONS }, expected);
