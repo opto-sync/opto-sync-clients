@@ -18,6 +18,17 @@ import { RECONCILE_SCENARIOS } from './helpers/corpus.mjs';
 /* Native results computed in Node, to compare the browser's against. */
 import * as nativeClient from '../dist/reconcile.js';
 
+function assertCoreAtLeast(v, label = 'core') {
+  // Lower bound, not an exact match: an exact pin fails on every patch bump
+  // yet still would not catch a stale artifact reporting an OLDER version.
+  const [maj, min, patch] = String(v).split('.').map(Number);
+  assert.ok(
+    maj > 0 || min > 2 || (min === 2 && patch >= 1),
+    `${label} reports unexpected core version ${v}`,
+  );
+}
+
+
 const HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>opto-sync browser harness</title></head>
 <body><script src="/opto-sync.browser.js"></script></body></html>`;
@@ -196,7 +207,7 @@ test(
     );
     assert.strictEqual(result.readyAfterInit, true);
     assert.strictEqual(result.engineKind, 'wasm', 'the browser must be running the wasm engine');
-    assert.strictEqual(result.engineVersion, '0.2.0');
+    assertCoreAtLeast(result.engineVersion, 'in-page wasm engine');
 
     /* --- the cross-tier default policy contract --- */
     assert.deepStrictEqual(result.defaults, {
@@ -304,7 +315,7 @@ test(
     assert.strictEqual(workerResult.ok, true, `worker failed: ${workerResult.error}`);
     assert.strictEqual(workerResult.hasWindow, false, 'this must be a worker, not the page');
     assert.strictEqual(workerResult.kind, 'wasm');
-    assert.strictEqual(workerResult.version, '0.2.0');
+    assertCoreAtLeast(workerResult.version, 'worker wasm engine');
     assert.strictEqual(workerResult.title, 'local', 'stale write lost inside the worker too');
   },
 );

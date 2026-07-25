@@ -15,6 +15,17 @@ import test from 'node:test';
 import assert from 'node:assert';
 import { JSDOM } from 'jsdom';
 
+function assertCoreAtLeast(v, label = 'core') {
+  // Lower bound, not an exact match: an exact pin fails on every patch bump
+  // yet still would not catch a stale artifact reporting an OLDER version.
+  const [maj, min, patch] = String(v).split('.').map(Number);
+  assert.ok(
+    maj > 0 || min > 2 || (min === 2 && patch >= 1),
+    `${label} reports unexpected core version ${v}`,
+  );
+}
+
+
 /* Install the browser-ish globals BEFORE importing the client, so the engine
    and Dexie both see them at module-evaluation time. */
 await import('fake-indexeddb/auto');
@@ -76,7 +87,7 @@ test('initOptoSync installs the wasm engine and is idempotent', async () => {
   await Promise.all([initOptoSync(), initOptoSync()]);
   assert.strictEqual(isOptoSyncReady(), true);
   assert.strictEqual(mergeEngineKind(), 'wasm');
-  assert.strictEqual(engineVersion(), '0.2.0');
+  assertCoreAtLeast(engineVersion(), 'wasm engine');
 });
 
 test('the default merge policy is unchanged on the browser path', () => {

@@ -23,12 +23,23 @@ import * as nativeClient from '../dist/reconcile.js';
 /* Browser reconcile path (wasm engine). Same source, different engine. */
 import * as browserClient from '../dist/esm/browser.js';
 
+function assertCoreAtLeast(v, label = 'core') {
+  // Lower bound, not an exact match: an exact pin fails on every patch bump
+  // yet still would not catch a stale artifact reporting an OLDER version.
+  const [maj, min, patch] = String(v).split('.').map(Number);
+  assert.ok(
+    maj > 0 || min > 2 || (min === 2 && patch >= 1),
+    `${label} reports unexpected core version ${v}`,
+  );
+}
+
+
 await wasmSyncer.initSyncer();
 await browserClient.initOptoSync();
 
 test('both engines report the same core version', () => {
   assert.strictEqual(wasmSyncer.version(), nativeSyncer.version());
-  assert.strictEqual(wasmSyncer.version(), '0.2.0');
+  assertCoreAtLeast(wasmSyncer.version(), 'wasm engine');
 });
 
 test('both engines expose the same ArrayStrategy map as the client', () => {
