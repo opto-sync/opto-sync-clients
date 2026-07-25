@@ -9,6 +9,7 @@ import { mkdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { createServer } from 'node:http';
+import { gzipSync } from 'node:zlib';
 import * as esbuild from 'esbuild';
 
 const testDir = dirname(dirname(fileURLToPath(import.meta.url)));
