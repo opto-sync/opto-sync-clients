@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:drift/drift.dart' show Value;
 import 'package:drift/native.dart';
 import 'package:opto_sync_client/opto_sync_client.dart';
 import 'package:test/test.dart';
