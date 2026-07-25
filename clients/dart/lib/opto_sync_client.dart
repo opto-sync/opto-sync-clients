@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 import 'package:syncer/syncer.dart' as syncer_ffi;
 
+import 'src/clock.dart';
+
 export 'package:syncer/syncer.dart'
     show ArrayMergeStrategy, ArrayStrategy, resolveSyncerLibraryPath;
 export 'src/clock.dart';
