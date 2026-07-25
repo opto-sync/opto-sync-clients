@@ -40,10 +40,13 @@ final client = OptoSyncClient(
 );
 
 // Optimistic local write: persisted as pending, survives an app restart.
-await client.queueMutation('todos', 'todo-1', {
-  'title': 'buy milk',
-  'updatedAt': '1721822400000',
-});
+// `updatedAt` is stamped from the client's hybrid logical clock unless you
+// supply one; `createdAt` is never stamped.
+await client.queueMutation('todos', 'todo-1', {'title': 'buy milk'});
+
+// When pulling server state, let the clock see the timestamps you received so
+// the next local write is ordered after them.
+await client.observeIncoming(incoming);
 
 // Reconcile a server payload against the local copy. A stale incoming record
 // loses; a fresh one wins and deep-merges.
@@ -51,7 +54,24 @@ final merged = await client.reconcileIncoming('todos', 'todo-1', incoming, local
 ```
 
 Defaults match every other tier: `mergeByKey` on `id`, `resolveByTimestamp`,
-LWW `updatedAt,syncedAt`, FWW `createdAt`. All are constructor-overridable.
+LWW `updatedAt,syncedAt`, and **no FWW keys**. All are constructor-overridable.
+
+`createdAt` is deliberately *not* a default first-write-wins key. FWW is a
+node-level veto, not field protection: if the incoming document's `createdAt` is
+newer, the engine discards that whole node — so a replica holding a later
+`createdAt` could never be written to again, silently. Pass
+`FfiSyncer(fwwKeys: 'createdAt')` if you genuinely want first-writer-owns.
+
+## Clock
+
+`OptoSyncClient.clock()` lazily creates a `HybridLogicalClock` persisted in the
+database's `meta` table (`hlc.nodeId`, `hlc.last`). The device id is generated
+once per install and kept; the node id adds a per-instance suffix so two writers
+over one database cannot issue identical timestamps.
+
+`observe()` refuses a remote timestamp more than `defaultMaxDriftMs` (60s) ahead
+of local time with a `ClockDriftException`, rather than adopting it — one broken
+or hostile clock would otherwise poison every clock that syncs with it.
 
 Merge failure raises `SyncerMergeException` — it is never a silently empty
 string.
