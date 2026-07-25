@@ -9,11 +9,12 @@
 //!
 //! - [`reconcile`] / [`ReconcileOptions`]: merge a base document with an
 //!   incoming one. Defaults are CRDT-flavored: Last-Write-Wins on
-//!   `updatedAt,syncedAt`, First-Write-Wins on `createdAt`, arrays merged
+//!   `updatedAt,syncedAt`, no First-Write-Wins keys, arrays merged
 //!   element-by-identity on `id`.
 //! - [`MutationStore`] / [`InMemoryStore`]: a queue of optimistic mutations
 //!   with `Pending` / `Synced` / `Failed` lifecycle.
-//! - [`OptoSyncClient`]: ties the two together.
+//! - [`OptoSyncClient`]: ties the two together, and stamps `updatedAt` from a
+//!   [`HybridLogicalClock`] so last-write-wins is actually ordered.
 
 use syncer_rs::{try_merge_json_with_options, MergeOptions};
 
