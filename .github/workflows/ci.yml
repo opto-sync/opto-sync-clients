@@ -1,0 +1,161 @@
+name: CI
+
+# Runs the three client library suites (ts / dart / rust) on Linux.
+#
+# LAYOUT: every client path-depends on the syncer.c repo as a SIBLING of this
+# one (clients/ts -> file:../../../syncer.c/bindings/typescript,
+# clients/dart -> path: ../../../syncer.c/bindings/dart,
+# clients/rust -> path = "../../../syncer.c/bindings/rust"). So both repos are
+# checked out side by side under $GITHUB_WORKSPACE:
+#
+#   $GITHUB_WORKSPACE/
+#     opto-sync-clients/   <- this repo
+#     syncer.c/            <- opto-sync/syncer.c @ main
+#
+# PLATFORM: ubuntu-latest. The CMake core build emits `libsyncer.so` here (not
+# the `libsyncer.dylib` produced on the macOS dev machines); nothing below
+# assumes an extension -- the Dart FFI resolver picks the platform name, and
+# SYNCER_LIB_PATH is set to the real .so explicitly.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Which revision of syncer.c the clients are validated against.
+  SYNCER_C_REF: main
+
+jobs:
+  clients:
+    name: clients/${{ matrix.client }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - client: ts
+            node: true
+          - client: dart
+            dart: true
+            core_shared_lib: true
+          - client: rust
+            rust: true
+    steps:
+      - name: Checkout opto-sync-clients
+        uses: actions/checkout@v4
+        with:
+          path: opto-sync-clients
+
+      # Sibling checkout so the relative path dependencies resolve. If syncer.c
+      # is ever made private, this needs a PAT in `token:`.
+      - name: Checkout syncer.c (sibling — the clients path-depend on it)
+        uses: actions/checkout@v4
+        with:
+          repository: opto-sync/syncer.c
+          ref: ${{ env.SYNCER_C_REF }}
+          path: syncer.c
+
+      # --- toolchains --------------------------------------------------------
+      - uses: actions/setup-node@v4
+        if: matrix.node
+        with:
+          node-version: '22'
+          # ~/.npm tarball cache only. node_modules and the compiled
+          # build/Release/syncer.node are never cached, so the native addon is
+          # always rebuilt from the checked-out core C sources.
+          cache: npm
+          cache-dependency-path: opto-sync-clients/clients/ts/package-lock.json
+
+      - uses: dart-lang/setup-dart@v1
+        if: matrix.dart
+        with:
+          # clients/dart requires sdk ^3.12.1.
+          sdk: stable
+
+      # Rust stable is preinstalled on ubuntu-latest. Cache the dependency
+      # downloads only -- never target/, which contains the statically linked
+      # copy of the C core and could go stale against a newer syncer.c.
+      - name: Cache cargo registry (downloads only, never target/)
+        if: matrix.rust
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: cargo-registry-${{ runner.os }}-${{ hashFiles('opto-sync-clients/clients/rust/Cargo.lock') }}
+          restore-keys: cargo-registry-${{ runner.os }}-
+
+      # --- core shared library (Dart FFI only) -------------------------------
+      # On Linux this is syncer.c/core/build/libsyncer.so.
+      - name: Build syncer.c core shared library
+        if: matrix.core_shared_lib
+        working-directory: syncer.c/core
+        run: |
+          mkdir -p build
+          cd build
+          cmake ..
+          make syncer
+          ls -l libsyncer.so
+
+      # --- clients/ts --------------------------------------------------------
+      # WORKAROUND (verified necessary, not defensive):
+      # clients/ts declares "@opto-sync/syncer": "file:../../../syncer.c/...",
+      # which npm installs as a SYMLINK. npm does not install the linked
+      # package's own dependencies, so its package-lock.json has no
+      # node-addon-api entry. `npm install` in clients/ts then runs
+      # `node-gyp rebuild` inside syncer.c/bindings/typescript, where
+      # binding.gyp evaluates `require('node-addon-api').include` -- and on a
+      # fresh checkout that throws MODULE_NOT_FOUND and the whole install fails.
+      # Installing the binding's own deps first fixes it (and yields a natively
+      # compiled addon matching this exact core revision).
+      - name: Install syncer.c TypeScript binding deps first (see comment)
+        if: matrix.client == 'ts'
+        working-directory: syncer.c/bindings/typescript
+        run: npm install
+
+      - name: clients/ts — npm install
+        if: matrix.client == 'ts'
+        working-directory: opto-sync-clients/clients/ts
+        run: npm install
+
+      - name: clients/ts — npm run build
+        if: matrix.client == 'ts'
+        working-directory: opto-sync-clients/clients/ts
+        run: npm run build
+
+      - name: clients/ts — npm test
+        if: matrix.client == 'ts'
+        working-directory: opto-sync-clients/clients/ts
+        run: npm test
+
+      # --- clients/dart ------------------------------------------------------
+      - name: clients/dart — dart pub get && dart test
+        if: matrix.client == 'dart'
+        working-directory: opto-sync-clients/clients/dart
+        env:
+          SYNCER_LIB_PATH: ${{ github.workspace }}/syncer.c/core/build/libsyncer.so
+        run: |
+          dart pub get
+          dart test
+
+      # --- clients/rust ------------------------------------------------------
+      - name: clients/rust — cargo test
+        if: matrix.client == 'rust'
+        working-directory: opto-sync-clients/clients/rust
+        run: cargo test
+
+      - name: Which suite broke
+        if: failure()
+        run: |
+          echo "::error title=opto-sync-clients clients/${{ matrix.client }} FAILED::The ${{ matrix.client }} client library suite broke. Reproduce locally with syncer.c checked out as a sibling of this repo, then see clients/${{ matrix.client }} in the README 'Building' section."

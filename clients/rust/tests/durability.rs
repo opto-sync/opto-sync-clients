@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use opto_sync_client::{Mutation, MutationStatus, MutationStore, OptoSyncClient, ReconcileOptions};
+use opto_sync_client::{Mutation, MutationStatus, MutationStore, OptoSyncClient};
 
 /// Line-oriented file store: `id \t status \t payload`.
 /// Payloads in this test are single-line JSON, which keeps the fixture trivial;
@@ -120,7 +120,7 @@ fn queued_mutations_and_statuses_survive_a_reload() {
     // ── Session 1: queue two writes "offline", then die. ────────────────
     let kept_id;
     {
-        let mut client = OptoSyncClient::new(FileStore::open(&path), ReconcileOptions::default());
+        let mut client = OptoSyncClient::new(FileStore::open(&path));
         kept_id = client.queue_mutation(r#"{"id":"r1","title":"survive a restart"}"#.to_string());
         client.queue_mutation(r#"{"id":"r2","title":"also survive"}"#.to_string());
         assert_eq!(client.store().pending().len(), 2);
@@ -139,7 +139,7 @@ fn queued_mutations_and_statuses_survive_a_reload() {
         );
         assert!(pending.iter().any(|m| m.payload.contains("survive a restart")));
 
-        let mut client = OptoSyncClient::new(store, ReconcileOptions::default());
+        let mut client = OptoSyncClient::new(store);
         assert!(client.store_mut().mark_synced(kept_id));
     }
 
@@ -164,13 +164,13 @@ fn reconcile_still_works_against_a_recovered_queue() {
     let stale_incoming = r#"{"rows":[{"id":"a","updatedAt":1,"v":"stale"}]}"#;
 
     {
-        let mut client = OptoSyncClient::new(FileStore::open(&path), ReconcileOptions::default());
+        let mut client = OptoSyncClient::new(FileStore::open(&path));
         client.queue_mutation(stale_incoming.to_string());
     }
 
     let store = FileStore::open(&path);
     let recovered = store.pending().remove(0).payload;
-    let client = OptoSyncClient::new(store, ReconcileOptions::default());
+    let client = OptoSyncClient::new(store);
     let merged = client.reconcile_incoming(local, &recovered).expect("merge must succeed");
 
     assert!(merged.contains("local"), "stale replayed write must be rejected: {merged}");
