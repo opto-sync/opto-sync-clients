@@ -143,7 +143,7 @@ test('the client default merge policy is identical on both tiers', () => {
     arrayMatchKeys: 'id',
     resolveByTimestamp: true,
     lwwKeys: 'updatedAt,syncedAt',
-    fwwKeys: 'createdAt',
+    // No fwwKeys: FWW is a node-level veto, so it is opt-in on every tier.
   };
   assert.deepStrictEqual({ ...nativeClient.DEFAULT_RECONCILE_OPTIONS }, expected);
   assert.deepStrictEqual({ ...browserClient.DEFAULT_RECONCILE_OPTIONS }, expected);
@@ -194,12 +194,28 @@ test('reconcile scenarios assert the right outcomes, not just agreement', () => 
       `${tier}: stale element must be rejected per-element`,
     );
 
+    // FWW is opt-in, so it must be requested explicitly. Both tiers must still
+    // implement the veto identically.
     const fww = client.reconcileIncoming(
       { id: 1, createdAt: 100, author: 'original' },
       { id: 1, createdAt: 300, author: 'impostor' },
+      { fwwKeys: 'createdAt' },
     );
     assert.strictEqual(fww.author, 'original', `${tier}: FWW must reject a later createdAt`);
     assert.strictEqual(fww.createdAt, 100, `${tier}: FWW keeps the earliest createdAt`);
+
+    // ...and under the DEFAULT policy the same incoming node must land, because
+    // its updatedAt is the newest write. A node-level FWW veto here would make
+    // the record permanently unwritable from this replica.
+    const noVeto = client.reconcileIncoming(
+      { doc: { createdAt: 100, updatedAt: 100, v: 'base' } },
+      { doc: { createdAt: 200, updatedAt: 999999, v: 'NEWEST WRITE' } },
+    );
+    assert.strictEqual(
+      noVeto.doc.v,
+      'NEWEST WRITE',
+      `${tier}: the default policy must not veto the newest write`,
+    );
   }
 });
 

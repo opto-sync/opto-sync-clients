@@ -11,25 +11,28 @@ Future<void> main() async {
   final syncer = FfiSyncer(
     libraryPath: resolveSyncerLibraryPath(
         directory: '../../../syncer.c/core/build'),
-    // Defaults already encode the opto-sync policy; shown here explicitly:
+    // Defaults already encode the opto-sync policy; shown here explicitly.
+    // Note fwwKeys is deliberately absent: first-write-wins is a node-level
+    // veto, so a default `createdAt` made records permanently unwritable.
     resolveByTimestamp: true,
     lwwKeys: 'updatedAt,syncedAt',
-    fwwKeys: 'createdAt',
     arrayStrategy: ArrayMergeStrategy.mergeByKey,
     arrayMatchKeys: 'id',
   );
   final client = OptoSyncClient(db: db, syncer: syncer);
 
   print('syncer core version: ${syncer.nativeVersion}');
+  print('client id: ${await client.clientId()}');
 
-  // 1. Optimistic local write, queued as pending.
+  // 1. Optimistic local write, queued as pending. No `updatedAt` supplied, so
+  //    the client stamps one from its hybrid logical clock.
   await client.queueMutation('todos', 'todo-1', {
     'id': 'todo-1',
     'title': 'water the plants',
-    'updatedAt': '2026-07-24T10:00:00Z',
   });
   final pending = await db.select(db.localMutations).get();
   print('queued mutations: ${pending.length} (status ${pending.first.syncStatus})');
+  print('stamped payload: ${pending.first.jsonPayload}');
 
   // 2. A stale server copy arrives - LWW keeps the newer local edit.
   final merged = await client.reconcileIncoming(

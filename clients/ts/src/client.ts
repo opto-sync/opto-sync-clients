@@ -175,8 +175,9 @@ export class OptoSyncClient {
     // logically-ordered timestamp the engine's last-write-wins is decided by
     // device clock skew: a device running fast wins every conflict forever, and
     // a clock that steps backwards makes its own edits vanish. `createdAt` is
-    // deliberately NOT stamped — it is first-write-wins and belongs to whoever
-    // created the record.
+    // deliberately NOT stamped: it belongs to whoever created the record, and
+    // under an opt-in `fwwKeys` policy a stamped `createdAt` would veto the
+    // whole node on the receiving side.
     let stamped = payload;
     if (this.stampUpdatedAt && payload.updatedAt === undefined) {
       const clock = await this.clock();

@@ -121,8 +121,12 @@ fn queued_mutations_and_statuses_survive_a_reload() {
     let kept_id;
     {
         let mut client = OptoSyncClient::new(FileStore::open(&path));
-        kept_id = client.queue_mutation(r#"{"id":"r1","title":"survive a restart"}"#.to_string());
-        client.queue_mutation(r#"{"id":"r2","title":"also survive"}"#.to_string());
+        kept_id = client
+            .queue_mutation(r#"{"id":"r1","title":"survive a restart"}"#.to_string())
+            .unwrap();
+        client
+            .queue_mutation(r#"{"id":"r2","title":"also survive"}"#.to_string())
+            .unwrap();
         assert_eq!(client.store().pending().len(), 2);
     } // dropped — as an app exit would
 
@@ -165,7 +169,7 @@ fn reconcile_still_works_against_a_recovered_queue() {
 
     {
         let mut client = OptoSyncClient::new(FileStore::open(&path));
-        client.queue_mutation(stale_incoming.to_string());
+        client.queue_mutation(stale_incoming.to_string()).unwrap();
     }
 
     let store = FileStore::open(&path);

@@ -3,9 +3,10 @@
  *
  * ## Why this exists
  *
- * The merge engine resolves conflicts with last-write-wins on `updatedAt` (and
- * first-write-wins on `createdAt`). That is only correct if the timestamps it
- * compares are actually ordered. A raw device wall clock is not:
+ * The merge engine resolves conflicts with last-write-wins on `updatedAt` (and,
+ * if a caller opts into `fwwKeys`, first-write-wins on those keys). That is only
+ * correct if the timestamps it compares are actually ordered. A raw device wall
+ * clock is not:
  *
  * - **Skew.** A device whose clock runs 5 minutes fast wins *every* conflict,
  *   permanently, even when its edit is genuinely older. The other device's

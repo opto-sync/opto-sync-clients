@@ -37,11 +37,29 @@ pub struct HlcParts {
     pub node_id: String,
 }
 
-#[derive(Debug)]
+/// How far ahead of local physical time an observed remote timestamp may be
+/// before it is refused.
+///
+/// Without a bound, [`HybridLogicalClock::observe`] adopts any remote value, so
+/// ONE client with a broken or hostile clock poisons every clock that syncs with
+/// it — and every honest write then loses to the poisoned timestamp forever.
+/// Reference implementations all bound this: jlongster/Actual uses 60s, uhlc-rs
+/// defaults to 500ms.
+pub const DEFAULT_MAX_DRIFT_MS: u64 = 60_000;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ClockError {
     /// The node id is empty or contains the `-` delimiter, which would make
     /// parsing ambiguous.
     InvalidNodeId(String),
+    /// A remote timestamp was further ahead of local physical time than the
+    /// configured bound, so it was refused rather than adopted. See
+    /// [`DEFAULT_MAX_DRIFT_MS`].
+    Drift {
+        remote: String,
+        drift_ms: u64,
+        max_drift_ms: u64,
+    },
 }
 
 impl fmt::Display for ClockError {
@@ -50,6 +68,11 @@ impl fmt::Display for ClockError {
             ClockError::InvalidNodeId(id) => {
                 write!(f, "node id must be non-empty and contain no '-': {id:?}")
             }
+            ClockError::Drift { remote, drift_ms, max_drift_ms } => write!(
+                f,
+                "remote timestamp {remote} is {drift_ms}ms ahead of local time \
+                 (max {max_drift_ms}ms); refusing to adopt it"
+            ),
         }
     }
 }
@@ -94,11 +117,52 @@ pub fn compare_hlc(a: &str, b: &str) -> std::cmp::Ordering {
     a.cmp(b)
 }
 
+/// Generate a delimiter-free random node id from the OS entropy source.
+///
+/// Persist the DEVICE id: a client that regenerates it on every launch loses
+/// consistent tie-breaking against its own past writes.
+pub fn random_node_id(byte_length: usize) -> String {
+    let mut bytes = vec![0u8; byte_length];
+    // Collision resistance is what a node id needs; `getrandom` reads the
+    // platform CSPRNG, so two installs cannot land on the same id in practice.
+    getrandom::fill(&mut bytes).expect("OS entropy source must be available");
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Compose a per-writer node id from a durable device id and a per-instance
+/// suffix.
+///
+/// The suffix is essential and easy to miss: several writers can share one
+/// durable store (a background sync task alongside the UI, two processes over
+/// one sqlite file), so they would read the same persisted device id and the
+/// same clock state and issue *identical* timestamps — reintroducing exactly the
+/// tie the node id exists to prevent.
+///
+/// Separator is `.` because `-` delimits the wire format. Pass `None` for the
+/// suffix to get a fresh random one per instance.
+pub fn compose_node_id(device_id: &str, instance_suffix: Option<&str>) -> String {
+    match instance_suffix {
+        Some(s) => format!("{device_id}.{s}"),
+        None => format!("{device_id}.{}", random_node_id(3)),
+    }
+}
+
 /// Where the clock's last state is kept so it survives a restart. Implement
 /// against whatever store already holds the mutation queue.
 pub trait ClockPersistence {
     fn load(&self) -> Option<String>;
     fn save(&mut self, timestamp: &str);
+}
+
+/// Lets a clock own a type-erased persistence, so a struct holding a clock does
+/// not have to carry a persistence type parameter of its own.
+impl<T: ClockPersistence + ?Sized> ClockPersistence for Box<T> {
+    fn load(&self) -> Option<String> {
+        (**self).load()
+    }
+    fn save(&mut self, timestamp: &str) {
+        (**self).save(timestamp);
+    }
 }
 
 /// Non-durable persistence: the clock resets on restart. Fine for tests, not
@@ -113,6 +177,38 @@ impl ClockPersistence for NoPersistence {
     fn save(&mut self, _timestamp: &str) {}
 }
 
+/// Milliseconds since the Unix epoch from the system wall clock.
+///
+/// A clock set before 1970 reads as 0 rather than panicking: the HLC's own
+/// monotonicity rule then carries logical time forward, which is strictly better
+/// than aborting the caller's write.
+pub fn system_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// A clock over the system wall clock with type-erased persistence.
+///
+/// This is the shape [`crate::OptoSyncClient`] holds, so an integrator can pass
+/// any persistence without the client growing a second type parameter.
+pub type SystemClock = HybridLogicalClock<Box<dyn ClockPersistence>>;
+
+impl SystemClock {
+    /// Build a clock reading the system wall clock.
+    ///
+    /// `node_id` must be stable per *writer*. Persist a device id and pass
+    /// [`compose_node_id`] of it — see that function for why the per-instance
+    /// suffix matters.
+    pub fn system(
+        node_id: impl Into<String>,
+        persistence: Box<dyn ClockPersistence>,
+    ) -> Result<Self, ClockError> {
+        HybridLogicalClock::new(node_id, Box::new(system_now_ms), persistence)
+    }
+}
+
 /// A hybrid logical clock.
 ///
 /// `now_fn` is injectable so tests can move the wall clock backwards; in
@@ -121,6 +217,7 @@ pub struct HybridLogicalClock<P: ClockPersistence = NoPersistence> {
     node_id: String,
     millis: u64,
     counter: u32,
+    max_drift_ms: u64,
     now_fn: Box<dyn Fn() -> u64 + Send>,
     persistence: P,
 }
@@ -129,7 +226,19 @@ impl<P: ClockPersistence> HybridLogicalClock<P> {
     pub fn new(
         node_id: impl Into<String>,
         now_fn: Box<dyn Fn() -> u64 + Send>,
+        persistence: P,
+    ) -> Result<Self, ClockError> {
+        Self::with_max_drift(node_id, now_fn, persistence, DEFAULT_MAX_DRIFT_MS)
+    }
+
+    /// Same as [`Self::new`] with an explicit drift bound. Raise it only if you
+    /// genuinely trust peers whose clocks are that far off; lowering it makes
+    /// `observe` stricter. See [`DEFAULT_MAX_DRIFT_MS`].
+    pub fn with_max_drift(
+        node_id: impl Into<String>,
+        now_fn: Box<dyn Fn() -> u64 + Send>,
         mut persistence: P,
+        max_drift_ms: u64,
     ) -> Result<Self, ClockError> {
         let node_id = node_id.into();
         if node_id.is_empty() || node_id.contains('-') {
@@ -143,11 +252,16 @@ impl<P: ClockPersistence> HybridLogicalClock<P> {
             None => (0, 0),
         };
         let _ = &mut persistence;
-        Ok(Self { node_id, millis, counter, now_fn, persistence })
+        Ok(Self { node_id, millis, counter, max_drift_ms, now_fn, persistence })
     }
 
     pub fn node_id(&self) -> &str {
         &self.node_id
+    }
+
+    /// The drift bound enforced by [`Self::observe`].
+    pub fn max_drift_ms(&self) -> u64 {
+        self.max_drift_ms
     }
 
     pub fn peek(&self) -> HlcParts {
@@ -176,18 +290,43 @@ impl<P: ClockPersistence> HybridLogicalClock<P> {
     /// Advance past a timestamp observed from another node, so the next local
     /// write outranks anything already seen. Non-HLC values are ignored: their
     /// scale is not comparable and adopting one would corrupt the clock.
-    pub fn observe(&mut self, remote: &str) {
-        let Some(remote) = parse_hlc(remote) else { return };
-        if remote.millis > self.millis {
-            self.millis = remote.millis;
-            self.counter = remote.counter;
-        } else if remote.millis == self.millis && remote.counter > self.counter {
-            self.counter = remote.counter;
+    ///
+    /// # Errors
+    ///
+    /// [`ClockError::Drift`] when `remote` is more than [`Self::max_drift_ms`]
+    /// ahead of local physical time. This is bounded trust, and it is why the
+    /// method returns a `Result`: a timestamp far in the future is a broken or
+    /// hostile clock, not causality, and adopting it would make every honest
+    /// write — on this client and on every client that later syncs with it —
+    /// lose to the poisoned value indefinitely. A refused timestamp leaves the
+    /// clock untouched.
+    ///
+    /// Refusal is not fatal to the sync itself: the merge does not depend on
+    /// this clock having observed the remote value, so a caller that just wants
+    /// to keep going can log the error and continue.
+    pub fn observe(&mut self, remote: &str) -> Result<(), ClockError> {
+        let Some(parsed) = parse_hlc(remote) else { return Ok(()) };
+
+        let now = (self.now_fn)();
+        if parsed.millis > now && parsed.millis - now > self.max_drift_ms {
+            return Err(ClockError::Drift {
+                remote: remote.to_string(),
+                drift_ms: parsed.millis - now,
+                max_drift_ms: self.max_drift_ms,
+            });
+        }
+
+        if parsed.millis > self.millis {
+            self.millis = parsed.millis;
+            self.counter = parsed.counter;
+        } else if parsed.millis == self.millis && parsed.counter > self.counter {
+            self.counter = parsed.counter;
         } else {
-            return;
+            return Ok(());
         }
         let ts = format_hlc(&self.peek());
         self.persistence.save(&ts);
+        Ok(())
     }
 }
 
@@ -241,11 +380,12 @@ mod tests {
 
     #[test]
     fn observe_advances_past_a_remote_timestamp() {
-        let ms = Rc::new(Cell::new(1_000_000_000_000u64));
+        let ms = Rc::new(Cell::new(1_721_822_400_000u64));
         let mut c =
             HybridLogicalClock::new("aaaa", clock_at(ms.clone()), NoPersistence).unwrap();
-        let remote = "1721822400000-00ff-bbbb";
-        c.observe(remote);
+        // 10s ahead: ordinary skew, well inside the drift bound.
+        let remote = "1721822410000-00ff-bbbb";
+        c.observe(remote).unwrap();
         let next = c.next();
         assert!(next > remote.to_string(), "{next} must outrank {remote}");
     }
@@ -255,9 +395,64 @@ mod tests {
         let ms = Rc::new(Cell::new(1_721_822_400_000u64));
         let mut c =
             HybridLogicalClock::new("aaaa", clock_at(ms.clone()), NoPersistence).unwrap();
-        c.observe("2026-07-25T00:00:00Z");
-        c.observe("1721822400000");
+        c.observe("2026-07-25T00:00:00Z").unwrap();
+        c.observe("1721822400000").unwrap();
         assert_eq!(c.peek().millis, 0, "clock must not adopt an incomparable scale");
+    }
+
+    #[test]
+    fn observe_refuses_a_timestamp_far_in_the_future() {
+        // Without a bound, ONE client with a broken or hostile clock poisons
+        // every clock that syncs with it, and every honest write then loses to
+        // the poisoned timestamp forever.
+        let wall = 1_721_822_400_000u64;
+        let ms = Rc::new(Cell::new(wall));
+        let mut c =
+            HybridLogicalClock::new("aaaa", clock_at(ms.clone()), NoPersistence).unwrap();
+
+        let poisoned = format!("{}-0000-evil", wall + DEFAULT_MAX_DRIFT_MS + 60_000);
+        let err = c.observe(&poisoned).unwrap_err();
+        assert!(
+            matches!(err, ClockError::Drift { .. }),
+            "expected a drift refusal, got {err:?}"
+        );
+        assert_eq!(c.peek().millis, 0, "a refused timestamp must not be adopted");
+
+        // Within the bound is still adopted — ordinary skew must not break sync.
+        let tolerable = format!("{}-0000-bbbb", wall + 5_000);
+        c.observe(&tolerable).unwrap();
+        assert_eq!(c.peek().millis, wall + 5_000);
+    }
+
+    #[test]
+    fn observe_accepts_a_timestamp_in_the_past() {
+        // A remote clock *behind* ours is not drift: only future-skew poisons
+        // the order, and the subtraction must not underflow.
+        let ms = Rc::new(Cell::new(1_721_822_400_000u64));
+        let mut c =
+            HybridLogicalClock::new("aaaa", clock_at(ms.clone()), NoPersistence).unwrap();
+        c.observe("1000000000000-0001-bbbb").unwrap();
+        assert_eq!(c.peek().millis, 1_000_000_000_000);
+    }
+
+    #[test]
+    fn compose_node_id_uses_a_non_delimiter_separator() {
+        // '-' delimits the wire format, so composing with it would make
+        // parse_hlc ambiguous. The suffix is what stops two writers over one
+        // durable store from issuing identical timestamps.
+        let id = compose_node_id("device1", Some("t2"));
+        assert_eq!(id, "device1.t2");
+        assert!(parse_hlc(&format_hlc(&HlcParts {
+            millis: 1_721_822_400_000,
+            counter: 0,
+            node_id: id.clone(),
+        }))
+        .is_some_and(|p| p.node_id == id));
+
+        let a = compose_node_id("device1", None);
+        let b = compose_node_id("device1", None);
+        assert_ne!(a, b, "two instances sharing a device id must not share a node id");
+        assert!(!a.contains('-'), "{a}");
     }
 
     #[test]

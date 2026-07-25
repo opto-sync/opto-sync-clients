@@ -96,7 +96,7 @@ test('the default merge policy is unchanged on the browser path', () => {
     arrayMatchKeys: 'id',
     resolveByTimestamp: true,
     lwwKeys: 'updatedAt,syncedAt',
-    fwwKeys: 'createdAt',
+    // No fwwKeys — FWW is a node-level veto and therefore opt-in.
   });
 });
 

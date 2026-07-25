@@ -126,6 +126,8 @@ export const MERGE_CORPUS = [
   ['empty string base', '', '{"a":1}', undefined],
 
   [
+    // NOTE: no fwwKeys — that IS the client default policy (see
+    // DEFAULT_RECONCILE_OPTIONS). FWW is a node-level veto, so it is opt-in.
     'the client default policy',
     '{"id":"d1","updatedAt":300,"rows":[{"id":"r1","label":"local-only"},{"id":"r2","updatedAt":9000,"label":"fresh local"}],"createdAt":100}',
     '{"id":"d1","updatedAt":100,"rows":[{"id":"r2","updatedAt":1,"label":"stale server"}],"createdAt":50}',
@@ -134,8 +136,21 @@ export const MERGE_CORPUS = [
       arrayMatchKeys: 'id',
       resolveByTimestamp: true,
       lwwKeys: 'updatedAt,syncedAt',
-      fwwKeys: 'createdAt',
     },
+  ],
+  [
+    // The veto the default policy exists to avoid: a newer createdAt sinks the
+    // whole node even though updatedAt says it is the newest write anywhere.
+    'fwwKeys vetoes a node whose LWW key is newest',
+    '{"doc":{"createdAt":100,"updatedAt":100,"v":"base"}}',
+    '{"doc":{"createdAt":200,"updatedAt":999999,"v":"NEWEST WRITE"}}',
+    { resolveByTimestamp: true, lwwKeys: 'updatedAt,syncedAt', fwwKeys: 'createdAt' },
+  ],
+  [
+    'same inputs under the default policy (no fwwKeys): newest write lands',
+    '{"doc":{"createdAt":100,"updatedAt":100,"v":"base"}}',
+    '{"doc":{"createdAt":200,"updatedAt":999999,"v":"NEWEST WRITE"}}',
+    { resolveByTimestamp: true, lwwKeys: 'updatedAt,syncedAt' },
   ],
 ];
 
@@ -166,9 +181,17 @@ export const RECONCILE_SCENARIOS = [
     undefined,
   ],
   [
-    'createdAt FWW rejects a later claimed creation',
+    // Explicit options: `createdAt` is NOT in the client default policy, so
+    // relying on `undefined` here would silently stop covering FWW.
+    'explicit fwwKeys rejects a later claimed creation',
     { id: 1, createdAt: 100, author: 'original' },
     { id: 1, createdAt: 300, author: 'impostor' },
+    { fwwKeys: 'createdAt' },
+  ],
+  [
+    'default policy accepts a newer write that carries a later createdAt',
+    { doc: { createdAt: 100, updatedAt: 100, v: 'base' } },
+    { doc: { createdAt: 200, updatedAt: 999999, v: 'NEWEST WRITE' } },
     undefined,
   ],
   [

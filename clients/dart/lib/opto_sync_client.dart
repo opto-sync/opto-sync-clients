@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 import 'package:syncer/syncer.dart' as syncer_ffi;
 
+import 'src/clock.dart';
+
 export 'package:syncer/syncer.dart'
     show ArrayMergeStrategy, ArrayStrategy, resolveSyncerLibraryPath;
 export 'src/clock.dart';
@@ -28,6 +30,21 @@ class LocalMutations extends Table {
   IntColumn get syncStatus => integer().withDefault(const Constant(0))();
 }
 
+/// Small key/value table for client state that is not a mutation: the durable
+/// device id and the hybrid logical clock's last issued timestamp.
+///
+/// Kept in the same database as the queue deliberately — the clock must not be
+/// able to move backwards relative to writes that are still queued, and one
+/// store makes that a single atomic unit for backup and restore.
+@DataClassName('MetaEntry')
+class Meta extends Table {
+  TextColumn get key => text()();
+  TextColumn get value => text()();
+
+  @override
+  Set<Column> get primaryKey => {key};
+}
+
 /// Sync status values for [LocalMutations.syncStatus].
 abstract final class SyncStatus {
   static const int pending = 0;
@@ -35,12 +52,34 @@ abstract final class SyncStatus {
   static const int failed = 2;
 }
 
-@DriftDatabase(tables: [LocalMutations])
+/// [Meta] key holding the durable per-install device id.
+const String metaDeviceIdKey = 'hlc.nodeId';
+
+/// [Meta] key holding the clock's last issued timestamp.
+const String metaClockKey = 'hlc.last';
+
+@DriftDatabase(tables: [LocalMutations, Meta])
 class OptoSyncDatabase extends _$OptoSyncDatabase {
   OptoSyncDatabase(super.e);
 
+  /// v1 shipped with only `local_mutations`; v2 adds `meta` for clock state.
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onCreate: (m) => m.createAll(),
+        onUpgrade: (m, from, to) async {
+          if (from < 2) {
+            // Create ONLY the new table. Recreating the schema (or bumping the
+            // version without a migration, which makes drift throw and tempts
+            // integrators into deleting the file) would drop `local_mutations`
+            // and silently discard the user's un-synced work — exactly the work
+            // an offline-first queue exists to protect.
+            await m.createTable(meta);
+          }
+        },
+      );
 }
 
 /// Abstract syncer to avoid hard coupling to the FFI layer.
@@ -65,14 +104,32 @@ class SyncerMergeException implements Exception {
 ///
 /// Defaults implement the opto-sync reconciliation policy:
 /// timestamp-based CRDT resolution with Last-Write-Wins on
-/// `updatedAt`/`syncedAt`, First-Write-Wins on `createdAt`, and
-/// arrays of objects merged element-wise by their `id`. Every option is
-/// overridable via the constructor.
+/// `updatedAt`/`syncedAt`, **no First-Write-Wins keys**, and arrays of objects
+/// merged element-wise by their `id`. Every option is overridable via the
+/// constructor.
 class FfiSyncer implements ISyncer {
   final syncer_ffi.Syncer _native;
 
   final bool resolveByTimestamp;
   final String? lwwKeys;
+
+  /// Comma-separated First-Write-Wins keys. **Defaults to null (none).**
+  ///
+  /// First-write-wins is not field protection, it is a **node-level veto**: when
+  /// the incoming document's FWW key is newer the engine rejects that whole
+  /// node, discarding every other field of the write. `createdAt` used to be the
+  /// default here, which meant any replica holding a later `createdAt` for a
+  /// record could never be written to again — silently, with a successful merge:
+  ///
+  /// ```text
+  /// base     {"createdAt":100,"updatedAt":100,"v":"base"}
+  /// incoming {"createdAt":200,"updatedAt":999999,"v":"NEWEST"}
+  /// result   base, unchanged — the vastly newer write is thrown away
+  /// ```
+  ///
+  /// Two devices creating the same record id offline guarantees that state. The
+  /// capability is intact for callers who genuinely want first-writer-owns-the-
+  /// node semantics; pass `fwwKeys: 'createdAt'` to opt in.
   final String? fwwKeys;
   final syncer_ffi.ArrayMergeStrategy arrayStrategy;
   final String? arrayMatchKeys;
@@ -86,7 +143,7 @@ class FfiSyncer implements ISyncer {
     String? libraryPath,
     this.resolveByTimestamp = true,
     this.lwwKeys = 'updatedAt,syncedAt',
-    this.fwwKeys = 'createdAt',
+    this.fwwKeys,
     this.arrayStrategy = syncer_ffi.ArrayMergeStrategy.mergeByKey,
     this.arrayMatchKeys = 'id',
     this.maxDepth = 0,
@@ -167,6 +224,31 @@ String rebasePending(
   return view;
 }
 
+/// [ClockPersistence] over the client's own drift database.
+///
+/// The clock lives in the same store as the queue so a restore can never hand
+/// out a timestamp that loses to a write still sitting in the queue.
+class DriftClockPersistence implements ClockPersistence {
+  final OptoSyncDatabase db;
+
+  DriftClockPersistence(this.db);
+
+  @override
+  Future<String?> load() async {
+    final row = await (db.select(db.meta)
+          ..where((t) => t.key.equals(metaClockKey)))
+        .getSingleOrNull();
+    return row?.value;
+  }
+
+  @override
+  Future<void> save(String timestamp) async {
+    await db
+        .into(db.meta)
+        .insertOnConflictUpdate(MetaEntry(key: metaClockKey, value: timestamp));
+  }
+}
+
 class OptoSyncClient {
   final OptoSyncDatabase db;
   final ISyncer syncer;
@@ -175,20 +257,141 @@ class OptoSyncClient {
   /// Must have timestamp resolution disabled — see [rebasePending].
   final ISyncer? overlaySyncer;
 
+  /// Stamp `updatedAt` from the hybrid logical clock when a queued payload does
+  /// not carry one. Default true.
+  ///
+  /// Set false only when something else supplies an *ordered* `updatedAt` — a
+  /// server-authoritative timestamp, or callers that always stamp themselves.
+  /// With no stamp at all, last-write-wins is decided by raw device clocks; and
+  /// because the C core compares non-digit strings lexicographically, a writer
+  /// supplying ISO-8601 beats an HLC writer on every conflict until the year
+  /// 2286. That is what makes an unstamped client a silently privileged one.
+  final bool stampUpdatedAt;
+
+  /// Keys [observeIncoming] scans for remote timestamps. Defaults to the
+  /// configured syncer's Last-Write-Wins keys, then to `updatedAt,syncedAt`.
+  final String lwwKeys;
+
+  /// Drift bound handed to the clock; see [defaultMaxDriftMs].
+  final int maxDriftMs;
+
+  final int Function()? _now;
+  Future<HybridLogicalClock>? _clockFuture;
+
   OptoSyncClient({
     required this.db,
     required this.syncer,
     this.overlaySyncer,
-  });
+    this.stampUpdatedAt = true,
+    this.maxDriftMs = defaultMaxDriftMs,
+    String? lwwKeys,
+    int Function()? now,
+  })  : lwwKeys = lwwKeys ??
+            (syncer is FfiSyncer ? syncer.lwwKeys : null) ??
+            'updatedAt,syncedAt',
+        // The field is private and the parameter is public API, so an
+        // initializing formal is not possible.
+        // ignore: prefer_initializing_formals
+        _now = now;
+
+  /// This client's hybrid logical clock, created on first use and backed by the
+  /// [Meta] table so it cannot go backwards across a restart.
+  ///
+  /// The DEVICE id is generated once per install and persisted — regenerating it
+  /// would lose consistent tie-breaking against this client's own past writes.
+  /// The node id adds a per-instance suffix on top ([composeNodeId]), because
+  /// several writers can share one durable store and a purely persisted node id
+  /// would let two of them emit identical timestamps.
+  Future<HybridLogicalClock> clock() => _clockFuture ??= _openClock();
+
+  Future<HybridLogicalClock> _openClock() async {
+    var deviceId = await (db.select(db.meta)
+          ..where((t) => t.key.equals(metaDeviceIdKey)))
+        .getSingleOrNull()
+        .then((row) => row?.value);
+    if (deviceId == null || deviceId.isEmpty) {
+      deviceId = randomNodeId();
+      await db
+          .into(db.meta)
+          .insertOnConflictUpdate(MetaEntry(key: metaDeviceIdKey, value: deviceId));
+    }
+    final clock = HybridLogicalClock(
+      nodeId: composeNodeId(deviceId),
+      now: _now,
+      persistence: DriftClockPersistence(db),
+      maxDriftMs: maxDriftMs,
+    );
+    await clock.restore();
+    return clock;
+  }
+
+  /// Stable per-install identity of this writer: the clock's node id. Paired
+  /// with a per-client sequence number this is what lets a server dedupe a
+  /// replayed push.
+  Future<String> clientId() async => (await clock()).nodeId;
+
+  /// Advance this client's clock past the timestamps in a payload received from
+  /// elsewhere, so its next write is ordered *after* what it has already seen.
+  ///
+  /// Call this when pulling server state; [reconcileIncoming] delegates to the
+  /// native core and cannot do it. Walks every key in [lwwKeys] at every depth,
+  /// because a pull commonly returns a collection or a nested document rather
+  /// than one flat record.
+  ///
+  /// Throws [ClockDriftException] when a peer's timestamp is implausibly far in
+  /// the future. Whatever was legitimately observed before the refusal is kept,
+  /// and the payload is still safe to merge, so a caller may log and continue.
+  Future<void> observeIncoming(Map<String, dynamic> payload) async {
+    final clock = await this.clock();
+    final keys = lwwKeys
+        .split(',')
+        .map((k) => k.trim())
+        .where((k) => k.isNotEmpty)
+        .toList(growable: false);
+    await _observeTree(clock, payload, keys);
+  }
+
+  /// Only string values are observed: a numeric `updatedAt` is a legacy epoch
+  /// value on an incomparable scale, which [HybridLogicalClock.observe] ignores
+  /// anyway.
+  Future<void> _observeTree(
+      HybridLogicalClock clock, Object? node, List<String> keys) async {
+    if (node is List) {
+      for (final item in node) {
+        await _observeTree(clock, item, keys);
+      }
+      return;
+    }
+    if (node is! Map) return;
+    for (final key in keys) {
+      final value = node[key];
+      if (value is String) await clock.observe(value);
+    }
+    for (final value in node.values) {
+      await _observeTree(clock, value, keys);
+    }
+  }
 
   /// Queue an optimistic local write. The row is persisted with
   /// [SyncStatus.pending].
+  ///
+  /// `updatedAt` is stamped from this client's [clock] unless the payload
+  /// already carries one (see [stampUpdatedAt] for why that matters).
+  /// `createdAt` is deliberately NOT stamped: it belongs to whoever created the
+  /// record, and inventing one only manufactures conflicts.
   Future<void> queueMutation(
       String tableName, String recordId, Map<String, dynamic> payload) async {
+    var stamped = payload;
+    // An explicit null counts as absent: a null timestamp orders against
+    // nothing, so leaving it would be the unstamped failure with extra steps.
+    if (stampUpdatedAt && payload['updatedAt'] == null) {
+      final clock = await this.clock();
+      stamped = {...payload, 'updatedAt': await clock.next()};
+    }
     await db.into(db.localMutations).insert(LocalMutationsCompanion.insert(
           targetTable: tableName,
           recordId: recordId,
-          jsonPayload: jsonEncode(payload),
+          jsonPayload: jsonEncode(stamped),
         ));
     _triggerBackgroundSync();
   }
