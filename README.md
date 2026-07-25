@@ -72,3 +72,13 @@ cd clients/ts   && npm install && npm test
 cd clients/dart && dart pub get && dart test
 cd clients/rust && cargo test
 ```
+
+## CI
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs all three client
+suites on `ubuntu-latest` for every push to `main`, every pull request, and on
+demand — one matrix leg per client (`clients/ts`, `clients/dart`,
+`clients/rust`) so a single language failure is legible on its own. Because the
+clients path-depend on `../syncer.c`, the workflow checks out `opto-sync/syncer.c`
+as a sibling of this repo and builds `core/build/libsyncer.so` for the Dart FFI
+leg.
