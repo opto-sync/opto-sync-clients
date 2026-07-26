@@ -85,6 +85,15 @@ jobs:
           # clients/dart requires sdk ^3.12.1.
           sdk: stable
 
+      # Ubuntu 24.04's apt package is Elixir 1.14, but Rustler 0.38 requires
+      # Elixir 1.15+ and uses System.cmd options absent from 1.14.
+      - name: Install pinned OTP and Elixir for Gleam
+        if: matrix.gleam
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '27.3'
+          elixir-version: '1.18.4'
+
       # clients/dart's tests open a real Drift queue through package:sqlite3,
       # which dlopen()s the system libsqlite3.
       - name: Install libsqlite3 (Drift/sqlite3 FFI)
@@ -188,8 +197,6 @@ jobs:
       - name: Install Gleam/BEAM toolchain
         if: matrix.client == 'gleam'
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends elixir erlang-dev erlang-eunit
           curl -fsSLO https://github.com/gleam-lang/gleam/releases/download/v1.16.0/gleam-v1.16.0-x86_64-unknown-linux-musl.tar.gz
           curl -fsSLO https://github.com/gleam-lang/gleam/releases/download/v1.16.0/gleam-v1.16.0-x86_64-unknown-linux-musl.tar.gz.sha256
           sha256sum -c gleam-v1.16.0-x86_64-unknown-linux-musl.tar.gz.sha256
