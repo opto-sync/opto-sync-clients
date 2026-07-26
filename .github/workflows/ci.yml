@@ -296,10 +296,20 @@ jobs:
 
       # plugins/typescript DOES have a package.json (@opto-sync/orm-plugins)
       # with the real ORM packages as devDependencies, so install first.
+      - name: plugins/typescript — build native reconciliation addon
+        if: matrix.name == 'typescript'
+        working-directory: bindings/typescript
+        run: npm ci
+
       - name: plugins/typescript — install
         if: matrix.name == 'typescript'
         working-directory: plugins/typescript
-        run: npm ci || npm install
+        run: npm ci
+
+      - name: plugins/typescript — generate isolated Prisma test client
+        if: matrix.name == 'typescript'
+        working-directory: plugins/typescript
+        run: npm run prisma:generate
 
       # Two configs, both load-bearing:
       #   tsconfig.json      checks against types/orm-stubs.d.ts (no ORM install)
@@ -364,10 +374,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install database development tools
+      - name: Install SQLite development tools
+        if: matrix.engine == 'sqlite'
         run: |
           sudo apt-get update
-          sudo apt-get install -y sqlite3 libsqlite3-dev postgresql postgresql-server-dev-all
+          sudo apt-get install -y sqlite3 libsqlite3-dev
+
+      # ubuntu-latest also enables PGDG. Installing Ubuntu's
+      # postgresql-server-dev-all beside PGDG's newer postgresql-common makes
+      # apt select mutually incompatible exact versions. Pin one supported
+      # server major instead; the PGDG and Ubuntu packages both provide it.
+      - name: Install PostgreSQL 16 development tools
+        if: matrix.engine == 'postgres'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            postgresql-16 postgresql-client-16 postgresql-server-dev-16
 
       - name: Strict-compile and test shared SQL option parser
         run: |
