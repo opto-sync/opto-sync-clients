@@ -14,9 +14,10 @@ reimplement reconciliation logic.
 ```
 opto-sync-clients/
   clients/
-    dart/   package opto_sync_client — Drift/SQLite mutation queue + FFI syncer
+    dart/   package opto_sync_client — Drift/SQLite or IndexedDB queue + FFI/WASM
     ts/     package @opto-sync/client — Dexie/IndexedDB mutation queue + native syncer
-    rust/   crate opto-sync-client — reconcile API + pluggable mutation store
+    rust/   crate opto-sync-client — first-party SQLite protocol store + pluggable seams
+    gleam/  package opto_sync_client — protocol queue + BEAM NIF reconciliation
 ```
 
 ## Optimistic writes
@@ -43,8 +44,9 @@ All clients delegate merging to `syncer_merge_json_ex` in the C core:
 - **Record-level**: rows with the same primary key / unique index are deep-merged.
 - **jsonb columns**: nested objects merge key-by-key; conflicts resolve by
   timestamp when enabled.
-- **Timestamps**: `updatedAt` / `syncedAt` are Last-Write-Wins keys; `createdAt`
-  is First-Write-Wins. Configurable per merge via `lwwKeys` / `fwwKeys`.
+- **Timestamps**: `updatedAt` / `syncedAt` are Last-Write-Wins keys. FWW is
+  unset by default because it vetoes a whole node; callers may opt in via
+  `fwwKeys`.
 - **Objects in arrays** (`arrayStrategy: mergeByKey`): array elements are matched
   by identity keys (`arrayMatchKeys`, default `"id"`). Matched pairs deep-merge
   with per-element timestamp resolution, new elements append, unmatched existing
@@ -80,6 +82,7 @@ issue only arises at microsecond precision and beyond.
 - [Getting started](docs/GETTING_STARTED.md) — install and a minimal example per client
 - [Browser](docs/BROWSER.md) — the WebAssembly engine, bundlers, workers
 - [Offline queue](docs/OFFLINE_QUEUE.md) — the queue model and durability guarantees
+- [Sync protocol v1](docs/SYNC_PROTOCOL_V1.md) — push dedupe, pull checkpoints, tombstones, rejection, and reset
 - [Reconciliation](docs/RECONCILIATION.md) — policy, schema guidance, timestamp conventions
 - [Merge semantics](../syncer.c/docs/MERGE_SEMANTICS.md) — the underlying contract
 - [Troubleshooting](../syncer.c/docs/TROUBLESHOOTING.md) — real failure modes
@@ -97,14 +100,16 @@ cd ../syncer.c/core && mkdir -p build && cd build && cmake .. && make syncer
 cd clients/ts   && npm install && npm test
 cd clients/dart && dart pub get && dart test
 cd clients/rust && cargo test
+cd clients/gleam && gleam deps download && gleam test
 ```
 
 ## CI
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs all three client
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs all four client
 suites on `ubuntu-latest` for every push to `main`, every pull request, and on
-demand — one matrix leg per client (`clients/ts`, `clients/dart`,
-`clients/rust`) so a single language failure is legible on its own. Because the
-clients path-depend on `../syncer.c`, the workflow checks out `opto-sync/syncer.c`
-as a sibling of this repo and builds `core/build/libsyncer.so` for the Dart FFI
-leg.
+demand. Dart's leg covers both native SQLite/FFI and real Chromium
+IndexedDB/WASM. Rust runs its first-party SQLite transaction/restart suite and
+also builds without the default `sqlite` feature. Gleam's leg compiles and
+invokes the real Rustler/C NIF.
+Because the clients path-depend on `../syncer.c`, the workflow checks out
+`opto-sync/syncer.c` as a sibling.

@@ -20,7 +20,7 @@ differential suite.
 That is a real and unusual thing to have. It is **not** a complete sync engine,
 and the gap matters.
 
-## The one pattern every engine shares, which we do not
+## The Linear pattern: now present, but not yet end-to-end
 
 Five out of five surveyed engines keep **two local layers** and merge them on
 read:
@@ -31,7 +31,7 @@ read:
 | Electric (through-the-DB pattern) | `todos_synced` | `todos_local` + a `changes` log |
 | Replicache / Zero | Client View | pending mutation list |
 | Triplit | cache | outbox |
-| Linear | IndexedDB-backed store | in-memory optimistic layer |
+| Linear | IndexedDB-backed model store | durable IndexedDB transaction queue + optimistic in-memory MobX graph |
 
 Nobody merges an optimistic write destructively into the synced copy. Keeping
 them separate is what makes it possible to:
@@ -43,13 +43,46 @@ them separate is what makes it possible to:
 - distinguish "the server has not sent me this yet" from "I wrote this and it
   has not gone up yet".
 
-**opto-sync has no local read model at all.** `OptoSyncClient` is a queue plus a
-pure `reconcileIncoming` function; your application owns its own store. So today
-*you* must implement the two-layer split. Do it — do not merge optimistic writes
-into your synced cache in place.
+opto-sync now implements the same logical split in all three clients:
+`localView`/`local_view` takes authoritative server state as the base and
+`rebasePending` replays the durable queue oldest-first. TypeScript persists the
+queue in IndexedDB through Dexie; Dart persists it in SQLite through Drift; Rust
+ships a WAL-backed `SqliteProtocolStore` and retains storage traits for other
+databases.
 
-Note this is separable from mutation *replay*: PowerSync has the pending layer
-without any rebase engine. You can take the layer and skip the replay.
+The remaining difference is ownership. Linear owns the model store,
+transaction queue, network protocol, and MobX projection as one system.
+opto-sync still leaves the synced store and UI graph to the application.
+TypeScript and Dart provide `queueMutationAtomic` / `queueDeleteAtomic` when
+the application row shares the client's IndexedDB/SQLite database. Rust's
+`queue_upsert_with` / `queue_delete_with` expose the same transaction from its
+first-party SQLite adapter. Across separate stores no library can manufacture atomicity:
+treat the queue as the durable source of optimistic intent and derive the
+rendered view with `localView`, rather than destructively writing the
+optimistic result into the synced copy.
+
+This is the architectural lesson from Linear worth preserving: local mutation
+is the foreground path; network synchronization is asynchronous infrastructure.
+Their CTO describes starting with the sync engine, and the published breakdown
+describes immediate MobX updates plus an IndexedDB transaction queue
+([technical breakdown](https://performance.dev/how-is-linear-so-fast-a-technical-breakdown),
+[Local-First FM transcript](https://www.localfirst.fm/15/transcript)).
+
+## Code-level comparison with open-source engines
+
+The useful comparison is protocol machinery, not surface API:
+
+| Engine | Source-level mechanism | What opto-sync should copy |
+|---|---|---|
+| Replicache | Rebuilds a client view by applying a server patch and replaying pending mutations in [`rebase.ts`](https://github.com/rocicorp/mono/blob/main/packages/replicache/src/db/rebase.ts) | Keep `localView`; add one cross-language mutation envelope and server watermark contract |
+| Electric | Its “through the DB” example records ordered changes, groups them by transaction, distinguishes accept/reject/retry, and rolls local state back on rejection in [`sync.ts`](https://github.com/electric-sql/electric/blob/main/examples/write-patterns/patterns/4-through-the-db/sync.ts) | Preserve transaction boundaries and make rejection a first-class queue state |
+| RxDB | Stores directional checkpoints, compare-and-swaps against an assumed master state, resolves conflicts, and treats the live stream as a `RESYNC` hint in [`upstream.ts`](https://github.com/pubkey/rxdb/blob/master/src/replication-protocol/upstream.ts) and [`checkpoint.ts`](https://github.com/pubkey/rxdb/blob/master/src/replication-protocol/checkpoint.ts) | Add opaque pull checkpoints, assumed-server revisions, and explicit resync |
+| WatermelonDB | Pulls and applies remote changes before fetching/pushing local changes, then marks exactly that fetched batch synced in [`synchronize.js`](https://github.com/Nozbe/WatermelonDB/blob/master/src/sync/impl/synchronize.js) | Snapshot a push batch and acknowledge that snapshot, not “whatever is pending now” |
+| PowerSync | Separates synced bucket storage from CRUD upload transactions, represented in [`CrudTransaction.ts`](https://github.com/powersync-ja/powersync-js/blob/main/packages/common/src/client/sync/bucket/CrudTransaction.ts) | Add transaction grouping and a durable download checkpoint; do not rely on timestamps as cursors |
+
+opto-sync’s C merge is complementary to these mechanisms. It can be the shared
+conflict handler inside a protocol, but a deterministic merge function does not
+replace ordering, acknowledgments, authorization, tombstones, or reset.
 
 ## Clocks: what we fixed, and why it mattered
 
@@ -91,19 +124,25 @@ the server sees a write, a server-stamped timestamp is strictly better. Prefer
 server stamping for `syncedAt` and use the HLC for the `updatedAt` that must
 exist before the server ever sees the write.
 
-## Gaps you must fill yourself
+## Protocol v1 closes the highest-risk gaps
 
 Ordered by how much damage they cause. None of these require adopting mutation
 replay.
 
-### 1. No server-issued acknowledgment watermark
+### 1. Acknowledgement is now explicit across TypeScript, Dart, and Rust
 
-`syncedAt` is a *client-side belief*, not a server commitment — and beliefs are
-wrong after a timeout, a retry, or a crash between "server committed" and
-"client recorded it". Replicache's rule is the one to copy: a per-client,
-monotonic `lastMutationID`, and *"the effects of a mutation and the corresponding
-update to the `lastMutationID` must be revealed atomically by the datastore"*.
-PowerSync ships a per-client incrementing op id for the same reason.
+The IndexedDB and Drift queues allocate `(clientId, mutationId)` atomically with
+their queue insert. The Rust SDK exposes a serializable, transport-neutral
+`ProtocolQueue` with the same envelope and state transitions. All three encode
+decimal IDs as strings, drain durable rejection through the server watermark,
+and persist opaque pull checkpoints.
+
+The PostgreSQL reference server in `opto-sync-e2e/servers/node/src/protocol.ts`
+commits the mutation ledger, client watermark, record effect, and change-log
+checkpoint in one transaction. The 22-case / 160-assertion protocol conformance
+suite covers ambiguous retries—including a committed write whose response
+socket disappears—content reuse, gaps, injected rollback windows, rejection,
+concurrency, tombstones, pagination, compaction, and reset.
 
 You may be tempted to argue that a deep merge is idempotent so retries are
 harmless. **It is not, for any non-LWW field.** Counters, `attempts++`, list
@@ -111,23 +150,22 @@ append, "add this member", "only transition if currently pending" — a retry
 doubles the effect. If your documents contain any such field, you need the
 watermark.
 
-### 2. No pull protocol, and `updatedAt > lastSyncedAt` is not a valid cursor
+### 2. Pull uses commit-ordered checkpoints, never timestamps
 
 A transaction that takes its timestamp at T1 but commits at T3, racing one that
-commits at T2, is invisible to a `> T2` cursor **forever**. Every surveyed engine
-uses a commit-order watermark instead: Electric's log offset (LSN-derived),
-PowerSync's `op_id` + checkpoint, Replicache's opaque orderable cookie. Use a
-monotonic sequence or LSN, not a timestamp.
+commits at T2, is invisible to a `> T2` cursor **forever**. Protocol v1 instead
+serializes checkpoint allocation under a PostgreSQL row lock, so the checkpoint
+orders commits. The contract remains transport- and database-neutral: another
+backend may use an LSN or another opaque total-order token.
 
-### 3. No divergence detection and no reset path
+### 3. Compaction has an explicit reset path
 
-If you cannot tell you have diverged, you diverge silently and permanently.
-PowerSync computes per-bucket checksums and drops a bucket on mismatch; Electric
-returns HTTP 409 `must-refetch`; Replicache has a `clear` patch and
-`ClientStateNotFound`. Implement all four steps: detect, wipe, refetch, and
-**re-apply pending** — the last is only possible with a pending layer.
+When a checkpoint predates retained change history, pull returns
+`RESET_REQUIRED`; the client replaces its authoritative store from one
+repeatable-read snapshot and then re-applies pending mutations. Checksums and
+bucket-scoped repair remain future extensions.
 
-### 4. Rejection is not modelled
+### 4. Permanent rejection is a durable mutation outcome
 
 Deep merge is a total function: it always returns an answer, so there is no
 natural place for "the server said no" (permissions, RLS, validation). Two rules
@@ -137,19 +175,18 @@ worth copying:
   forever. Replicache: mark it processed and increment the watermark anyway.
   PowerSync: return 2xx for validation errors, reserve error responses for
   transient failures — otherwise one poison-pill write blocks the queue.
-- Our reference server returns 409 on lost CAS races, which means "nothing was
-  written, retry" — treat that as transient, not as rejection.
+- Envelope conflicts such as mutation gaps and mutation-ID content reuse remain
+  HTTP 409 and roll the request back. Per-mutation validation/revision conflicts
+  are stored as `rejected`, advance the client watermark, and cannot poison the
+  queue.
 
-### 5. Deletes have no representation in a merged document
+### 5. Deletes are explicit protocol operations
 
 A timestamp cannot express "this is deleted", and absence is ambiguous between
-"deleted" and "not yet synced to me". Every surveyed engine carries deletes as
-explicit operations, and PowerSync had to write down *"deletes always win"*. Our
-reference server implements tombstones with delete-vs-update resolution
-([SERVER_GUIDE.md](../../opto-sync-e2e/docs/SERVER_GUIDE.md)); the client and
-merge layers do not. You need tombstones, a retention policy, and an answer for
-a client that was offline longer than that retention — otherwise it resurrects
-rows.
+"deleted" and "not yet synced to me". Protocol v1 carries `delete` separately
+from `upsert`, retains a tombstone revision, and requires an explicit
+revision-matched `resurrect`. A client offline beyond retention takes the reset
+path instead of replaying absence as truth.
 
 Within an array, `MERGE_BY_KEY` cannot express element *removal*: unmatched base
 elements are kept by design, so a removal looks like "the other side just didn't
@@ -163,12 +200,38 @@ a peer's stale value. Every surveyed engine keeps sync metadata strictly outside
 user data. Consider dropping `syncedAt` from `lwwKeys` and tracking it beside the
 document.
 
-### 7. No transport and no background flush
+### 7. Transport remains application-owned; orchestration now ships
 
-`triggerBackgroundSync()` is deliberately an empty hook. You supply the loop:
-single-flight, exponential backoff with jitter, online/offline detection, and
-draining in queue order. `opto-sync-e2e/test/clients/` has a working reference
-flush against the reference server.
+None of the SDKs embeds endpoint URLs, credentials, token refresh, or an HTTP
+stack. TypeScript and Dart export `ProtocolSyncLoop`; Rust exports
+`ProtocolSyncDriver`. They supply the correctness-sensitive cycle around an
+application transport:
+single-flight pull-before-push/pull-after cycles, immutable batch
+acknowledgement, `RESET_REQUIRED` snapshot installation, browser lifecycle
+wakeups, bounded paging, and exponential full-jitter retry with Retry-After
+support. Durable queue commits can wake it through
+`setBackgroundSyncTrigger(() => loop.hint())`.
+
+This follows the source-level patterns above: live events are hints, the
+checkpointed pull is authoritative, and a server page is applied before its
+checkpoint advances. TypeScript observes browser lifecycle directly, Dart
+accepts platform lifecycle hints, and Rust deliberately leaves timer/executor
+selection to the application.
+
+All three also expose a stronger same-database path: TypeScript atomic
+callbacks use `commitPullPageAtomic` / `installSnapshotAtomic`, Dart uses
+`AtomicProtocolSyncCallbacks`, and Rust uses `AtomicProtocolSyncStore` with
+`sync_cycle_atomic`. These commit authoritative rows and the pull checkpoint
+together; separate stores retain idempotent page replay.
+
+The reference PostgreSQL server now supplies the complementary database-side
+path: an `AFTER`-row `syncer_protocol_capture_change()` trigger can register
+arbitrary tenant/id/JSON column names—or a deliberately reviewed whole row—in
+the canonical record mirror and ordered pull log. This closes the earlier
+single-demo-table limitation, but deployment is still explicit: each
+authoritative table must attach the trigger (or use WAL/logical decoding or a
+mandated write service), and source-table RLS does not automatically protect
+the mirror/change log.
 
 ## Supabase specifics (verified against current docs, July 2026)
 

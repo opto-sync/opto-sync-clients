@@ -118,11 +118,13 @@ test('the two engines agree on a randomized corpus (1000 documents)', () => {
     const options = {
       arrayStrategy: Math.floor(rnd() * 5),
       resolveByTimestamp: rnd() < 0.5,
-      lwwKeys: rnd() < 0.5 ? 'updatedAt,syncedAt' : undefined,
-      fwwKeys: rnd() < 0.3 ? 'createdAt' : undefined,
-      arrayMatchKeys: rnd() < 0.3 ? 'uuid,id' : undefined,
       maxDepth: rnd() < 0.2 ? 1 + Math.floor(rnd() * 3) : 0,
     };
+    // Optional means absent. Present-with-undefined is not a JSON/wire value
+    // and the hardened native binding intentionally rejects wrong types.
+    if (rnd() < 0.5) options.lwwKeys = 'updatedAt,syncedAt';
+    if (rnd() < 0.3) options.fwwKeys = 'createdAt';
+    if (rnd() < 0.3) options.arrayMatchKeys = 'uuid,id';
     const fromNative = nativeSyncer.mergeJson(base, incoming, options);
     const fromWasm = wasmSyncer.mergeJson(base, incoming, options);
     assert.strictEqual(

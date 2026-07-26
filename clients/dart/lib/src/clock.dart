@@ -27,7 +27,11 @@ class HlcParts {
   final int counter;
   final String nodeId;
 
-  const HlcParts({required this.millis, required this.counter, required this.nodeId});
+  const HlcParts({
+    required this.millis,
+    required this.counter,
+    required this.nodeId,
+  });
 
   @override
   bool operator ==(Object other) =>
@@ -71,8 +75,10 @@ int compareHlc(String a, String b) => a.compareTo(b);
 /// past writes.
 String randomNodeId([int byteLength = 6]) {
   final rng = Random.secure();
-  return List.generate(byteLength, (_) => rng.nextInt(256).toRadixString(16).padLeft(2, '0'))
-      .join();
+  return List.generate(
+    byteLength,
+    (_) => rng.nextInt(256).toRadixString(16).padLeft(2, '0'),
+  ).join();
 }
 
 /// Compose a per-writer node id from a durable device id and a per-instance
@@ -118,7 +124,8 @@ class ClockDriftException implements Exception {
   ClockDriftException(this.remote, this.driftMs, this.maxDriftMs);
 
   @override
-  String toString() => 'ClockDriftException: remote timestamp $remote is '
+  String toString() =>
+      'ClockDriftException: remote timestamp $remote is '
       '${driftMs}ms ahead of local time (max ${maxDriftMs}ms); '
       'refusing to adopt it';
 }
@@ -158,11 +165,11 @@ class HybridLogicalClock {
     int Function()? now,
     ClockPersistence persistence = const NoClockPersistence(),
     this.maxDriftMs = defaultMaxDriftMs,
-  })  : _now = now ?? (() => DateTime.now().millisecondsSinceEpoch),
-        // The field is private and the parameter is public API, so an
-        // initializing formal is not possible.
-        // ignore: prefer_initializing_formals
-        _persistence = persistence {
+  }) : _now = now ?? (() => DateTime.now().millisecondsSinceEpoch),
+       // The field is private and the parameter is public API, so an
+       // initializing formal is not possible.
+       // ignore: prefer_initializing_formals
+       _persistence = persistence {
     if (nodeId.isEmpty) {
       throw ArgumentError.value(nodeId, 'nodeId', 'must not be empty');
     }
@@ -184,7 +191,8 @@ class HybridLogicalClock {
     _counter = parts.counter;
   }
 
-  HlcParts peek() => HlcParts(millis: _millis, counter: _counter, nodeId: nodeId);
+  HlcParts peek() =>
+      HlcParts(millis: _millis, counter: _counter, nodeId: nodeId);
 
   /// Issue the next timestamp: strictly greater than every timestamp this clock
   /// has issued or observed, even if the wall clock jumped backwards.

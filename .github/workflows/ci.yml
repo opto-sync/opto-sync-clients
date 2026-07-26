@@ -1,6 +1,7 @@
 name: CI
 
-# Runs the three client library suites (ts / dart / rust) on Linux.
+# Runs the TypeScript, Dart, Rust, and Gleam client suites on Linux. Dart is
+# tested twice: against native SQLite/FFI and in Chromium against IndexedDB/WASM.
 #
 # LAYOUT: every client path-depends on the syncer.c repo as a SIBLING of this
 # one (clients/ts -> file:../../../syncer.c/bindings/typescript,
@@ -50,6 +51,8 @@ jobs:
             core_shared_lib: true
           - client: rust
             rust: true
+          - client: gleam
+            gleam: true
     steps:
       - name: Checkout opto-sync-clients
         uses: actions/checkout@v4
@@ -67,7 +70,7 @@ jobs:
 
       # --- toolchains --------------------------------------------------------
       - uses: actions/setup-node@v4
-        if: matrix.node
+        if: matrix.client == 'ts' || matrix.client == 'dart'
         with:
           node-version: '22'
           # ~/.npm tarball cache only. node_modules and the compiled
@@ -128,12 +131,12 @@ jobs:
       # Installing the binding's own deps first fixes it (and yields a natively
       # compiled addon matching this exact core revision).
       - name: Install syncer.c TypeScript binding deps first (see comment)
-        if: matrix.client == 'ts'
+        if: matrix.client == 'ts' || matrix.client == 'dart'
         working-directory: syncer.c/bindings/typescript
         run: npm install
 
       - name: clients/ts — npm install
-        if: matrix.client == 'ts'
+        if: matrix.client == 'ts' || matrix.client == 'dart'
         working-directory: opto-sync-clients/clients/ts
         run: npm install
 
@@ -148,20 +151,70 @@ jobs:
         run: npm test
 
       # --- clients/dart ------------------------------------------------------
-      - name: clients/dart — dart pub get && dart test
+      - name: clients/dart — analyze and native SQLite/FFI tests
         if: matrix.client == 'dart'
         working-directory: opto-sync-clients/clients/dart
         env:
           SYNCER_LIB_PATH: ${{ github.workspace }}/syncer.c/core/build/libsyncer.so
         run: |
           dart pub get
+          dart analyze
           dart test
 
+      - name: Install Chromium for Dart IndexedDB/WASM test
+        if: matrix.client == 'dart'
+        working-directory: opto-sync-clients/clients/ts
+        run: npx playwright install --with-deps chromium
+
+      - name: clients/dart — real Chromium IndexedDB/WASM test
+        if: matrix.client == 'dart'
+        working-directory: opto-sync-clients/clients/dart
+        run: node tool/web_e2e.mjs
+
       # --- clients/rust ------------------------------------------------------
-      - name: clients/rust — cargo test
+      - name: clients/rust — SQLite, core-only, format, and lint
         if: matrix.client == 'rust'
         working-directory: opto-sync-clients/clients/rust
-        run: cargo test
+        run: |
+          cargo fmt --check
+          cargo test --all-targets
+          cargo test --no-default-features --all-targets
+          cargo clippy --all-targets --all-features -- -D warnings
+
+      # --- clients/gleam -----------------------------------------------------
+      # The Gleam SDK calls the dedicated BEAM wrapper for reconciliation, so
+      # this job compiles the actual Rustler/C NIF rather than substituting a
+      # pure-Gleam merge.
+      - name: Install Gleam/BEAM toolchain
+        if: matrix.client == 'gleam'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends elixir erlang-dev erlang-eunit
+          curl -fsSLO https://github.com/gleam-lang/gleam/releases/download/v1.16.0/gleam-v1.16.0-x86_64-unknown-linux-musl.tar.gz
+          curl -fsSLO https://github.com/gleam-lang/gleam/releases/download/v1.16.0/gleam-v1.16.0-x86_64-unknown-linux-musl.tar.gz.sha256
+          sha256sum -c gleam-v1.16.0-x86_64-unknown-linux-musl.tar.gz.sha256
+          sudo tar -xzf gleam-v1.16.0-x86_64-unknown-linux-musl.tar.gz -C /usr/local/bin gleam
+
+      - name: Build the BEAM reconciliation NIF for Gleam
+        if: matrix.client == 'gleam'
+        working-directory: syncer.c/bindings/beam
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          mix compile
+
+      - name: clients/gleam — protocol and native reconciliation tests
+        if: matrix.client == 'gleam'
+        working-directory: opto-sync-clients/clients/gleam
+        env:
+          OPTO_SYNC_BEAM_EBIN: ../../../syncer.c/bindings/beam/_build/dev/lib/opto_sync_nif/ebin
+        run: |
+          gleam deps download
+          gleam format --check src test
+          OPTO_SYNC_ELIXIR_EBIN="$(
+            elixir -e 'IO.puts(Path.join(:code.lib_dir(:elixir), "ebin"))'
+          )" gleam test
 
       - name: Which suite broke
         if: failure()

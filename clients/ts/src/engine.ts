@@ -51,7 +51,9 @@ export interface MergeOptions {
   maxDepth?: number;
   detectCircularRefs?: boolean;
   resolveByTimestamp?: boolean;
+  /** Comma-separated timestamp selectors: direct keys or `#/...` JSON Pointers. */
   lwwKeys?: string;
+  /** Comma-separated timestamp selectors: direct keys or `#/...` JSON Pointers. */
   fwwKeys?: string;
 }
 
