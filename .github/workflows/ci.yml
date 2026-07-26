@@ -408,7 +408,10 @@ jobs:
       - name: PostgreSQL extension and trigger
         if: matrix.engine == 'postgres'
         working-directory: bindings/sql/postgres
-        run: make clean test-local
+        # PGDG's PGXS enables optional LLVM bitcode but does not depend on the
+        # versioned clang binary it configured (currently clang-19). The shared
+        # extension and live trigger test do not require install-time bitcode.
+        run: make clean test-local with_llvm=no
 
       - name: Which suite broke
         if: failure()
