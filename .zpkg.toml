@@ -13,6 +13,7 @@ url = "https://github.com/opto-sync/opto-sync-clients"
 [publish]
 include_readme = true
 tag_format = "v{version}"
+smoke_test = "python3 \"$ZED_PKG_TEST_TARGET/scripts/check-package-layout.py\""
 exclude = [
   ".zed/**",
   "syncer.c/.git",
