@@ -1,0 +1,54 @@
+name: Refresh TypeScript lock (DEN-35)
+
+on:
+  push:
+    branches:
+      - agent/DEN-35-pinned-core-zpkg
+    paths:
+      - '.github/workflows/refresh-ts-lock.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: den-35-refresh-ts-lock
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout feature branch with pinned core
+        uses: actions/checkout@v4
+        with:
+          ref: agent/DEN-35-pinned-core-zpkg
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Regenerate package-lock without running native scripts
+        working-directory: clients/ts
+        run: npm install --package-lock-only --ignore-scripts
+
+      - name: Verify the dependency boundary
+        run: python3 scripts/check-dependency-boundary.py
+
+      - name: Commit the generated lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- clients/ts/package-lock.json; then
+            echo 'package-lock.json was already current'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add clients/ts/package-lock.json
+          git commit -m 'DEN-35 refresh TypeScript lock for pinned core'
+          git push origin HEAD:agent/DEN-35-pinned-core-zpkg
