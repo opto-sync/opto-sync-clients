@@ -11,7 +11,7 @@ name: CI
 #
 #   $GITHUB_WORKSPACE/
 #     opto-sync-clients/   <- this repo
-#     syncer.c/            <- opto-sync/syncer.c @ main
+#     syncer.c/            <- pinned compatible opto-sync/syncer.c revision
 #
 # PLATFORM: ubuntu-latest. The CMake core build emits `libsyncer.so` here (not
 # the `libsyncer.dylib` produced on the macOS dev machines); nothing below
@@ -23,6 +23,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      syncer_ref:
+        description: 'Optional syncer.c ref for forward-compatibility testing (for example main)'
+        required: false
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -32,10 +37,24 @@ permissions:
   contents: read
 
 env:
-  # Which revision of syncer.c the clients are validated against.
-  SYNCER_C_REF: main
+  # Reproducible default: this exact engine revision passed its complete native,
+  # sanitizer, deterministic Zed package, installed-artifact, and r2g suites.
+  # Manual dispatch may override it to test forward compatibility deliberately.
+  SYNCER_C_REF: f6a56d070779404acf188ffac766e39741a15466
 
 jobs:
+  packaging-contract:
+    name: Zed packaging readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout opto-sync-clients
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate source package and reject incomplete targets
+        run: python3 scripts/check-zed-packaging.py
+
   clients:
     name: clients/${{ matrix.client }}
     runs-on: ubuntu-latest
@@ -58,15 +77,19 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: opto-sync-clients
+          persist-credentials: false
 
-      # Sibling checkout so the relative path dependencies resolve. If syncer.c
-      # is ever made private, this needs a PAT in `token:`.
-      - name: Checkout syncer.c (sibling — the clients path-depend on it)
+      # Sibling checkout so the relative path dependencies resolve. The default
+      # ref is immutable; workflow_dispatch can override it for compatibility
+      # testing. If syncer.c is ever made private, use a least-privilege read
+      # token rather than persisting the workflow token into either worktree.
+      - name: Checkout syncer.c (pinned sibling dependency)
         uses: actions/checkout@v4
         with:
           repository: opto-sync/syncer.c
-          ref: ${{ env.SYNCER_C_REF }}
+          ref: ${{ github.event.inputs.syncer_ref || env.SYNCER_C_REF }}
           path: syncer.c
+          persist-credentials: false
 
       # --- toolchains --------------------------------------------------------
       - uses: actions/setup-node@v4
@@ -129,25 +152,18 @@ jobs:
           ls -l libsyncer.so
 
       # --- clients/ts --------------------------------------------------------
-      # WORKAROUND (verified necessary, not defensive):
-      # clients/ts declares "@opto-sync/syncer": "file:../../../syncer.c/...",
-      # which npm installs as a SYMLINK. npm does not install the linked
-      # package's own dependencies, so its package-lock.json has no
-      # node-addon-api entry. `npm install` in clients/ts then runs
-      # `node-gyp rebuild` inside syncer.c/bindings/typescript, where
-      # binding.gyp evaluates `require('node-addon-api').include` -- and on a
-      # fresh checkout that throws MODULE_NOT_FOUND and the whole install fails.
-      # Installing the binding's own deps first fixes it (and yields a natively
-      # compiled addon matching this exact core revision).
-      - name: Install syncer.c TypeScript binding deps first (see comment)
+      # clients/ts declares local syncer packages. npm links those packages but
+      # does not install the linked package's own dependencies. Install the
+      # binding's committed dependency graph first, then the client's.
+      - name: Install locked syncer.c TypeScript binding dependencies first
         if: matrix.client == 'ts' || matrix.client == 'dart'
         working-directory: syncer.c/bindings/typescript
-        run: npm install
+        run: npm ci
 
-      - name: clients/ts — npm install
+      - name: clients/ts — clean locked install
         if: matrix.client == 'ts' || matrix.client == 'dart'
         working-directory: opto-sync-clients/clients/ts
-        run: npm install
+        run: npm ci
 
       - name: clients/ts — npm run build
         if: matrix.client == 'ts'
