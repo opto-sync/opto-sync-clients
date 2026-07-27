@@ -16,11 +16,6 @@ name: CI
 # This removes the former mutable sibling checkout of syncer.c@main: a client
 # revision now names the exact reconciliation engine it was tested and packed
 # with.
-#
-# PLATFORM: ubuntu-latest. The CMake core build emits `libsyncer.so` here (not
-# the `libsyncer.dylib` produced on the macOS dev machines); nothing below
-# assumes an extension -- the Dart FFI resolver picks the platform name, and
-# SYNCER_LIB_PATH is set to the real .so explicitly.
 
 on:
   push:
@@ -36,6 +31,23 @@ permissions:
   contents: read
 
 jobs:
+  packaging-contract:
+    name: Gitlink and Zed package boundaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout opto-sync-clients and pinned core
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: recursive
+      - name: Verify source, gitlink, lock, and artifact layout contracts
+        run: |
+          set -euo pipefail
+          python3 scripts/check-dependency-boundary.py
+          python3 scripts/check-zed-packaging.py
+
   clients:
     name: clients/${{ matrix.client }}
     runs-on: ubuntu-latest
@@ -59,6 +71,7 @@ jobs:
         with:
           path: opto-sync-clients
           fetch-depth: 0
+          persist-credentials: false
           submodules: recursive
 
       - name: Verify dependency and submodule boundary
@@ -69,7 +82,6 @@ jobs:
           test -f opto-sync-clients/syncer.c/core/include/syncer.h
           python3 opto-sync-clients/scripts/check-dependency-boundary.py
 
-      # --- toolchains --------------------------------------------------------
       - uses: actions/setup-node@v4
         if: matrix.client == 'ts' || matrix.client == 'dart'
         with:
@@ -83,11 +95,8 @@ jobs:
       - uses: dart-lang/setup-dart@v1
         if: matrix.dart
         with:
-          # clients/dart requires sdk ^3.12.1.
           sdk: stable
 
-      # Ubuntu 24.04's apt package is Elixir 1.14, but Rustler 0.38 requires
-      # Elixir 1.15+ and uses System.cmd options absent from 1.14.
       - name: Install pinned OTP and Elixir for Gleam
         if: matrix.gleam
         uses: erlef/setup-beam@v1
@@ -95,17 +104,12 @@ jobs:
           otp-version: '27.3'
           elixir-version: '1.18.4'
 
-      # clients/dart's tests open a real Drift queue through package:sqlite3,
-      # which dlopen()s the system libsqlite3.
       - name: Install libsqlite3 (Drift/sqlite3 FFI)
         if: matrix.dart
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends libsqlite3-0
 
-      # Rust stable is preinstalled on ubuntu-latest. Cache the dependency
-      # downloads only -- never target/, which contains the statically linked
-      # copy of the C core and could go stale against another gitlink.
       - name: Cache cargo registry (downloads only, never target/)
         if: matrix.rust
         uses: actions/cache@v4
@@ -117,8 +121,6 @@ jobs:
           key: cargo-registry-${{ runner.os }}-${{ hashFiles('opto-sync-clients/clients/rust/Cargo.lock') }}
           restore-keys: cargo-registry-${{ runner.os }}-
 
-      # --- core shared library (Dart FFI only) -------------------------------
-      # On Linux this is opto-sync-clients/syncer.c/core/build/libsyncer.so.
       - name: Build syncer.c core shared library
         if: matrix.core_shared_lib
         working-directory: opto-sync-clients/syncer.c/core
@@ -129,16 +131,13 @@ jobs:
           make syncer
           ls -l libsyncer.so
 
-      # --- clients/ts --------------------------------------------------------
-      # clients/ts installs the native binding as a local symlink. npm does not
-      # install a linked package's own dependencies, so node-addon-api must be
-      # installed in the binding before the client postinstall runs node-gyp.
-      - name: Install syncer.c TypeScript binding deps first
+      # Local npm links do not install the linked package's own dependencies.
+      - name: Install locked syncer.c TypeScript binding dependencies first
         if: matrix.client == 'ts' || matrix.client == 'dart'
         working-directory: opto-sync-clients/syncer.c/bindings/typescript
         run: npm ci
 
-      - name: clients/ts — frozen npm install
+      - name: clients/ts — clean locked install
         if: matrix.client == 'ts' || matrix.client == 'dart'
         working-directory: opto-sync-clients/clients/ts
         run: npm ci
@@ -153,7 +152,6 @@ jobs:
         working-directory: opto-sync-clients/clients/ts
         run: npm test
 
-      # --- clients/dart ------------------------------------------------------
       - name: clients/dart — analyze and native SQLite/FFI tests
         if: matrix.client == 'dart'
         working-directory: opto-sync-clients/clients/dart
@@ -174,7 +172,6 @@ jobs:
         working-directory: opto-sync-clients/clients/dart
         run: node tool/web_e2e.mjs
 
-      # --- clients/rust ------------------------------------------------------
       - name: clients/rust — SQLite, core-only, format, and lint
         if: matrix.client == 'rust'
         working-directory: opto-sync-clients/clients/rust
@@ -184,10 +181,6 @@ jobs:
           cargo test --locked --no-default-features --all-targets
           cargo clippy --locked --all-targets --all-features -- -D warnings
 
-      # --- clients/gleam -----------------------------------------------------
-      # The Gleam SDK calls the dedicated BEAM wrapper for reconciliation, so
-      # this job compiles the actual Rustler/C NIF rather than substituting a
-      # pure-Gleam merge.
       - name: Install Gleam/BEAM toolchain
         if: matrix.client == 'gleam'
         run: |
@@ -213,9 +206,7 @@ jobs:
         run: |
           gleam deps download
           gleam format --check src test
-          OPTO_SYNC_ELIXIR_EBIN="$(
-            elixir -e 'IO.puts(Path.join(:code.lib_dir(:elixir), "ebin"))'
-          )" gleam test
+          OPTO_SYNC_ELIXIR_EBIN="$({ elixir -e 'IO.puts(Path.join(:code.lib_dir(:elixir), "ebin"))'; })" gleam test
 
       - name: Which suite broke
         if: failure()
