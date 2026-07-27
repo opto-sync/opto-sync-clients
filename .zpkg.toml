@@ -33,4 +33,4 @@ exclude = [
 ]
 
 [scripts]
-test = "python3 scripts/check-dependency-boundary.py"
+test = "python3 scripts/check-package-layout.py"
