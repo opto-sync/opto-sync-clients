@@ -1,0 +1,150 @@
+name: Upstream engine main canary
+
+on:
+  pull_request:
+    paths:
+      - 'clients/**'
+      - 'scripts/check-package-layout.py'
+      - '.github/workflows/upstream-main-canary.yml'
+  schedule:
+    - cron: '11 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-engine-main-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
+
+jobs:
+  all-clients:
+    name: all clients against syncer.c/main
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout clients with the release gitlink
+        uses: actions/checkout@v4
+        with:
+          path: opto-sync-clients
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Record the release-pinned engine
+        shell: bash
+        run: |
+          set -euo pipefail
+          pinned="$(git -C opto-sync-clients ls-files --stage syncer.c | awk '{print $2}')"
+          test "${#pinned}" -eq 40
+          echo "PINNED_ENGINE_SHA=$pinned" >> "$GITHUB_ENV"
+          echo "release gitlink: $pinned"
+          git -C opto-sync-clients submodule deinit -f syncer.c
+          rm -rf opto-sync-clients/syncer.c
+
+      # Deliberately overlay the working copy only. The committed mode-160000
+      # gitlink remains unchanged and authoritative for releases.
+      - name: Checkout current syncer.c main into the gitlink path
+        uses: actions/checkout@v4
+        with:
+          repository: opto-sync/syncer.c
+          ref: main
+          path: opto-sync-clients/syncer.c
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify the candidate lineage and package paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate="$(git -C opto-sync-clients/syncer.c rev-parse HEAD)"
+          echo "candidate engine: $candidate"
+          git -C opto-sync-clients/syncer.c merge-base --is-ancestor "$PINNED_ENGINE_SHA" "$candidate"
+          python3 opto-sync-clients/scripts/check-package-layout.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: opto-sync-clients/clients/ts/package-lock.json
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Install pinned OTP and Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '27.3'
+          elixir-version: '1.18.4'
+
+      - name: Install SQLite system library
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libsqlite3-0
+
+      - name: Install pinned Gleam compiler
+        run: |
+          curl -fsSLO https://github.com/gleam-lang/gleam/releases/download/v1.16.0/gleam-v1.16.0-x86_64-unknown-linux-musl.tar.gz
+          curl -fsSLO https://github.com/gleam-lang/gleam/releases/download/v1.16.0/gleam-v1.16.0-x86_64-unknown-linux-musl.tar.gz.sha256
+          sha256sum -c gleam-v1.16.0-x86_64-unknown-linux-musl.tar.gz.sha256
+          sudo tar -xzf gleam-v1.16.0-x86_64-unknown-linux-musl.tar.gz -C /usr/local/bin gleam
+
+      - name: Cache Cargo downloads only
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: cargo-upstream-main-${{ runner.os }}-${{ hashFiles('opto-sync-clients/clients/rust/Cargo.lock') }}
+          restore-keys: cargo-upstream-main-${{ runner.os }}-
+
+      - name: Build candidate core shared library
+        working-directory: opto-sync-clients/syncer.c/core
+        run: |
+          mkdir -p build
+          cd build
+          cmake ..
+          make syncer
+
+      - name: TypeScript native binding and client tests
+        run: |
+          cd opto-sync-clients/syncer.c/bindings/typescript
+          npm ci
+          cd ../../../clients/ts
+          npm ci
+          npm test
+
+      - name: Dart native and real-browser tests
+        working-directory: opto-sync-clients/clients/dart
+        env:
+          SYNCER_LIB_PATH: ${{ github.workspace }}/opto-sync-clients/syncer.c/core/build/libsyncer.so
+        run: |
+          dart pub get
+          dart analyze
+          dart test
+          cd ../ts
+          npx playwright install --with-deps chromium
+          cd ../dart
+          node tool/web_e2e.mjs
+
+      - name: Rust SQLite, core-only, format, and lint
+        working-directory: opto-sync-clients/clients/rust
+        run: |
+          cargo fmt --check
+          cargo test --locked --all-targets
+          cargo test --locked --no-default-features --all-targets
+          cargo clippy --locked --all-targets --all-features -- -D warnings
+
+      - name: Gleam and BEAM native reconciliation tests
+        run: |
+          cd opto-sync-clients/syncer.c/bindings/beam
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          mix compile
+          cd ../../../clients/gleam
+          gleam deps download
+          gleam format --check src test
+          OPTO_SYNC_ELIXIR_EBIN="$(elixir -e 'IO.puts(Path.join(:code.lib_dir(:elixir), "ebin"))')" gleam test
