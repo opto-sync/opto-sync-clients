@@ -1,6 +1,7 @@
 # opto-sync-clients
 
 [![CI](https://github.com/opto-sync/opto-sync-clients/actions/workflows/ci.yml/badge.svg)](https://github.com/opto-sync/opto-sync-clients/actions/workflows/ci.yml)
+[![Zed package](https://github.com/opto-sync/opto-sync-clients/actions/workflows/zed-package.yml/badge.svg)](https://github.com/opto-sync/opto-sync-clients/actions/workflows/zed-package.yml)
 
 Client libraries for **opto-sync**: optimistic local-first writes (IndexedDB in the
 browser, SQLite on device) with managed sync between frontend, backend, and Supabase.
@@ -84,6 +85,7 @@ issue only arises at microsecond precision and beyond.
 - [Offline queue](docs/OFFLINE_QUEUE.md) — the queue model and durability guarantees
 - [Sync protocol v1](docs/SYNC_PROTOCOL_V1.md) — push dedupe, pull checkpoints, tombstones, rejection, and reset
 - [Reconciliation](docs/RECONCILIATION.md) — policy, schema guidance, timestamp conventions
+- [Zed package](docs/ZED_PACKAGE.md) — source-package boundary, target promotion criteria, and reproducible CI
 - [Merge semantics](../syncer.c/docs/MERGE_SEMANTICS.md) — the underlying contract
 - [Troubleshooting](../syncer.c/docs/TROUBLESHOOTING.md) — real failure modes
 
@@ -97,11 +99,20 @@ shared library for Dart FFI):
 cd ../syncer.c/core && mkdir -p build && cd build && cmake .. && make syncer
 
 # per-client
-cd clients/ts   && npm install && npm test
+cd clients/ts   && npm ci && npm test
 cd clients/dart && dart pub get && dart test
 cd clients/rust && cargo test
 cd clients/gleam && gleam deps download && gleam test
 ```
+
+## Zed package
+
+The repository root contains `.zpkg.toml` and `.zpkg.lock` for
+`opto-sync/opto-sync-clients@0.2.0`, with a declared dependency on
+`opto-sync/syncer@^0.2.1`. It remains one coordinated source package while the
+native client manifests reference the sibling `syncer.c` checkout. CI rejects
+isolated language targets until their installed artifacts are self-contained or
+resolve the engine through a relocatable package dependency.
 
 ## CI
 
@@ -111,5 +122,10 @@ demand. Dart's leg covers both native SQLite/FFI and real Chromium
 IndexedDB/WASM. Rust runs its first-party SQLite transaction/restart suite and
 also builds without the default `sqlite` feature. Gleam's leg compiles and
 invokes the real Rustler/C NIF.
-Because the clients path-depend on `../syncer.c`, the workflow checks out
-`opto-sync/syncer.c` as a sibling.
+
+Because the clients path-depend on `../syncer.c`, ordinary CI checks out an
+immutable, certified engine commit as a sibling. Manual dispatch can override
+that ref for deliberate forward-compatibility testing. Checkouts do not persist
+credentials, Node installs use committed lockfiles through `npm ci`, and a
+separate packaging job guards the whole-repository Zed boundary against broken
+language fan-out.
