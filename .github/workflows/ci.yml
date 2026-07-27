@@ -11,18 +11,18 @@ name: CI
 #
 #   $GITHUB_WORKSPACE/
 #     opto-sync-clients/   <- this repo
-#     syncer.c/            <- opto-sync/syncer.c @ main
-#
-# PLATFORM: ubuntu-latest. The CMake core build emits `libsyncer.so` here (not
-# the `libsyncer.dylib` produced on the macOS dev machines); nothing below
-# assumes an extension -- the Dart FFI resolver picks the platform name, and
-# SYNCER_LIB_PATH is set to the real .so explicitly.
+#     syncer.c/            <- pinned compatible opto-sync/syncer.c revision
 
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      syncer_ref:
+        description: 'Optional syncer.c ref for forward-compatibility testing (for example main)'
+        required: false
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -32,10 +32,23 @@ permissions:
   contents: read
 
 env:
-  # Which revision of syncer.c the clients are validated against.
-  SYNCER_C_REF: main
+  # Reproducible default: this exact engine revision passed native, sanitizer,
+  # deterministic package, installed-artifact, and clean r2g validation.
+  SYNCER_C_REF: f6a56d070779404acf188ffac766e39741a15466
 
 jobs:
+  packaging-contract:
+    name: Zed packaging boundaries
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout opto-sync-clients
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate whole-repository package and target safety
+        run: python3 scripts/check-zed-packaging.py
+
   clients:
     name: clients/${{ matrix.client }}
     runs-on: ubuntu-latest
@@ -58,35 +71,28 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: opto-sync-clients
+          persist-credentials: false
 
-      # Sibling checkout so the relative path dependencies resolve. If syncer.c
-      # is ever made private, this needs a PAT in `token:`.
-      - name: Checkout syncer.c (sibling — the clients path-depend on it)
+      - name: Checkout syncer.c (pinned sibling dependency)
         uses: actions/checkout@v4
         with:
           repository: opto-sync/syncer.c
-          ref: ${{ env.SYNCER_C_REF }}
+          ref: ${{ github.event.inputs.syncer_ref || env.SYNCER_C_REF }}
           path: syncer.c
+          persist-credentials: false
 
-      # --- toolchains --------------------------------------------------------
       - uses: actions/setup-node@v4
         if: matrix.client == 'ts' || matrix.client == 'dart'
         with:
           node-version: '22'
-          # ~/.npm tarball cache only. node_modules and the compiled
-          # build/Release/syncer.node are never cached, so the native addon is
-          # always rebuilt from the checked-out core C sources.
           cache: npm
           cache-dependency-path: opto-sync-clients/clients/ts/package-lock.json
 
       - uses: dart-lang/setup-dart@v1
         if: matrix.dart
         with:
-          # clients/dart requires sdk ^3.12.1.
           sdk: stable
 
-      # Ubuntu 24.04's apt package is Elixir 1.14, but Rustler 0.38 requires
-      # Elixir 1.15+ and uses System.cmd options absent from 1.14.
       - name: Install pinned OTP and Elixir for Gleam
         if: matrix.gleam
         uses: erlef/setup-beam@v1
@@ -94,17 +100,12 @@ jobs:
           otp-version: '27.3'
           elixir-version: '1.18.4'
 
-      # clients/dart's tests open a real Drift queue through package:sqlite3,
-      # which dlopen()s the system libsqlite3.
       - name: Install libsqlite3 (Drift/sqlite3 FFI)
         if: matrix.dart
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends libsqlite3-0
 
-      # Rust stable is preinstalled on ubuntu-latest. Cache the dependency
-      # downloads only -- never target/, which contains the statically linked
-      # copy of the C core and could go stale against a newer syncer.c.
       - name: Cache cargo registry (downloads only, never target/)
         if: matrix.rust
         uses: actions/cache@v4
@@ -116,8 +117,6 @@ jobs:
           key: cargo-registry-${{ runner.os }}-${{ hashFiles('opto-sync-clients/clients/rust/Cargo.lock') }}
           restore-keys: cargo-registry-${{ runner.os }}-
 
-      # --- core shared library (Dart FFI only) -------------------------------
-      # On Linux this is syncer.c/core/build/libsyncer.so.
       - name: Build syncer.c core shared library
         if: matrix.core_shared_lib
         working-directory: syncer.c/core
@@ -128,26 +127,15 @@ jobs:
           make syncer
           ls -l libsyncer.so
 
-      # --- clients/ts --------------------------------------------------------
-      # WORKAROUND (verified necessary, not defensive):
-      # clients/ts declares "@opto-sync/syncer": "file:../../../syncer.c/...",
-      # which npm installs as a SYMLINK. npm does not install the linked
-      # package's own dependencies, so its package-lock.json has no
-      # node-addon-api entry. `npm install` in clients/ts then runs
-      # `node-gyp rebuild` inside syncer.c/bindings/typescript, where
-      # binding.gyp evaluates `require('node-addon-api').include` -- and on a
-      # fresh checkout that throws MODULE_NOT_FOUND and the whole install fails.
-      # Installing the binding's own deps first fixes it (and yields a natively
-      # compiled addon matching this exact core revision).
-      - name: Install syncer.c TypeScript binding deps first (see comment)
+      - name: Install locked syncer.c TypeScript binding dependencies first
         if: matrix.client == 'ts' || matrix.client == 'dart'
         working-directory: syncer.c/bindings/typescript
-        run: npm install
+        run: npm ci
 
-      - name: clients/ts — npm install
+      - name: clients/ts — clean locked install
         if: matrix.client == 'ts' || matrix.client == 'dart'
         working-directory: opto-sync-clients/clients/ts
-        run: npm install
+        run: npm ci
 
       - name: clients/ts — npm run build
         if: matrix.client == 'ts'
@@ -159,7 +147,6 @@ jobs:
         working-directory: opto-sync-clients/clients/ts
         run: npm test
 
-      # --- clients/dart ------------------------------------------------------
       - name: clients/dart — analyze and native SQLite/FFI tests
         if: matrix.client == 'dart'
         working-directory: opto-sync-clients/clients/dart
@@ -180,7 +167,6 @@ jobs:
         working-directory: opto-sync-clients/clients/dart
         run: node tool/web_e2e.mjs
 
-      # --- clients/rust ------------------------------------------------------
       - name: clients/rust — SQLite, core-only, format, and lint
         if: matrix.client == 'rust'
         working-directory: opto-sync-clients/clients/rust
@@ -190,10 +176,6 @@ jobs:
           cargo test --no-default-features --all-targets
           cargo clippy --all-targets --all-features -- -D warnings
 
-      # --- clients/gleam -----------------------------------------------------
-      # The Gleam SDK calls the dedicated BEAM wrapper for reconciliation, so
-      # this job compiles the actual Rustler/C NIF rather than substituting a
-      # pure-Gleam merge.
       - name: Install Gleam/BEAM toolchain
         if: matrix.client == 'gleam'
         run: |
