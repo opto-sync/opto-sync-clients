@@ -10,6 +10,7 @@ on:
       - 'clients/**'
       - 'syncer.c'
       - 'scripts/check-dependency-boundary.py'
+      - 'scripts/check-package-layout.py'
       - 'docs/ZED_PACKAGE.md'
       - '.github/workflows/zed-package.yml'
   push:
@@ -22,6 +23,7 @@ on:
       - 'clients/**'
       - 'syncer.c'
       - 'scripts/check-dependency-boundary.py'
+      - 'scripts/check-package-layout.py'
       - 'docs/ZED_PACKAGE.md'
       - '.github/workflows/zed-package.yml'
   workflow_dispatch:
