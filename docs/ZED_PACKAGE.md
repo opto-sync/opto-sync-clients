@@ -1,17 +1,17 @@
 # Zed packaging
 
-`opto-sync-clients` is published first as the whole-repository Zed source
-package `opto-sync/opto-sync-clients@0.2.0`.
+`opto-sync-clients` is packaged as the whole-repository Zed source package
+`opto-sync/opto-sync-clients@0.2.0`.
 
 The repository contains `syncer.c` as a real mode-`160000` git submodule. Each
 client resolves its native reconciliation binding through that root submodule,
-so a client commit now names the exact core commit it was tested with. Clone
-with `--recurse-submodules` (or run `git submodule update --init --recursive`)
-before building, testing, or packing.
+so a client commit names the exact core commit it was tested with. Clone with
+`--recurse-submodules` (or run `git submodule update --init --recursive`) before
+building, testing, packing, or publishing.
 
 The root `.zpkg.lock` is committed even though this package currently has no
 Zed-managed dependencies. It is source/reproducibility metadata and is
-intentionally stripped from the published archive by zed-pkg; consumers create
+intentionally stripped from published archives by zed-pkg; consumers create
 their own dependency lock.
 
 ## Why this is one repository package
@@ -48,7 +48,7 @@ compiler output, package-manager caches, and nested submodule administration.
 No Zed `[build]` hook is declared, so installing the source package does not
 execute publisher-controlled build commands automatically.
 
-## Validation and release
+## Validation
 
 The normal `CI` workflow runs the four runtime suites against the pinned
 submodule. The `Zed package contract` workflow additionally:
@@ -67,6 +67,26 @@ zed pack
 zed publish --dry-run
 ```
 
-Before a real publish, create the immutable `v0.2.0` tag declared by
-`publish.tag_format`, verify it points at the reviewed commit, and then run
-`zed publish`.
+## Registry publication
+
+`.github/workflows/zed-publish.yml` dry-runs on relevant pull requests and
+performs a real upload only from the exact version tag declared by
+`.zpkg.toml`. For version `0.2.0`, the accepted tag is exactly `v0.2.0`—not an
+arbitrary `v*` tag. The workflow fetches full tag history, initializes the
+pinned native submodule, disables persisted checkout credentials, builds pinned
+Zed tooling, reruns the dependency-boundary check, verifies the tag points at
+the checked-out commit, and reads registry authority only from the repository
+secret `ZED_PKG_TOKEN`.
+
+Release order matters:
+
+1. merge and publish `opto-sync/syncer-c@0.2.1`;
+2. merge this client package with its gitlink pinned to that reviewed core
+   commit;
+3. provision the `opto-sync` registry namespace and this repository's
+   `ZED_PKG_TOKEN`;
+4. place `v0.2.0` on the reviewed `main` commit; and
+5. let the tag workflow publish `opto-sync/opto-sync-clients@0.2.0`.
+
+A green dry run means the artifact is reproducible and uploadable. It does not
+by itself mean the package is already present in the registry.

@@ -1,0 +1,103 @@
+name: Publish Zed package
+
+on:
+  pull_request:
+    paths:
+      - '.zpkg.toml'
+      - '.zpkg.lock'
+      - '.gitmodules'
+      - 'LICENSE'
+      - 'clients/**'
+      - 'syncer.c'
+      - 'scripts/check-dependency-boundary.py'
+      - 'scripts/check-package-layout.py'
+      - '.github/workflows/zed-publish.yml'
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zed-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ZED_CLI_SHA: c636fb8f6b08695c6b4fe94e2481f4d57270b2d7
+  ZED_INTERFACES_SHA: 415e871b1fb3dd97744c134351408a3224805dfb
+
+jobs:
+  zed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout package, tag history, and pinned core
+        uses: actions/checkout@v4
+        with:
+          path: package
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Checkout pinned Zed CLI
+        uses: actions/checkout@v4
+        with:
+          repository: zed-pkg/zed-cli
+          ref: ${{ env.ZED_CLI_SHA }}
+          path: zed-cli
+          persist-credentials: false
+
+      - name: Checkout pinned Zed interfaces
+        uses: actions/checkout@v4
+        with:
+          repository: zed-pkg/zed-interfaces
+          ref: ${{ env.ZED_INTERFACES_SHA }}
+          path: zed-interfaces
+          persist-credentials: false
+
+      - name: Verify gitlink, package layout, and manifest version
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 package/scripts/check-dependency-boundary.py
+          version="$(python3 -c 'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("package/.zpkg.toml").read_text())["package"]["version"])')"
+          test -n "$version"
+          echo "ZPKG_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Build pinned Zed CLI
+        run: cargo build --locked --release --manifest-path zed-cli/Cargo.toml --bin zed
+
+      - name: Validate package on pull requests
+        if: github.event_name == 'pull_request'
+        working-directory: package
+        run: |
+          set -euo pipefail
+          ../zed-cli/target/release/zed publish \
+            --dry-run \
+            --allow-dirty \
+            --skip-vcs-checks
+
+      - name: Require the exact reviewed version tag
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_TYPE" = tag
+          expected="v$ZPKG_VERSION"
+          test "$GITHUB_REF_NAME" = "$expected" || {
+            echo "expected tag $expected for manifest version $ZPKG_VERSION; refusing $GITHUB_REF_NAME" >&2
+            exit 1
+          }
+          test "$(git -C package rev-parse HEAD)" = "$(git -C package rev-list -n 1 "$GITHUB_REF_NAME")"
+
+      - name: Publish immutable Zed artifact
+        if: github.event_name != 'pull_request'
+        working-directory: package
+        env:
+          ZED_PKG_TOKEN: ${{ secrets.ZED_PKG_TOKEN }}
+        run: |
+          set -euo pipefail
+          test -n "$ZED_PKG_TOKEN"
+          ../zed-cli/target/release/zed publish
