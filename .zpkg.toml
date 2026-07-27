@@ -1,0 +1,30 @@
+[package]
+org = "opto-sync"
+name = "opto-sync-clients"
+version = "0.2.0"
+description = "Offline-first opto-sync clients for TypeScript, Dart, Rust, and Gleam"
+license = "MIT"
+keywords = ["sync", "offline-first", "indexeddb", "sqlite", "supabase", "clients"]
+
+[package.repository]
+vcs = "git"
+url = "https://github.com/opto-sync/opto-sync-clients"
+
+# The clients are developed against the shared reconciliation engine. Recording
+# it here makes the source-level relationship explicit and reproducible in a Zed
+# lockfile even though the native manifests still use sibling checkout paths.
+[dependencies]
+"opto-sync/syncer" = "^0.2.1"
+
+[publish]
+include_readme = true
+tag_format = "v{version}"
+exclude = [".zed/**", ".zed-pack/**"]
+smoke_test = "test -f \"$ZED_PKG_TEST_TARGET/clients/ts/package.json\" && test -f \"$ZED_PKG_TEST_TARGET/clients/dart/pubspec.yaml\" && test -f \"$ZED_PKG_TEST_TARGET/clients/rust/Cargo.toml\" && test -f \"$ZED_PKG_TEST_TARGET/clients/gleam/gleam.toml\""
+
+# This first release is intentionally a whole-repository package. Every client
+# currently references syncer.c outside its language directory, so publishing
+# isolated targets before those native dependency paths are redesigned would
+# create installable-looking but non-buildable artifacts.
+[scripts]
+test = "echo 'Run the four native client suites described in README.md'"

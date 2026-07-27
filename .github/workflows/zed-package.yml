@@ -1,0 +1,89 @@
+name: Zed package contract
+
+on:
+  pull_request:
+    paths:
+      - '.zpkg.toml'
+      - '.zpkg.lock'
+      - 'clients/**'
+      - '.github/workflows/zed-package.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.zpkg.toml'
+      - '.zpkg.lock'
+      - 'clients/**'
+      - '.github/workflows/zed-package.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout package
+        uses: actions/checkout@v4
+        with:
+          path: package
+
+      - name: Checkout pinned Zed CLI
+        uses: actions/checkout@v4
+        with:
+          repository: zed-pkg/zed-cli
+          ref: c636fb8f6b08695c6b4fe94e2481f4d57270b2d7
+          path: zed-cli
+
+      - name: Checkout pinned Zed interfaces
+        uses: actions/checkout@v4
+        with:
+          repository: zed-pkg/zed-interfaces
+          ref: 415e871b1fb3dd97744c134351408a3224805dfb
+          path: zed-interfaces
+
+      - name: Build pinned Zed CLI
+        run: cargo build --locked --manifest-path zed-cli/Cargo.toml --bin zed
+
+      - name: Assert the native client boundaries
+        working-directory: package
+        run: |
+          set -euo pipefail
+          test -f clients/ts/package.json
+          test -f clients/dart/pubspec.yaml
+          test -f clients/rust/Cargo.toml
+          test -f clients/gleam/gleam.toml
+
+          # These sibling paths are why this release remains one repository
+          # artifact. A future language-target PR must replace them and change
+          # this assertion instead of silently publishing broken slices.
+          grep -F '../../../syncer.c/' clients/ts/package.json
+          grep -F '../../../syncer.c/' clients/dart/pubspec.yaml
+          grep -F '../../../syncer.c/' clients/rust/Cargo.toml
+          grep -F '../../../syncer.c/' clients/gleam/gleam.toml
+
+      - name: Pack and dry-run publish
+        working-directory: package
+        run: |
+          set -euo pipefail
+          ../zed-cli/target/debug/zed pack
+          ../zed-cli/target/debug/zed publish \
+            --dry-run \
+            --allow-dirty \
+            --skip-vcs-checks | tee ../zed-dry-run.txt
+
+          grep -F 'opto-sync/opto-sync-clients@0.2.0' ../zed-dry-run.txt
+          test "$(grep -c '^dry run: would publish opto-sync/' ../zed-dry-run.txt)" -eq 1
+
+      - name: Upload deterministic package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opto-sync-clients-zed-package
+          path: package/.zed/pack/
+          if-no-files-found: error
+          retention-days: 7
