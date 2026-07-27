@@ -9,7 +9,8 @@ import tomllib
 from pathlib import Path
 
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
-ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else SOURCE_ROOT
+VALIDATING_SOURCE = len(sys.argv) == 1
+ROOT = SOURCE_ROOT if VALIDATING_SOURCE else Path(sys.argv[1]).resolve()
 
 
 def read_toml(path: Path) -> dict:
@@ -63,7 +64,7 @@ def main() -> int:
     if lock.exists():
         if read_toml(lock).get("version") != 1:
             fail(".zpkg.lock must declare format version 1")
-    elif ROOT == SOURCE_ROOT:
+    elif VALIDATING_SOURCE:
         fail("source repository must commit .zpkg.lock")
 
     if not (ROOT / "LICENSE").is_file():
@@ -74,7 +75,7 @@ def main() -> int:
         fail("scripts/check-package-layout.py is missing from the package")
     subprocess.run([sys.executable, str(layout_check)], cwd=ROOT, check=True)
 
-    kind = "source repository" if lock.exists() else "installed artifact"
+    kind = "source repository" if VALIDATING_SOURCE else "installed artifact"
     print(f"Zed package contract passed for {kind}: one package, one pinned native core")
     return 0
 
