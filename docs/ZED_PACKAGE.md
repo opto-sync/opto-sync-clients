@@ -1,6 +1,6 @@
 # Zed packaging
 
-`opto-sync-clients` is published first as the whole-repository Zed package
+`opto-sync-clients` is packaged first as the whole-repository Zed package
 `opto-sync/opto-sync-clients@0.2.0`.
 
 The package records `opto-sync/syncer = ^0.2.1` as its Zed dependency so the
@@ -41,19 +41,36 @@ After that, add one root target per language using the names
 workflow contains assertions for the current sibling paths; changing those
 assertions is part of the language-slice review.
 
-## Validation and release
+## Validation
 
 The existing client CI remains authoritative for runtime behavior across Node,
 real Chromium IndexedDB/WASM, Dart SQLite/FFI, Rust SQLite, and Gleam/BEAM. The
 additional `Zed package contract` workflow builds pinned revisions of the Zed
 CLI and interfaces, validates the path boundary, runs `zed pack`, performs a
-non-mutating `zed publish --dry-run`, and uploads the artifact.
+non-mutating `zed publish --dry-run`, requires `pkg/LICENSE` in the generated
+archive, and uploads that archive for inspection.
+
+## Registry publication
+
+`.github/workflows/zed-publish.yml` dry-runs on every relevant pull request and
+performs a real upload only from a selected or pushed `v*` tag. It fetches full
+tag history for provenance, disables persisted checkout credentials, builds
+pinned Zed tooling, rejects branch publication, and reads registry authority
+only from the repository secret `ZED_PKG_TOKEN`.
+
+Release order matters. Publish `opto-sync/syncer@0.2.1` first; then provision the
+`opto-sync` registry namespace and this repository's `ZED_PKG_TOKEN`, place
+`v0.2.0` on the reviewed `main` commit, and let the tag workflow publish
+`opto-sync/opto-sync-clients@0.2.0`. After the registry resolves the dependency,
+run `zed install` and commit the resulting non-empty `.zpkg.lock` with exact
+artifact hashes.
+
+Manual preflight:
 
 ```sh
 zed pack
 zed publish --dry-run
-# after opto-sync/syncer@0.2.1 exists, the lockfile is generated, and v0.2.0
-# points at the reviewed commit:
-zed install
-zed publish
 ```
+
+A green package dry run means the artifact is reproducible and uploadable. It
+does not by itself mean the package is already present in the registry.
