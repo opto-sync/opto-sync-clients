@@ -15,7 +15,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(here, '..');
-const workspaceRoot = resolve(packageRoot, '../../..');
+const repositoryRoot = resolve(packageRoot, '../..');
 const buildDir = mkdtempSync(join(tmpdir(), 'opto-dart-web-e2e-'));
 
 const packageConfig = JSON.parse(
@@ -33,7 +33,7 @@ cpSync(
   resolve(buildDir, 'sqlite3.wasm'),
 );
 cpSync(resolve(driftRoot, 'drift_worker.js'), resolve(buildDir, 'drift_worker.js'));
-const syncerWasmRoot = resolve(workspaceRoot, 'syncer.c/bindings/wasm');
+const syncerWasmRoot = resolve(repositoryRoot, 'syncer.c/bindings/wasm');
 mkdirSync(resolve(buildDir, 'syncer'), { recursive: true });
 cpSync(resolve(syncerWasmRoot, 'index.mjs'), resolve(buildDir, 'syncer/index.mjs'));
 cpSync(resolve(syncerWasmRoot, 'lib'), resolve(buildDir, 'syncer/lib'), {
