@@ -45,10 +45,12 @@ def fail(message: str) -> None:
 
 
 def main() -> int:
+    web_e2e = ROOT / "clients/dart/tool/web_e2e.mjs"
     required_source = [
         ROOT / ".zpkg.toml",
         ROOT / "LICENSE",
         ROOT / "README.md",
+        web_e2e,
         ROOT / "syncer.c/core/include/syncer.h",
         ROOT / "syncer.c/core/src/syncer.c",
         ROOT / "syncer.c/bindings/typescript/package.json",
@@ -58,6 +60,14 @@ def main() -> int:
     for path in required_source:
         if not path.is_file():
             fail(f"required package file is missing: {path.relative_to(ROOT)}")
+
+    web_e2e_text = web_e2e.read_text(encoding="utf-8")
+    if "resolve(packageRoot, '../../..')" in web_e2e_text:
+        fail("Dart web E2E still resolves syncer.c as a mutable sibling checkout")
+    if "resolve(packageRoot, '../..')" not in web_e2e_text:
+        fail("Dart web E2E must derive the repository root from clients/dart")
+    if "resolve(repositoryRoot, 'syncer.c/bindings/wasm')" not in web_e2e_text:
+        fail("Dart web E2E must load WASM from the pinned root syncer.c submodule")
 
     for path in FILES:
         if not path.is_file():
