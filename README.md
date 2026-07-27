@@ -84,6 +84,7 @@ issue only arises at microsecond precision and beyond.
 - [Offline queue](docs/OFFLINE_QUEUE.md) — the queue model and durability guarantees
 - [Sync protocol v1](docs/SYNC_PROTOCOL_V1.md) — push dedupe, pull checkpoints, tombstones, rejection, and reset
 - [Reconciliation](docs/RECONCILIATION.md) — policy, schema guidance, timestamp conventions
+- [Zed packaging](docs/ZED_PACKAGING.md) — why target fan-out is gated until the shared engine dependency is relocatable
 - [Merge semantics](../syncer.c/docs/MERGE_SEMANTICS.md) — the underlying contract
 - [Troubleshooting](../syncer.c/docs/TROUBLESHOOTING.md) — real failure modes
 
@@ -97,7 +98,7 @@ shared library for Dart FFI):
 cd ../syncer.c/core && mkdir -p build && cd build && cmake .. && make syncer
 
 # per-client
-cd clients/ts   && npm install && npm test
+cd clients/ts   && npm ci && npm test
 cd clients/dart && dart pub get && dart test
 cd clients/rust && cargo test
 cd clients/gleam && gleam deps download && gleam test
@@ -111,5 +112,14 @@ demand. Dart's leg covers both native SQLite/FFI and real Chromium
 IndexedDB/WASM. Rust runs its first-party SQLite transaction/restart suite and
 also builds without the default `sqlite` feature. Gleam's leg compiles and
 invokes the real Rustler/C NIF.
-Because the clients path-depend on `../syncer.c`, the workflow checks out
-`opto-sync/syncer.c` as a sibling.
+
+Because the clients path-depend on `../syncer.c`, ordinary CI checks out an
+immutable, known-compatible engine commit as a sibling. A manual dispatch may
+override that ref with `main` or a candidate SHA for forward-compatibility
+testing. Checkout credentials are not persisted into worktrees, and Node installs
+use the committed lockfiles through `npm ci`.
+
+The separate `Zed packaging readiness` job runs
+`scripts/check-zed-packaging.py`. It rejects a root `.zpkg.toml` while any native
+manifest still points outside the package artifact, preventing incomplete
+language targets from being published merely because they can be packed.
