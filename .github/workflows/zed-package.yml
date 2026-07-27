@@ -11,6 +11,7 @@ on:
       - 'syncer.c'
       - 'scripts/check-dependency-boundary.py'
       - 'scripts/check-package-layout.py'
+      - 'scripts/check-zed-packaging.py'
       - 'docs/ZED_PACKAGE.md'
       - '.github/workflows/zed-package.yml'
   push:
@@ -24,6 +25,7 @@ on:
       - 'syncer.c'
       - 'scripts/check-dependency-boundary.py'
       - 'scripts/check-package-layout.py'
+      - 'scripts/check-zed-packaging.py'
       - 'docs/ZED_PACKAGE.md'
       - '.github/workflows/zed-package.yml'
   workflow_dispatch:
@@ -42,13 +44,14 @@ env:
 jobs:
   pack:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Checkout package and pinned reconciliation core
         uses: actions/checkout@v4
         with:
           path: package
           fetch-depth: 0
+          persist-credentials: false
           submodules: recursive
 
       - name: Checkout pinned Zed CLI
@@ -57,6 +60,7 @@ jobs:
           repository: zed-pkg/zed-cli
           ref: ${{ env.ZED_CLI_SHA }}
           path: zed-cli
+          persist-credentials: false
 
       - name: Checkout pinned Zed interfaces
         uses: actions/checkout@v4
@@ -64,9 +68,13 @@ jobs:
           repository: zed-pkg/zed-interfaces
           ref: ${{ env.ZED_INTERFACES_SHA }}
           path: zed-interfaces
+          persist-credentials: false
 
-      - name: Verify gitlink and native dependency boundaries
-        run: python3 package/scripts/check-dependency-boundary.py
+      - name: Verify gitlink and Zed package boundaries
+        run: |
+          set -euo pipefail
+          python3 package/scripts/check-dependency-boundary.py
+          python3 package/scripts/check-zed-packaging.py
 
       - name: Build pinned Zed CLI
         run: cargo build --locked --release --manifest-path zed-cli/Cargo.toml --bin zed
@@ -85,15 +93,18 @@ jobs:
 
           (cd package && "$zed" pack --out "$one")
           (cd package && "$zed" pack --out "$two")
+          test "$(find "$one" -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 1
+          test "$(find "$two" -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 1
           sha256sum "$one/$archive" "$two/$archive"
           cmp "$one/$archive" "$two/$archive"
 
-      - name: Audit the published source boundary
+      - name: Audit and execute the extracted source artifact
         shell: bash
         run: |
           set -euo pipefail
           archive="$RUNNER_TEMP/zpkg-one/$ZPKG_ARCHIVE"
           listing="$RUNNER_TEMP/zpkg-files.txt"
+          smoke_root="$RUNNER_TEMP/zpkg-smoke"
           tar -tzf "$archive" | sort > "$listing"
 
           required=(
@@ -102,9 +113,12 @@ jobs:
             'pkg/LICENSE'
             'pkg/README.md'
             'pkg/clients/ts/package.json'
+            'pkg/clients/ts/package-lock.json'
             'pkg/clients/dart/pubspec.yaml'
             'pkg/clients/rust/Cargo.toml'
             'pkg/clients/gleam/gleam.toml'
+            'pkg/scripts/check-package-layout.py'
+            'pkg/scripts/check-zed-packaging.py'
             'pkg/syncer.c/core/include/syncer.h'
             'pkg/syncer.c/core/src/syncer.c'
             'pkg/syncer.c/bindings/typescript/package.json'
@@ -122,12 +136,15 @@ jobs:
             echo '::error title=source lock leaked into package::.zpkg.lock must stay outside the published artifact'
             exit 1
           fi
-
           if grep -Eq '(^|/)(\.git|\.github|\.zed)(/|$)|/(node_modules|target|build|_build|deps|\.dart_tool)(/|$)' "$listing"; then
             echo '::error title=generated state leaked into package::Unexpected VCS, CI, cache, dependency, or build output in artifact'
             grep -E '(^|/)(\.git|\.github|\.zed)(/|$)|/(node_modules|target|build|_build|deps|\.dart_tool)(/|$)' "$listing"
             exit 1
           fi
+
+          mkdir -p "$smoke_root"
+          tar -xzf "$archive" -C "$smoke_root"
+          python3 "$smoke_root/pkg/scripts/check-zed-packaging.py" "$smoke_root/pkg"
 
       - name: Dry-run publish
         working-directory: package
@@ -140,6 +157,13 @@ jobs:
             --skip-vcs-checks | tee ../zed-dry-run.txt
           grep -F 'opto-sync/opto-sync-clients@0.2.0' ../zed-dry-run.txt
           test "$(grep -c '^dry run: would publish opto-sync/' ../zed-dry-run.txt)" -eq 1
+
+      - name: Run a clean local registry/install roundtrip
+        working-directory: package
+        env:
+          ZED_PKG_HOME: ${{ runner.temp }}/zed-home
+          ZED_PKG_R2G_ROOT: ${{ runner.temp }}/zed-r2g
+        run: ${{ github.workspace }}/zed-cli/target/release/zed r2g --clean
 
       - name: Upload deterministic package artifact
         uses: actions/upload-artifact@v4
