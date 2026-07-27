@@ -5,6 +5,7 @@ on:
     paths:
       - '.zpkg.toml'
       - '.zpkg.lock'
+      - 'LICENSE'
       - 'clients/**'
       - '.github/workflows/zed-package.yml'
   push:
@@ -12,6 +13,7 @@ on:
     paths:
       - '.zpkg.toml'
       - '.zpkg.lock'
+      - 'LICENSE'
       - 'clients/**'
       - '.github/workflows/zed-package.yml'
   workflow_dispatch:
@@ -54,6 +56,7 @@ jobs:
         working-directory: package
         run: |
           set -euo pipefail
+          test -f LICENSE
           test -f clients/ts/package.json
           test -f clients/dart/pubspec.yaml
           test -f clients/rust/Cargo.toml
@@ -67,11 +70,17 @@ jobs:
           grep -F '../../../syncer.c/' clients/rust/Cargo.toml
           grep -F '../../../syncer.c/' clients/gleam/gleam.toml
 
-      - name: Pack and dry-run publish
+      - name: Pack, inspect, and dry-run publish
         working-directory: package
         run: |
           set -euo pipefail
           ../zed-cli/target/debug/zed pack
+
+          shopt -s nullglob
+          archives=(.zed/pack/*.tar.gz)
+          test "${#archives[@]}" -eq 1
+          tar -tzf "${archives[0]}" | grep -Fx 'pkg/LICENSE'
+
           ../zed-cli/target/debug/zed publish \
             --dry-run \
             --allow-dirty \
