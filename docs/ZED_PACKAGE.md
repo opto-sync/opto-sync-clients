@@ -89,4 +89,5 @@ Release order matters:
 5. let the tag workflow publish `opto-sync/opto-sync-clients@0.2.0`.
 
 A green dry run means the artifact is reproducible and uploadable. It does not
-by itself mean the package is already present in the registry.
+by itself mean the package is already present in the registry. This gitlink
+contract replaces the earlier mutable sibling-checkout release model.
