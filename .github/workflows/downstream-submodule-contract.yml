@@ -1,0 +1,75 @@
+name: Downstream submodule contract
+
+on:
+  pull_request:
+    paths:
+      - '.gitmodules'
+      - 'syncer.c'
+      - 'clients/**'
+      - 'scripts/check-dependency-boundary.py'
+      - 'scripts/check-package-layout.py'
+      - '.github/workflows/downstream-submodule-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.gitmodules'
+      - 'syncer.c'
+      - 'clients/**'
+      - 'scripts/check-dependency-boundary.py'
+      - 'scripts/check-package-layout.py'
+      - '.github/workflows/downstream-submodule-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  recursive-clone:
+    name: ${{ matrix.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - repository: sonus-auris/sonus-auris-sync
+            client_path: third_party/opto-sync-clients
+          - repository: voxletra/voxletra-sync
+            client_path: vendor/opto-sync-clients
+    steps:
+      - name: Clone the downstream repository recursively
+        env:
+          REPOSITORY: ${{ matrix.repository }}
+        run: |
+          set -euo pipefail
+          git clone --quiet --recurse-submodules \
+            "https://github.com/${REPOSITORY}.git" downstream
+
+      - name: Substitute the candidate client gitlink and initialize its core
+        env:
+          CANDIDATE_REF: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          CLIENT_PATH: ${{ matrix.client_path }}
+        run: |
+          set -euo pipefail
+          test -n "$CANDIDATE_REF"
+          test -n "$CANDIDATE_SHA"
+
+          git -C "downstream/$CLIENT_PATH" fetch --quiet --depth=1 origin "$CANDIDATE_REF"
+          git -C "downstream/$CLIENT_PATH" checkout --quiet --detach "$CANDIDATE_SHA"
+          git -C "downstream/$CLIENT_PATH" submodule sync --recursive
+          git -C "downstream/$CLIENT_PATH" submodule update --init --recursive
+
+      - name: Verify the nested gitlink and clean-room package layout
+        env:
+          CLIENT_PATH: ${{ matrix.client_path }}
+        run: |
+          set -euo pipefail
+          test -f "downstream/$CLIENT_PATH/syncer.c/core/include/syncer.h"
+          python3 "downstream/$CLIENT_PATH/scripts/check-dependency-boundary.py"
+          python3 "downstream/$CLIENT_PATH/scripts/check-package-layout.py"
+          git -C downstream submodule status --recursive
