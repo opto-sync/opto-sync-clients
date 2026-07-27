@@ -9,7 +9,7 @@ default = ["sqlite"]
 sqlite = ["dep:rusqlite"]
 
 [dependencies]
-syncer-rs = { path = "../../../syncer.c/bindings/rust" }
+syncer-rs = { path = "../../syncer.c/bindings/rust" }
 # The queue stores payloads as opaque JSON strings, so stamping `updatedAt`
 # means parsing and re-serializing one object. Hand-rolling that is how a client
 # ends up corrupting a payload it was only supposed to add a field to.
