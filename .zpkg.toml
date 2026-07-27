@@ -2,29 +2,36 @@
 org = "opto-sync"
 name = "opto-sync-clients"
 version = "0.2.0"
-description = "Offline-first opto-sync clients for TypeScript, Dart, Rust, and Gleam"
+description = "Pinned polyglot local-first sync clients for TypeScript, Dart, Rust, and Gleam"
 license = "MIT"
-keywords = ["sync", "offline-first", "indexeddb", "sqlite", "supabase", "clients"]
+keywords = ["sync", "local-first", "optimistic", "indexeddb", "sqlite", "polyglot"]
 
 [package.repository]
 vcs = "git"
 url = "https://github.com/opto-sync/opto-sync-clients"
 
-# The clients are developed against the shared reconciliation engine. Recording
-# it here makes the source-level relationship explicit and reproducible in a Zed
-# lockfile even though the native manifests still use sibling checkout paths.
-[dependencies]
-"opto-sync/syncer" = "^0.2.1"
-
 [publish]
 include_readme = true
 tag_format = "v{version}"
-exclude = [".zed/**", ".zed-pack/**"]
-smoke_test = "test -f \"$ZED_PKG_TEST_TARGET/LICENSE\" && test -f \"$ZED_PKG_TEST_TARGET/clients/ts/package.json\" && test -f \"$ZED_PKG_TEST_TARGET/clients/dart/pubspec.yaml\" && test -f \"$ZED_PKG_TEST_TARGET/clients/rust/Cargo.toml\" && test -f \"$ZED_PKG_TEST_TARGET/clients/gleam/gleam.toml\""
+smoke_test = "python3 \"$ZED_PKG_TEST_TARGET/scripts/check-package-layout.py\""
+exclude = [
+  ".zed/**",
+  "syncer.c/.git",
+  "syncer.c/.git/**",
+  "syncer.c/.github/**",
+  "syncer.c/.zed/**",
+  "syncer.c/core/test/**",
+  "syncer.c/test-differential/**",
+  "syncer.c/fuzz-*.log",
+  "clients/**/test/**",
+  "clients/**/tests/**",
+  "**/node_modules/**",
+  "**/target/**",
+  "**/build/**",
+  "**/_build/**",
+  "**/deps/**",
+  "**/.dart_tool/**",
+]
 
-# This first release is intentionally a whole-repository package. Every client
-# currently references syncer.c outside its language directory, so publishing
-# isolated targets before those native dependency paths are redesigned would
-# create installable-looking but non-buildable artifacts.
 [scripts]
-test = "echo 'Run the four native client suites described in README.md'"
+test = "python3 scripts/check-package-layout.py"

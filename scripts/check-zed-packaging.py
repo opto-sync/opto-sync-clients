@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""Validate the current whole-repository Zed package and future target safety."""
+"""Validate the whole-repository Zed package and reject unsafe target fan-out."""
 
 from __future__ import annotations
 
-import json
-import posixpath
-import re
+import subprocess
 import sys
 import tomllib
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
-ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else SOURCE_ROOT
+VALIDATING_SOURCE = len(sys.argv) == 1
+ROOT = SOURCE_ROOT if VALIDATING_SOURCE else Path(sys.argv[1]).resolve()
 
 
 def read_toml(path: Path) -> dict:
@@ -19,101 +18,65 @@ def read_toml(path: Path) -> dict:
         return tomllib.load(handle)
 
 
-def normalize_from(package_dir: str, dependency_path: str) -> str:
-    value = dependency_path.removeprefix("file:")
-    return posixpath.normpath(posixpath.join(package_dir, value))
-
-
-def inside_package(path: str) -> bool:
-    pure = PurePosixPath(path)
-    return not pure.is_absolute() and ".." not in pure.parts
-
-
-def dart_syncer_path() -> str:
-    text = (ROOT / "clients/dart/pubspec.yaml").read_text(encoding="utf-8")
-    match = re.search(r"(?m)^\s*syncer:\s*\n\s*path:\s*([^\s#]+)", text)
-    if not match:
-        raise AssertionError("clients/dart/pubspec.yaml must declare the syncer path dependency")
-    return match.group(1)
-
-
-def dependency_paths() -> dict[str, tuple[str, str]]:
-    node = json.loads((ROOT / "clients/ts/package.json").read_text(encoding="utf-8"))
-    rust = read_toml(ROOT / "clients/rust/Cargo.toml")
-    gleam = read_toml(ROOT / "clients/gleam/gleam.toml")
-
-    return {
-        "nodejs-native": ("clients/ts", node["optionalDependencies"]["@opto-sync/syncer"]),
-        "nodejs-wasm": ("clients/ts", node["dependencies"]["@opto-sync/syncer-wasm"]),
-        "dart": ("clients/dart", dart_syncer_path()),
-        "rust": ("clients/rust", rust["dependencies"]["syncer-rs"]["path"]),
-        "gleam": ("clients/gleam", gleam["dependencies"]["opto_sync"]["path"]),
-    }
+def fail(message: str) -> None:
+    print(f"zed-package: {message}", file=sys.stderr)
+    raise SystemExit(1)
 
 
 def main() -> int:
-    manifest = read_toml(ROOT / ".zpkg.toml")
-    lock_path = ROOT / ".zpkg.lock"
-
-    package = manifest["package"]
-    assert package["org"] == "opto-sync"
-    assert package["name"] == "opto-sync-clients"
-    assert package["version"] == "0.2.0"
-    assert package["repository"]["url"] == "https://github.com/opto-sync/opto-sync-clients"
-    assert manifest["dependencies"]["opto-sync/syncer"] == "^0.2.1"
-    assert (ROOT / "LICENSE").is_file()
-
-    # The lockfile is mandatory in the source repository, but zed-pkg strips it
-    # from published artifacts by design. Consumers get the artifact's derived
-    # manifest and their own lock; they must not inherit the publisher's lock.
-    if lock_path.exists():
-        lockfile = read_toml(lock_path)
-        assert lockfile.get("version") == 1
-    elif ROOT == SOURCE_ROOT:
-        raise AssertionError("source repository must commit .zpkg.lock")
-
-    paths = dependency_paths()
-    escaped: dict[str, str] = {}
-    for client, (package_dir, dependency_path) in paths.items():
-        resolved = normalize_from(package_dir, dependency_path)
-        if not inside_package(resolved):
-            escaped[client] = resolved
+    manifest_path = ROOT / ".zpkg.toml"
+    if not manifest_path.is_file():
+        fail(".zpkg.toml is missing")
+    manifest = read_toml(manifest_path)
+    package = manifest.get("package", {})
 
     expected = {
-        "nodejs-native": "syncer.c/bindings/typescript",
-        "nodejs-wasm": "syncer.c/bindings/wasm",
-        "dart": "syncer.c/bindings/dart",
-        "rust": "syncer.c/bindings/rust",
-        "gleam": "syncer.c/bindings/gleam",
+        "org": "opto-sync",
+        "name": "opto-sync-clients",
+        "version": "0.2.0",
+        "license": "MIT",
     }
-    for client, suffix in expected.items():
-        actual = paths[client][1].removeprefix("file:").replace("\\", "/")
-        if not actual.endswith(suffix):
-            print(f"{client} drifted from the shared engine binding: {actual}", file=sys.stderr)
-            return 1
+    for key, value in expected.items():
+        if package.get(key) != value:
+            fail(f"package.{key} must be {value!r}, got {package.get(key)!r}")
+    repository = package.get("repository", {})
+    if repository.get("url") != "https://github.com/opto-sync/opto-sync-clients":
+        fail("package.repository.url must be the canonical GitHub repository")
 
-    targets = manifest.get("targets", {})
-    if targets and escaped:
-        details = "\n".join(f"  - {client}: {path}" for client, path in escaped.items())
-        print(
-            "refusing language targets while native manifests still resolve "
-            "syncer.c outside each target artifact:\n"
-            f"{details}\n"
-            "Make the engine binding relocatable or self-contained before "
-            "publishing target slices.",
-            file=sys.stderr,
-        )
-        return 1
+    # The artifact already contains the exact syncer.c gitlink contents used by
+    # every native manifest. Declaring the same source again as a Zed dependency
+    # would produce two potentially different core revisions in one install.
+    if manifest.get("dependencies"):
+        fail("the bundled pinned core must not be duplicated as a Zed dependency")
 
-    artifact_kind = "source repository" if lock_path.exists() else "installed artifact"
-    if escaped:
-        print(
-            f"Zed package contract passed for {artifact_kind}: this remains one "
-            "whole-repository source package, and isolated language targets are "
-            "correctly absent."
-        )
-    else:
-        print(f"Zed package contract passed for {artifact_kind}: native dependencies are package-contained.")
+    # Language slices remain unsafe: each client reaches the shared root core.
+    # Only the complete repository is independently buildable today.
+    if manifest.get("targets"):
+        fail("language targets are forbidden until each target is clean-room self-contained")
+
+    publish = manifest.get("publish", {})
+    if publish.get("tag_format") != "v{version}":
+        fail("publish.tag_format must be v{version}")
+    if not publish.get("smoke_test"):
+        fail("publish.smoke_test must validate the extracted artifact")
+
+    lock = ROOT / ".zpkg.lock"
+    if lock.exists():
+        if read_toml(lock).get("version") != 1:
+            fail(".zpkg.lock must declare format version 1")
+    elif VALIDATING_SOURCE:
+        fail("source repository must commit .zpkg.lock")
+
+    if not (ROOT / "LICENSE").is_file():
+        fail("MIT package requires a root LICENSE")
+
+    layout_check = ROOT / "scripts/check-package-layout.py"
+    if not layout_check.is_file():
+        fail("scripts/check-package-layout.py is missing from the package")
+    subprocess.run([sys.executable, str(layout_check)], cwd=ROOT, check=True)
+
+    kind = "source repository" if VALIDATING_SOURCE else "installed artifact"
+    print(f"Zed package contract passed for {kind}: one package, one pinned native core")
     return 0
 
 

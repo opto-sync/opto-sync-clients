@@ -4,6 +4,12 @@
 **/target/
 **/.dart_tool/
 **/build/
+**/_build/
+**/deps/
+
+# Zed deterministic package output
+.zed/
+.zed-pack/
 
 # OS / IDE
 .DS_Store

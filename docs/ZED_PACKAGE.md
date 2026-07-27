@@ -1,104 +1,93 @@
 # Zed packaging
 
-`opto-sync-clients` is packaged first as the whole-repository Zed source package
+`opto-sync-clients` is packaged as the whole-repository Zed source package
 `opto-sync/opto-sync-clients@0.2.0`.
 
-The package records `opto-sync/syncer = ^0.2.1` as its Zed dependency so the
-reconciliation engine relationship is part of the package graph and eventual
-lockfile rather than tribal knowledge.
+The repository contains `syncer.c` as a real mode-`160000` git submodule. Each
+client resolves its native reconciliation binding through that root submodule,
+so a client commit names the exact core commit it was tested with. Clone with
+`--recurse-submodules` (or run `git submodule update --init --recursive`) before
+building, testing, packing, or publishing.
 
-## Why this is not fanned out by language yet
+The root `.zpkg.lock` is committed even though this package currently has no
+Zed-managed dependencies. It is source/reproducibility metadata and is
+intentionally stripped from published archives by zed-pkg; consumers create
+their own dependency lock.
 
-The repository is structurally polyglot, but the unit of publication must also
-be a unit that can build after installation. Today all four native manifests
-reach outside their language root:
+## Why this is one repository package
 
-- TypeScript: `clients/ts/package.json` references `../../../syncer.c/...`.
-- Dart: `clients/dart/pubspec.yaml` references `../../../syncer.c/...`.
-- Rust: `clients/rust/Cargo.toml` references `../../../syncer.c/...`.
-- Gleam: `clients/gleam/gleam.toml` references `../../../syncer.c/...`.
+The repository is polyglot, but a publish target must also be independently
+buildable. TypeScript, Dart, Rust, and Gleam each need files below the root
+`syncer.c/` gitlink. A target such as `dir = "clients/rust"` would therefore omit
+the C core and Rust binding required by its own `Cargo.toml`.
 
-A target such as `dir = "clients/rust"` would therefore omit files required by
-its own `Cargo.toml`. Zed would correctly produce an archive, but the archive
-would not be a usable Rust package. The root manifest intentionally has no
-`[targets]` block until this is fixed.
+The root manifest intentionally has no `[targets]` block. The complete source
+artifact contains all four clients plus the pinned reconciliation engine.
+Language-specific Zed packages should be added only after each clean-room
+artifact can resolve the native core without a sibling checkout or a path that
+escapes its target root.
 
-`scripts/check-zed-packaging.py` validates this boundary in both the source
-worktree and the extracted Zed artifact. It verifies the package identity,
-engine range, repository license, source lockfile, native dependency paths, and
-absence of unsafe language targets.
+Possible future designs include:
 
-## Path to language packages
+1. native ecosystem packages that consume a separately installed
+   `opto-sync/syncer-c` artifact;
+2. a generated, hash-checked copy of the minimal C core in each language target;
+3. Zed adapter support that maps an installed source dependency into native
+   package-manager metadata without machine-specific absolute paths.
 
-A language target is ready only when a clean-room consumer can build it with no
-sibling Git checkout. Acceptable designs include:
+## Package boundary
 
-1. publish the relevant `syncer.c` binding as an independent native package and
-   use that ecosystem's normal dependency syntax;
-2. vendor the minimal C core into the language package with an automated,
-   hash-checked generation step; or
-3. teach the native manifest to resolve the separately installed Zed dependency
-   without embedding machine-specific absolute paths.
+The artifact includes:
 
-After that, add one root target per language using names such as
-`opto-sync-client-nodejs`, `opto-sync-client-dart`,
-`opto-sync-client-rust`, and `opto-sync-client-gleam`. Each target must pass an
-installed-artifact test with its own native toolchain.
+- the root package manifest, license, README, and `.gitmodules` declaration;
+- every maintained client source tree and native manifest; and
+- the initialized `syncer.c` submodule at the pinned gitlink revision.
 
-## Reproducible client CI
+It excludes the root Zed lockfile, VCS/CI metadata, tests, dependency trees,
+compiler output, package-manager caches, and nested submodule administration.
+No Zed `[build]` hook is declared, so installing the source package does not
+execute publisher-controlled build commands automatically.
 
-Ordinary Node, Dart, Rust, and Gleam CI pins the exact audited `syncer.c` commit
-`f6a56d070779404acf188ffac766e39741a15466`. Historical reruns therefore test
-the same engine instead of silently following mutable `main`. A manual workflow
-dispatch can deliberately override the pin with `main`, a branch, or a candidate
-SHA for forward-compatibility testing.
+## Validation
 
-Every checkout disables persisted credentials before package-manager, compiler,
-or test code executes. Node installs use committed lockfiles through `npm ci`,
-and native build outputs are never restored from cross-revision caches.
+The normal `CI` workflow runs the four runtime suites against the pinned
+submodule. The `Zed package contract` workflow additionally:
 
-## Package validation
+- verifies the mode-`160000` gitlink and every native dependency path;
+- builds pinned `zed-cli` and `zed-interfaces` revisions;
+- packs twice and requires byte-for-byte identical archives;
+- audits required files and rejects generated/VCS state; and
+- performs a non-mutating publish dry run.
 
-The client runtime CI remains authoritative for behavior across Node, real
-Chromium IndexedDB/WASM, Dart SQLite/FFI, Rust SQLite, and Gleam/BEAM. The
-additional `Zed package contract` workflow:
-
-1. builds pinned Zed tooling with checkout credentials disabled;
-2. validates the source package boundary;
-3. packs twice and requires byte-identical archives;
-4. performs a non-mutating publish dry run;
-5. inspects the exact tarball for the license and all four native manifests;
-6. rejects dependency/cache/build trees in the artifact; and
-7. extracts the package and reruns the boundary validator against installed
-   bytes rather than the source checkout.
-
-## Registry publication
-
-`.github/workflows/zed-publish.yml` dry-runs on every relevant pull request and
-performs a real upload only from a selected or pushed `v*` tag. It fetches full
-tag history for provenance, disables persisted checkout credentials, builds
-pinned Zed tooling, rejects branch publication, and reads registry authority
-only from the repository secret `ZED_PKG_TOKEN`.
-
-Release order matters. Publish `opto-sync/syncer@0.2.1` first; then provision the
-`opto-sync` registry namespace and this repository's `ZED_PKG_TOKEN`, place
-`v0.2.0` on the reviewed `main` commit, and let the tag workflow publish
-`opto-sync/opto-sync-clients@0.2.0`. After the registry resolves the dependency,
-run `zed install` and commit the resulting non-empty `.zpkg.lock` with exact
-artifact hashes.
-
-Two confirmed downstream consumers pin `syncer.c` and `opto-sync-clients` as
-sibling git submodules: `sonus-auris/sonus-auris-sync` under `third_party/` and
-`voxletra/voxletra-sync` under `vendor/`. A native path or ABI migration must
-update and clean-clone test both gitlinks as a certified pair.
-
-Manual preflight:
+From a recursive clean checkout:
 
 ```sh
-python3 scripts/check-zed-packaging.py
+python3 scripts/check-dependency-boundary.py
 zed pack
 zed publish --dry-run
 ```
 
-A green package dry run means the artifact is reproducible and uploadable. It
-does not by itself mean the package is already present in the registry.
+## Registry publication
+
+`.github/workflows/zed-publish.yml` dry-runs on relevant pull requests and
+performs a real upload only from the exact version tag declared by
+`.zpkg.toml`. For version `0.2.0`, the accepted tag is exactly `v0.2.0`—not an
+arbitrary `v*` tag. The workflow fetches full tag history, initializes the
+pinned native submodule, disables persisted checkout credentials, builds pinned
+Zed tooling, reruns the dependency-boundary check, verifies the tag points at
+the checked-out commit, and reads registry authority only from the repository
+secret `ZED_PKG_TOKEN`.
+
+Release order matters:
+
+1. merge and publish `opto-sync/syncer-c@0.2.1`;
+2. merge this client package with its gitlink pinned to that reviewed core
+   commit;
+3. provision the `opto-sync` registry namespace and this repository's
+   `ZED_PKG_TOKEN`;
+4. place `v0.2.0` on the reviewed `main` commit; and
+5. let the tag workflow publish `opto-sync/opto-sync-clients@0.2.0`.
+
+A green dry run means the artifact is reproducible and uploadable. It does not
+by itself mean the package is already present in the registry. This gitlink
+contract replaces the earlier mutable sibling-checkout release model.

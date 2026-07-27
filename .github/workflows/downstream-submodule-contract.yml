@@ -1,0 +1,90 @@
+name: Downstream submodule contract
+
+on:
+  pull_request:
+    paths:
+      - '.gitmodules'
+      - 'syncer.c'
+      - 'clients/**'
+      - 'scripts/check-dependency-boundary.py'
+      - 'scripts/check-package-layout.py'
+      - '.github/workflows/downstream-submodule-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.gitmodules'
+      - 'syncer.c'
+      - 'clients/**'
+      - 'scripts/check-dependency-boundary.py'
+      - 'scripts/check-package-layout.py'
+      - '.github/workflows/downstream-submodule-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  recursive-clone:
+    # The real consumers are private to their own organizations, so this
+    # repository's GITHUB_TOKEN cannot clone them. Reproduce their two actual
+    # gitlink paths inside credential-free synthetic parent repositories; this
+    # exercises the same parent -> clients -> syncer.c recursive clone chain.
+    name: nested ${{ matrix.client_path }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        client_path:
+          - third_party/opto-sync-clients
+          - vendor/opto-sync-clients
+    steps:
+      - name: Checkout the candidate clients and pinned core
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Verify the candidate before nesting it
+        run: |
+          set -euo pipefail
+          git -C candidate submodule status --cached syncer.c
+          test -f candidate/syncer.c/core/include/syncer.h
+          python3 candidate/scripts/check-dependency-boundary.py
+          python3 candidate/scripts/check-package-layout.py
+
+      - name: Build a synthetic downstream repository at the real path shape
+        env:
+          CLIENT_PATH: ${{ matrix.client_path }}
+        run: |
+          set -euo pipefail
+          client_remote="$RUNNER_TEMP/opto-sync-clients.git"
+          parent="$RUNNER_TEMP/downstream-source"
+
+          git clone --quiet --bare candidate "$client_remote"
+          git init --quiet "$parent"
+          git -C "$parent" config user.name opto-sync-ci
+          git -C "$parent" config user.email opto-sync-ci@users.noreply.github.com
+          git -C "$parent" -c protocol.file.allow=always submodule add \
+            "$client_remote" "$CLIENT_PATH"
+          git -C "$parent" commit --quiet -m 'pin candidate opto-sync clients'
+
+      - name: Clone the parent recursively and verify the nested core gitlink
+        env:
+          CLIENT_PATH: ${{ matrix.client_path }}
+        run: |
+          set -euo pipefail
+          git -c protocol.file.allow=always clone --quiet --recurse-submodules \
+            "$RUNNER_TEMP/downstream-source" downstream
+
+          test -f "downstream/$CLIENT_PATH/syncer.c/core/include/syncer.h"
+          python3 "downstream/$CLIENT_PATH/scripts/check-dependency-boundary.py"
+          python3 "downstream/$CLIENT_PATH/scripts/check-package-layout.py"
+          git -C downstream submodule status --recursive

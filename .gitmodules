@@ -1,0 +1,3 @@
+[submodule "syncer.c"]
+	path = syncer.c
+	url = https://github.com/opto-sync/syncer.c.git
