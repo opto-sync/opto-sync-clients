@@ -1,6 +1,9 @@
 name: Refresh TypeScript lock (DEN-35)
 
 on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
   push:
     branches:
       - agent/DEN-35-pinned-core-zpkg
@@ -17,6 +20,10 @@ concurrency:
 
 jobs:
   refresh:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       github.head_ref == 'agent/DEN-35-pinned-core-zpkg')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
