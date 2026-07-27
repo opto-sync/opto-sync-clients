@@ -206,7 +206,9 @@ jobs:
         run: |
           gleam deps download
           gleam format --check src test
-          OPTO_SYNC_ELIXIR_EBIN="$({ elixir -e 'IO.puts(Path.join(:code.lib_dir(:elixir), "ebin"))'; })" gleam test
+          OPTO_SYNC_ELIXIR_EBIN="$(
+            elixir -e 'IO.puts(Path.join(:code.lib_dir(:elixir), "ebin"))'
+          )" gleam test
 
       - name: Which suite broke
         if: failure()
