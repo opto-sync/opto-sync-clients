@@ -1,6 +1,6 @@
 # Zed packaging
 
-`opto-sync-clients` is packaged first as the whole-repository Zed package
+`opto-sync-clients` is packaged first as the whole-repository Zed source package
 `opto-sync/opto-sync-clients@0.2.0`.
 
 The package records `opto-sync/syncer = ^0.2.1` as its Zed dependency so the
@@ -19,9 +19,14 @@ reach outside their language root:
 - Gleam: `clients/gleam/gleam.toml` references `../../../syncer.c/...`.
 
 A target such as `dir = "clients/rust"` would therefore omit files required by
-its own `Cargo.toml`. Zed would correctly produce a deterministic archive, but
-the archive would not be a usable Rust package. The root manifest intentionally
-has no `[targets]` block until this is fixed.
+its own `Cargo.toml`. Zed would correctly produce an archive, but the archive
+would not be a usable Rust package. The root manifest intentionally has no
+`[targets]` block until this is fixed.
+
+`scripts/check-zed-packaging.py` validates this boundary in both the source
+worktree and the extracted Zed artifact. It verifies the package identity,
+engine range, repository license, source lockfile, native dependency paths, and
+absence of unsafe language targets.
 
 ## Path to language packages
 
@@ -35,20 +40,37 @@ sibling Git checkout. Acceptable designs include:
 3. teach the native manifest to resolve the separately installed Zed dependency
    without embedding machine-specific absolute paths.
 
-After that, add one root target per language using the names
-`opto-sync-clients-nodejs`, `opto-sync-clients-dart`,
-`opto-sync-clients-rust`, and `opto-sync-clients-gleam`. The Zed package
-workflow contains assertions for the current sibling paths; changing those
-assertions is part of the language-slice review.
+After that, add one root target per language using names such as
+`opto-sync-client-nodejs`, `opto-sync-client-dart`,
+`opto-sync-client-rust`, and `opto-sync-client-gleam`. Each target must pass an
+installed-artifact test with its own native toolchain.
 
-## Validation
+## Reproducible client CI
 
-The existing client CI remains authoritative for runtime behavior across Node,
-real Chromium IndexedDB/WASM, Dart SQLite/FFI, Rust SQLite, and Gleam/BEAM. The
-additional `Zed package contract` workflow builds pinned revisions of the Zed
-CLI and interfaces, validates the path boundary, runs `zed pack`, performs a
-non-mutating `zed publish --dry-run`, requires `pkg/LICENSE` in the generated
-archive, and uploads that archive for inspection.
+Ordinary Node, Dart, Rust, and Gleam CI pins the exact audited `syncer.c` commit
+`f6a56d070779404acf188ffac766e39741a15466`. Historical reruns therefore test
+the same engine instead of silently following mutable `main`. A manual workflow
+dispatch can deliberately override the pin with `main`, a branch, or a candidate
+SHA for forward-compatibility testing.
+
+Every checkout disables persisted credentials before package-manager, compiler,
+or test code executes. Node installs use committed lockfiles through `npm ci`,
+and native build outputs are never restored from cross-revision caches.
+
+## Package validation
+
+The client runtime CI remains authoritative for behavior across Node, real
+Chromium IndexedDB/WASM, Dart SQLite/FFI, Rust SQLite, and Gleam/BEAM. The
+additional `Zed package contract` workflow:
+
+1. builds pinned Zed tooling with checkout credentials disabled;
+2. validates the source package boundary;
+3. packs twice and requires byte-identical archives;
+4. performs a non-mutating publish dry run;
+5. inspects the exact tarball for the license and all four native manifests;
+6. rejects dependency/cache/build trees in the artifact; and
+7. extracts the package and reruns the boundary validator against installed
+   bytes rather than the source checkout.
 
 ## Registry publication
 
@@ -65,9 +87,15 @@ Release order matters. Publish `opto-sync/syncer@0.2.1` first; then provision th
 run `zed install` and commit the resulting non-empty `.zpkg.lock` with exact
 artifact hashes.
 
+Two confirmed downstream consumers pin `syncer.c` and `opto-sync-clients` as
+sibling git submodules: `sonus-auris/sonus-auris-sync` under `third_party/` and
+`voxletra/voxletra-sync` under `vendor/`. A native path or ABI migration must
+update and clean-clone test both gitlinks as a certified pair.
+
 Manual preflight:
 
 ```sh
+python3 scripts/check-zed-packaging.py
 zed pack
 zed publish --dry-run
 ```
