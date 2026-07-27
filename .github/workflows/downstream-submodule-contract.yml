@@ -41,15 +41,32 @@ jobs:
           - repository: voxletra/voxletra-sync
             client_path: vendor/opto-sync-clients
     steps:
-      - name: Clone the downstream repository recursively
+      - name: Detect downstream read credentials
+        id: auth
         env:
-          REPOSITORY: ${{ matrix.repository }}
+          DOWNSTREAM_TOKEN: ${{ secrets.OPTO_SYNC_DOWNSTREAM_READ_TOKEN }}
         run: |
           set -euo pipefail
-          git clone --quiet --recurse-submodules \
-            "https://github.com/${REPOSITORY}.git" downstream
+          if [ -n "$DOWNSTREAM_TOKEN" ]; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo '::notice title=downstream clone check skipped::Set the least-privilege OPTO_SYNC_DOWNSTREAM_READ_TOKEN secret to validate private Sonus Auris and Voxletra consumers in CI.'
+          fi
+
+      - name: Clone the downstream repository recursively
+        if: steps.auth.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repository }}
+          path: downstream
+          fetch-depth: 1
+          submodules: recursive
+          token: ${{ secrets.OPTO_SYNC_DOWNSTREAM_READ_TOKEN }}
+          persist-credentials: false
 
       - name: Substitute the candidate client gitlink and initialize its core
+        if: steps.auth.outputs.enabled == 'true'
         env:
           CANDIDATE_REF: ${{ github.event.pull_request.head.ref || github.ref_name }}
           CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -65,6 +82,7 @@ jobs:
           git -C "downstream/$CLIENT_PATH" submodule update --init --recursive
 
       - name: Verify the nested gitlink and clean-room package layout
+        if: steps.auth.outputs.enabled == 'true'
         env:
           CLIENT_PATH: ${{ matrix.client_path }}
         run: |
