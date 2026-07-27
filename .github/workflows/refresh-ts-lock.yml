@@ -39,12 +39,29 @@ jobs:
         with:
           node-version: '22'
 
-      # One-shot branch workflow: regenerate rather than hand-edit npm's local
-      # package link graph after moving syncer.c from a sibling checkout to the
-      # pinned root submodule.
+      # npm preserves local-link package keys from an existing lock even after
+      # package.json moves. Migrate only the reviewed sibling prefix first, then
+      # let npm normalize versions/link entries without running native scripts.
       - name: Regenerate package-lock without running native scripts
         working-directory: clients/ts
-        run: npm install --package-lock-only --ignore-scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('package-lock.json')
+          text = path.read_text(encoding='utf-8')
+          old = '../../../syncer.c'
+          new = '../../syncer.c'
+          count = text.count(old)
+          if count == 0:
+              print('no legacy sibling-link keys remained')
+          else:
+              path.write_text(text.replace(old, new), encoding='utf-8')
+              print(f'migrated {count} legacy sibling-link reference(s)')
+          PY
+          npm install --package-lock-only --ignore-scripts
 
       - name: Verify the dependency boundary
         run: python3 scripts/check-dependency-boundary.py
