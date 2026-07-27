@@ -3,15 +3,19 @@ name: CI
 # Runs the TypeScript, Dart, Rust, and Gleam client suites on Linux. Dart is
 # tested twice: against native SQLite/FFI and in Chromium against IndexedDB/WASM.
 #
-# LAYOUT: every client path-depends on the syncer.c repo as a SIBLING of this
-# one (clients/ts -> file:../../../syncer.c/bindings/typescript,
-# clients/dart -> path: ../../../syncer.c/bindings/dart,
-# clients/rust -> path = "../../../syncer.c/bindings/rust"). So both repos are
-# checked out side by side under $GITHUB_WORKSPACE:
+# DEPENDENCY LAYOUT: syncer.c is a pinned git submodule at the repository root.
+# Every client resolves its native path dependency through that exact gitlink:
 #
-#   $GITHUB_WORKSPACE/
-#     opto-sync-clients/   <- this repo
-#     syncer.c/            <- opto-sync/syncer.c @ main
+#   opto-sync-clients/
+#     syncer.c/       <- pinned commit, initialized by actions/checkout
+#     clients/ts/     -> ../../syncer.c/bindings/{typescript,wasm}
+#     clients/dart/   -> ../../syncer.c/bindings/dart
+#     clients/rust/   -> ../../syncer.c/bindings/rust
+#     clients/gleam/  -> ../../syncer.c/bindings/gleam
+#
+# This removes the former mutable sibling checkout of syncer.c@main: a client
+# revision now names the exact reconciliation engine it was tested and packed
+# with.
 #
 # PLATFORM: ubuntu-latest. The CMake core build emits `libsyncer.so` here (not
 # the `libsyncer.dylib` produced on the macOS dev machines); nothing below
@@ -30,10 +34,6 @@ concurrency:
 
 permissions:
   contents: read
-
-env:
-  # Which revision of syncer.c the clients are validated against.
-  SYNCER_C_REF: main
 
 jobs:
   clients:
@@ -54,19 +54,20 @@ jobs:
           - client: gleam
             gleam: true
     steps:
-      - name: Checkout opto-sync-clients
+      - name: Checkout opto-sync-clients and pinned core
         uses: actions/checkout@v4
         with:
           path: opto-sync-clients
+          fetch-depth: 0
+          submodules: recursive
 
-      # Sibling checkout so the relative path dependencies resolve. If syncer.c
-      # is ever made private, this needs a PAT in `token:`.
-      - name: Checkout syncer.c (sibling — the clients path-depend on it)
-        uses: actions/checkout@v4
-        with:
-          repository: opto-sync/syncer.c
-          ref: ${{ env.SYNCER_C_REF }}
-          path: syncer.c
+      - name: Verify dependency and submodule boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          git -C opto-sync-clients submodule status --cached syncer.c
+          test -f opto-sync-clients/syncer.c/core/include/syncer.h
+          python3 opto-sync-clients/scripts/check-dependency-boundary.py
 
       # --- toolchains --------------------------------------------------------
       - uses: actions/setup-node@v4
@@ -75,7 +76,7 @@ jobs:
           node-version: '22'
           # ~/.npm tarball cache only. node_modules and the compiled
           # build/Release/syncer.node are never cached, so the native addon is
-          # always rebuilt from the checked-out core C sources.
+          # always rebuilt from the pinned core C sources.
           cache: npm
           cache-dependency-path: opto-sync-clients/clients/ts/package-lock.json
 
@@ -104,7 +105,7 @@ jobs:
 
       # Rust stable is preinstalled on ubuntu-latest. Cache the dependency
       # downloads only -- never target/, which contains the statically linked
-      # copy of the C core and could go stale against a newer syncer.c.
+      # copy of the C core and could go stale against another gitlink.
       - name: Cache cargo registry (downloads only, never target/)
         if: matrix.rust
         uses: actions/cache@v4
@@ -117,10 +118,10 @@ jobs:
           restore-keys: cargo-registry-${{ runner.os }}-
 
       # --- core shared library (Dart FFI only) -------------------------------
-      # On Linux this is syncer.c/core/build/libsyncer.so.
+      # On Linux this is opto-sync-clients/syncer.c/core/build/libsyncer.so.
       - name: Build syncer.c core shared library
         if: matrix.core_shared_lib
-        working-directory: syncer.c/core
+        working-directory: opto-sync-clients/syncer.c/core
         run: |
           mkdir -p build
           cd build
@@ -129,25 +130,18 @@ jobs:
           ls -l libsyncer.so
 
       # --- clients/ts --------------------------------------------------------
-      # WORKAROUND (verified necessary, not defensive):
-      # clients/ts declares "@opto-sync/syncer": "file:../../../syncer.c/...",
-      # which npm installs as a SYMLINK. npm does not install the linked
-      # package's own dependencies, so its package-lock.json has no
-      # node-addon-api entry. `npm install` in clients/ts then runs
-      # `node-gyp rebuild` inside syncer.c/bindings/typescript, where
-      # binding.gyp evaluates `require('node-addon-api').include` -- and on a
-      # fresh checkout that throws MODULE_NOT_FOUND and the whole install fails.
-      # Installing the binding's own deps first fixes it (and yields a natively
-      # compiled addon matching this exact core revision).
-      - name: Install syncer.c TypeScript binding deps first (see comment)
+      # clients/ts installs the native binding as a local symlink. npm does not
+      # install a linked package's own dependencies, so node-addon-api must be
+      # installed in the binding before the client postinstall runs node-gyp.
+      - name: Install syncer.c TypeScript binding deps first
         if: matrix.client == 'ts' || matrix.client == 'dart'
-        working-directory: syncer.c/bindings/typescript
-        run: npm install
+        working-directory: opto-sync-clients/syncer.c/bindings/typescript
+        run: npm ci
 
-      - name: clients/ts — npm install
+      - name: clients/ts — frozen npm install
         if: matrix.client == 'ts' || matrix.client == 'dart'
         working-directory: opto-sync-clients/clients/ts
-        run: npm install
+        run: npm ci
 
       - name: clients/ts — npm run build
         if: matrix.client == 'ts'
@@ -164,7 +158,7 @@ jobs:
         if: matrix.client == 'dart'
         working-directory: opto-sync-clients/clients/dart
         env:
-          SYNCER_LIB_PATH: ${{ github.workspace }}/syncer.c/core/build/libsyncer.so
+          SYNCER_LIB_PATH: ${{ github.workspace }}/opto-sync-clients/syncer.c/core/build/libsyncer.so
         run: |
           dart pub get
           dart analyze
@@ -186,9 +180,9 @@ jobs:
         working-directory: opto-sync-clients/clients/rust
         run: |
           cargo fmt --check
-          cargo test --all-targets
-          cargo test --no-default-features --all-targets
-          cargo clippy --all-targets --all-features -- -D warnings
+          cargo test --locked --all-targets
+          cargo test --locked --no-default-features --all-targets
+          cargo clippy --locked --all-targets --all-features -- -D warnings
 
       # --- clients/gleam -----------------------------------------------------
       # The Gleam SDK calls the dedicated BEAM wrapper for reconciliation, so
@@ -204,7 +198,7 @@ jobs:
 
       - name: Build the BEAM reconciliation NIF for Gleam
         if: matrix.client == 'gleam'
-        working-directory: syncer.c/bindings/beam
+        working-directory: opto-sync-clients/syncer.c/bindings/beam
         run: |
           mix local.hex --force
           mix local.rebar --force
@@ -215,7 +209,7 @@ jobs:
         if: matrix.client == 'gleam'
         working-directory: opto-sync-clients/clients/gleam
         env:
-          OPTO_SYNC_BEAM_EBIN: ../../../syncer.c/bindings/beam/_build/dev/lib/opto_sync_nif/ebin
+          OPTO_SYNC_BEAM_EBIN: ../../syncer.c/bindings/beam/_build/dev/lib/opto_sync_nif/ebin
         run: |
           gleam deps download
           gleam format --check src test
@@ -226,4 +220,4 @@ jobs:
       - name: Which suite broke
         if: failure()
         run: |
-          echo "::error title=opto-sync-clients clients/${{ matrix.client }} FAILED::The ${{ matrix.client }} client library suite broke. Reproduce locally with syncer.c checked out as a sibling of this repo, then see clients/${{ matrix.client }} in the README 'Building' section."
+          echo "::error title=opto-sync-clients clients/${{ matrix.client }} FAILED::The ${{ matrix.client }} client suite broke. Reproduce from a recursive clone so the pinned syncer.c submodule is initialized, then see the README Building section."
