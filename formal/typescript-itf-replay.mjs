@@ -10,17 +10,40 @@
  * and snapshot installation execute through the compiled client package.
  */
 
-import 'fake-indexeddb/auto';
-
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import process from 'node:process';
+import { isDeepStrictEqual } from 'node:util';
 
-const require = createRequire(import.meta.url);
-const { OptoSyncClient, SYNC_STATUS } = require('../dist/client.js');
+const requireFromClient = createRequire(
+  new URL('../clients/ts/package.json', import.meta.url),
+);
+requireFromClient('fake-indexeddb/auto');
+const { OptoSyncClient, SYNC_STATUS } = requireFromClient('.');
 
 const MUTATION_SEQUENCE_KEY = 'mutation.seq';
+const ACTION_FIELD = 'mbt::actionTaken';
+const NONDET_PICKS_FIELD = 'mbt::nondetPicks';
+const REQUIRED_ACTIONS = Object.freeze([
+  'init',
+  'idle',
+  'compact',
+  'enqueue',
+  'send',
+  'apply_new',
+  'reject_new',
+  'reply_duplicate',
+  'inject_mismatched_response',
+  'lose_committed_response',
+  'lose_uncommitted_request',
+  'discard_malformed_response',
+  'acknowledge',
+  'pull',
+  'begin_reset',
+  'crash_during_reset',
+  'finish_reset',
+]);
 let databaseSequence = 0;
 
 function invalid(message) {
@@ -74,8 +97,24 @@ function stateTag(state, name) {
   return tag;
 }
 
+function decodeState(rawState) {
+  ensure(
+    rawState !== null &&
+      typeof rawState === 'object' &&
+      !Array.isArray(rawState),
+    'ITF state must be an object',
+  );
+  const action = field(rawState, ACTION_FIELD);
+  ensure(typeof action === 'string' && action.length > 0, 'ITF action must be a string');
+  return {
+    ...rawState,
+    action,
+    nondetPicks: field(rawState, NONDET_PICKS_FIELD),
+  };
+}
+
 function pickedId(state) {
-  const pick = field(state.nondetPicks ?? {}, 'id');
+  const pick = field(state.nondetPicks, 'id');
   ensure(
     field(pick, 'tag') === 'Some',
     `action \`${state.action}\` requires a nondeterministic id`,
@@ -129,6 +168,7 @@ async function createAdapter(tracePath) {
   return {
     client,
     request: null,
+    sentRequests: new Map(),
     response: null,
     responseValid: false,
     replacingSnapshot: false,
@@ -137,12 +177,8 @@ async function createAdapter(tracePath) {
 
 async function destroyAdapter(adapter) {
   if (!adapter) return;
-  try {
-    adapter.client.db.close();
-    await adapter.client.db.delete();
-  } catch (error) {
-    process.stderr.write(`warning: failed to delete formal replay database: ${error}\n`);
-  }
+  adapter.client.db.close();
+  await adapter.client.db.delete();
 }
 
 async function responseFromState(adapter, state, status, originalStatus) {
@@ -172,7 +208,7 @@ async function databaseSnapshot(client) {
     client.db.localMutations.orderBy('id').toArray(),
     client.db.meta.orderBy('key').toArray(),
   ]);
-  return JSON.stringify({ mutations, metadata });
+  return { mutations, metadata };
 }
 
 async function applyAction(adapter, state, tracePath) {
@@ -214,6 +250,16 @@ async function applyAction(adapter, state, tracePath) {
         requestMutationId(request) === expectedId,
         `sent mutation does not match model id ${expectedId}`,
       );
+      const requestKey = expectedId.toString();
+      const previous = adapter.sentRequests.get(requestKey);
+      if (previous === undefined) {
+        adapter.sentRequests.set(requestKey, structuredClone(request));
+      } else {
+        ensure(
+          isDeepStrictEqual(request, previous),
+          `retry for mutation ${expectedId} changed its immutable request`,
+        );
+      }
       adapter.request = request;
       break;
     }
@@ -275,7 +321,7 @@ async function applyAction(adapter, state, tracePath) {
       }
       ensure(rejected, 'the model-injected response must be rejected');
       ensure(
-        (await databaseSnapshot(adapter.client)) === before,
+        isDeepStrictEqual(await databaseSnapshot(adapter.client), before),
         'rejecting a malformed response mutated IndexedDB state',
       );
       adapter.response = response;
@@ -330,23 +376,59 @@ async function applyAction(adapter, state, tracePath) {
       adapter.replacingSnapshot = true;
       break;
 
-    case 'crash_during_reset':
+    case 'crash_during_reset': {
       ensure(
         adapter.replacingSnapshot,
         'crash_during_reset without an active replacement',
       );
+      const snapshot = {
+        protocolVersion: 1,
+        checkpoint: stateBigInt(state, 'server_checkpoint').toString(),
+        records: [],
+      };
+      const before = await databaseSnapshot(adapter.client);
+      let replacementCalled = false;
+      let replacementError;
+      try {
+        await adapter.client.installSnapshot(snapshot, async (records) => {
+          replacementCalled = true;
+          ensure(records.length === 0, 'model snapshot must contain no records');
+          throw new Error('simulated snapshot replacement crash');
+        });
+      } catch (error) {
+        replacementError = error;
+      }
+      ensure(replacementCalled, 'failed snapshot installation skipped replacement');
+      ensure(
+        replacementError instanceof Error &&
+          replacementError.message === 'simulated snapshot replacement crash',
+        `snapshot replacement returned unexpected error: ${replacementError}`,
+      );
+      ensure(
+        isDeepStrictEqual(await databaseSnapshot(adapter.client), before),
+        'failed snapshot replacement mutated IndexedDB queue or metadata',
+      );
       adapter.replacingSnapshot = false;
       break;
+    }
 
     case 'finish_reset': {
       ensure(adapter.replacingSnapshot, 'finish_reset without an active replacement');
+      let replacementCalled = false;
       await adapter.client.installSnapshot(
         {
           protocolVersion: 1,
           checkpoint: stateBigInt(state, 'server_checkpoint').toString(),
           records: [],
         },
-        async () => {},
+        async (records) => {
+          replacementCalled = true;
+          ensure(records.length === 0, 'model snapshot must contain no records');
+        },
+      );
+      ensure(
+        replacementCalled,
+        'successful snapshot installation skipped authoritative replacement',
       );
       adapter.replacingSnapshot = false;
       break;
@@ -464,15 +546,21 @@ async function replay(tracePath) {
   const trace = JSON.parse(await readFile(tracePath, 'utf8'));
   ensure(Array.isArray(trace.states), `${tracePath}: ITF trace has no states array`);
   ensure(trace.states.length > 0, `${tracePath}: ITF trace has no states`);
+  ensure(
+    decodeState(trace.states[0]).action === 'init',
+    `${tracePath}: ITF trace must begin with the model init action`,
+  );
 
   let adapter = null;
+  const actions = new Set();
   try {
     for (let index = 0; index < trace.states.length; index += 1) {
-      const state = trace.states[index];
+      const state = decodeState(trace.states[index]);
       ensure(
-        state !== null && typeof state === 'object' && typeof state.action === 'string',
-        `${tracePath}: invalid state ${index}`,
+        index === 0 || state.action !== 'init',
+        `${tracePath}: unexpected init action at state ${index}`,
       );
+      actions.add(state.action);
       const context = `${tracePath} state ${index} action ${state.action}`;
       try {
         adapter = await applyAction(adapter, state, tracePath);
@@ -481,7 +569,7 @@ async function replay(tracePath) {
         throw invalid(`${context}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
-    return trace.states.length;
+    return { states: trace.states.length, actions };
   } finally {
     await destroyAdapter(adapter);
   }
@@ -495,13 +583,21 @@ async function main() {
   );
 
   let states = 0;
+  const actions = new Set();
   for (const tracePath of paths) {
-    const count = await replay(tracePath);
-    states += count;
-    process.stdout.write(`replayed ${count} model states from ${tracePath}\n`);
+    const summary = await replay(tracePath);
+    states += summary.states;
+    for (const action of summary.actions) actions.add(action);
+    process.stdout.write(`replayed ${summary.states} model states from ${tracePath}\n`);
   }
+  const missing = REQUIRED_ACTIONS.filter((action) => !actions.has(action));
+  ensure(
+    missing.length === 0,
+    `trace suite left production adapter branches untested: ${missing.join(', ')}`,
+  );
   process.stdout.write(
-    `TypeScript OptoSyncClient conformed to ${states} states across ${paths.length} Quint ITF traces\n`,
+    `TypeScript OptoSyncClient conformed to ${states} states across ${paths.length} ` +
+      `Quint ITF traces covering all ${REQUIRED_ACTIONS.length} model actions\n`,
   );
 }
 
