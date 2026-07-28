@@ -161,6 +161,15 @@ jobs:
             exit 1
           fi
 
+      - name: Upload packed file listing on boundary failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-target-boundary-diagnostics
+          path: ${{ runner.temp }}/rust-target-files.txt
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Upload the exact package tested by every operating system
         uses: actions/upload-artifact@v4
         with:
