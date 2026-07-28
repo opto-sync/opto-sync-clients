@@ -160,13 +160,27 @@ jobs:
           cd "$EXTRACTED_TARGET/clients/ts"
           npm ci
 
-      - name: Prove the native runtime reports the certified core
+      - name: Build the extracted TypeScript client
         shell: bash
         run: |
           set -euo pipefail
           cd "$EXTRACTED_TARGET/clients/ts"
           npm run build
-          test "$(node -p "require('@opto-sync/syncer').version()")" = '0.2.1'
+
+      - name: Prove the native runtime reports the certified core
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/ts"
+          version="$(node -e "process.stdout.write(require('@opto-sync/syncer').version())")"
+          echo "native syncer.c version: $version"
+          test "$version" = '0.2.1'
+
+      - name: Run the extracted Node client tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/ts"
           npm run test:node
 
       - name: Run the real Chromium WASM and IndexedDB consumer
