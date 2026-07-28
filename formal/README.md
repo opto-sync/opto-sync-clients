@@ -82,39 +82,43 @@ $QUINT verify formal/opto_sync_protocol.qnt \
 # Generate implementation-replay traces in Informal Trace Format (ITF).
 mkdir -p .formal-artifacts
 $QUINT run formal/opto_sync_protocol.qnt \
-  --max-samples=500 \
-  --max-steps=30 \
-  --n-traces=8 \
+  --backend=rust \
+  --seed=0x4b27def6cf7f060b \
+  --max-samples=16 \
+  --max-steps=40 \
+  --n-traces=16 \
   --mbt \
   --out-itf='.formal-artifacts/opto-sync-{seq}.itf.json'
 
 # Replay every generated state through the production Rust ProtocolQueue API.
 cargo run \
   --locked \
-  --manifest-path clients/rust/Cargo.toml \
-  --no-default-features \
-  --bin quint_itf_replay \
+  --manifest-path formal/rust-itf-replay/Cargo.toml \
+  --bin quint-itf-replay \
   -- .formal-artifacts/opto-sync-*.itf.json
 ```
 
 ## Rust implementation conformance
 
-`clients/rust/src/bin/quint_itf_replay.rs` is an active ITF adapter, not a second
-copy of the model. It is a non-networked diagnostic binary rather than a conventional
-Cargo example, preserving the clean-room package contract that reserves consumer
-examples for the pinned core-identity probe. The binary reads the action and state
+`formal/rust-itf-replay` is an active ITF adapter, not a second copy of the
+model. It is a separate `publish = false` diagnostic crate whose dependency on
+`opto-sync-client` disables default features. Keeping it outside `clients/rust`
+means neither Cargo packaging nor the isolated Zed Rust target ships the
+conformance tool to library consumers. The binary reads the action and state
 metadata emitted by Quint and maps those actions to public production APIs:
 
 - `enqueue` calls `ProtocolQueue::queue_upsert` and checks contiguous allocation;
-- `send` calls `push_request(1)` and retains the immutable request envelope;
+- `send` calls `push_request(1)`, retains the first immutable request envelope,
+  and requires every retry of that mutation to be byte-for-byte equivalent;
 - applied, rejected, and duplicate model outcomes synthesize protocol-v1 responses;
 - malformed responses are passed to `acknowledge` and must be rejected without
   mutating the queue;
 - valid `acknowledge` actions execute the real acknowledgement validation and
   confirmation transition;
 - `pull` advances the real durable checkpoint;
-- `finish_reset` executes `install_snapshot`, while reset crashes leave the queue
-  unchanged and retryable.
+- `finish_reset` executes a successful `install_snapshot`; reset crashes execute
+  the real API with a failing replacement callback and require the serialized
+  queue to remain exactly unchanged and retryable.
 
 After every model state, the adapter compares the real queue's observable
 projection with Quint: next mutation id, pending and confirmed identities,
@@ -122,9 +126,13 @@ in-flight request, response envelope/validity, checkpoint, and snapshot-replacem
 phase. Server-only fields such as ledger contents and effect counters remain model
 state; they are not falsely claimed as client implementation coverage.
 
-The formal-methods workflow generates fresh traces and replays all of them before
-uploading the ITF and replay logs. The ordinary Rust `--all-targets` jobs also
-compile and lint the adapter, including without default SQLite features.
+The formal-methods workflow pins the Quint version, Rust evaluator backend, and
+trace seed. Its 16 generated traces cover every one of the model's 17 actions
+with the current model. The adapter independently refuses to pass if any action
+is missing, so duplicate retry, committed-response loss, and reset-crash code
+cannot silently become vacuous. The workflow formats, lints, tests, and replays
+the non-published crate with the Rust 1.88 client compatibility toolchain before
+uploading the ITF and replay logs.
 
 ## Cross-language implementation checks
 
@@ -133,7 +141,7 @@ the same observable projection.
 
 | Runtime | Adapter target | Status |
 |---|---|---|
-| Rust | `clients/rust/src/bin/quint_itf_replay.rs` against `ProtocolQueue` | Active |
+| Rust | `formal/rust-itf-replay` against `ProtocolQueue` | Active |
 | TypeScript | Node/Dexie driver invoking `OptoSyncClient` and projecting IndexedDB state | Planned |
 | Dart | VM/Drift driver using the same command/state JSON schema | Planned |
 | Go | Generic trace-runner SDK; opto-sync can add a client when one exists | Planned |

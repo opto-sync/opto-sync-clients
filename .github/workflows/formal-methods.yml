@@ -38,6 +38,12 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      - name: Install the Rust client compatibility toolchain
+        uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0 # 1.88.0
+        with:
+          toolchain: '1.88.0'
+          components: clippy, rustfmt
+
       - name: Typecheck the executable specification
         shell: bash
         run: |
@@ -87,9 +93,11 @@ jobs:
           set +e
           npx --yes --package="$QUINT_PACKAGE" quint run \
             formal/opto_sync_protocol.qnt \
-            --max-samples=500 \
-            --max-steps=30 \
-            --n-traces=8 \
+            --backend=rust \
+            --seed=0x4b27def6cf7f060b \
+            --max-samples=16 \
+            --max-steps=40 \
+            --n-traces=16 \
             --mbt \
             --out-itf='.formal-artifacts/opto-sync-{seq}.itf.json' 2>&1 \
             | tee .formal-artifacts/trace-generation.log
@@ -97,15 +105,31 @@ jobs:
           set -e
           exit "$status"
 
+      - name: Validate the non-published Rust replay adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt \
+            --manifest-path formal/rust-itf-replay/Cargo.toml \
+            -- --check
+          cargo clippy \
+            --locked \
+            --manifest-path formal/rust-itf-replay/Cargo.toml \
+            --all-targets \
+            -- -D warnings
+          cargo test \
+            --locked \
+            --manifest-path formal/rust-itf-replay/Cargo.toml \
+            --all-targets
+
       - name: Replay generated traces against the Rust protocol queue
         shell: bash
         run: |
           set +e
           cargo run \
             --locked \
-            --manifest-path clients/rust/Cargo.toml \
-            --no-default-features \
-            --bin quint_itf_replay \
+            --manifest-path formal/rust-itf-replay/Cargo.toml \
+            --bin quint-itf-replay \
             -- .formal-artifacts/opto-sync-*.itf.json 2>&1 \
             | tee .formal-artifacts/rust-itf-replay.log
           status=${PIPESTATUS[0]}

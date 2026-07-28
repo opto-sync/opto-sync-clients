@@ -9,11 +9,11 @@
 
 use opto_sync_client::protocol::{
     LocalProtocolStatus, MutationResult, ProtocolError, ProtocolQueue, PushRequest, PushResponse,
-    ResultStatus, SnapshotResponse,
+    ResultStatus, SnapshotInstallError, SnapshotResponse,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::Display;
 use std::fs;
@@ -21,6 +21,25 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 const CLIENT_ID: &str = "formal-client";
+const REQUIRED_ACTIONS: &[&str] = &[
+    "init",
+    "idle",
+    "compact",
+    "enqueue",
+    "send",
+    "apply_new",
+    "reject_new",
+    "reply_duplicate",
+    "inject_mismatched_response",
+    "lose_committed_response",
+    "lose_uncommitted_request",
+    "discard_malformed_response",
+    "acknowledge",
+    "pull",
+    "begin_reset",
+    "crash_during_reset",
+    "finish_reset",
+];
 
 type AnyResult<T> = Result<T, Box<dyn Error>>;
 
@@ -41,6 +60,7 @@ struct ItfState {
 struct Adapter {
     queue: ProtocolQueue,
     request: Option<PushRequest>,
+    sent_requests: BTreeMap<u64, PushRequest>,
     response: Option<PushResponse>,
     response_valid: bool,
     replacing_snapshot: bool,
@@ -51,6 +71,7 @@ impl Adapter {
         Ok(Self {
             queue: ProtocolQueue::new(CLIENT_ID)?,
             request: None,
+            sent_requests: BTreeMap::new(),
             response: None,
             response_valid: false,
             replacing_snapshot: false,
@@ -123,8 +144,8 @@ fn response_from_state(
 ) -> AnyResult<PushResponse> {
     let mutation_id = state_u64(state, "response_mutation_id")?.to_string();
     let checkpoint = state_u64(state, "response_checkpoint")?.to_string();
-    let has_applied_effect = status == ResultStatus::Applied
-        || original_status == Some(ResultStatus::Applied);
+    let has_applied_effect =
+        status == ResultStatus::Applied || original_status == Some(ResultStatus::Applied);
 
     Ok(PushResponse {
         protocol_version: 1,
@@ -185,6 +206,14 @@ fn apply_action(adapter: &mut Adapter, state: &ItfState) -> AnyResult<()> {
                 request_mutation_id(&request)? == expected_id,
                 format!("sent mutation does not match model id {expected_id}"),
             )?;
+            if let Some(previous) = adapter.sent_requests.get(&expected_id) {
+                ensure(
+                    previous == &request,
+                    format!("retry for mutation {expected_id} changed its immutable request"),
+                )?;
+            } else {
+                adapter.sent_requests.insert(expected_id, request.clone());
+            }
             adapter.request = Some(request);
         }
         "apply_new" => {
@@ -248,7 +277,7 @@ fn apply_action(adapter: &mut Adapter, state: &ItfState) -> AnyResult<()> {
                 .request
                 .as_ref()
                 .ok_or_else(|| invalid("mismatched response without an in-flight request"))?;
-            let before = serde_json::to_value(&adapter.queue)?;
+            let before = adapter.queue.clone();
             let error = adapter
                 .queue
                 .acknowledge(&response, request)
@@ -258,7 +287,7 @@ fn apply_action(adapter: &mut Adapter, state: &ItfState) -> AnyResult<()> {
                 format!("malformed response returned unexpected error: {error}"),
             )?;
             ensure(
-                serde_json::to_value(&adapter.queue)? == before,
+                adapter.queue == before,
                 "rejecting a malformed response mutated the queue",
             )?;
             adapter.response = Some(response);
@@ -279,7 +308,10 @@ fn apply_action(adapter: &mut Adapter, state: &ItfState) -> AnyResult<()> {
             adapter.response_valid = false;
         }
         "acknowledge" => {
-            ensure(adapter.response_valid, "cannot acknowledge an invalid response")?;
+            ensure(
+                adapter.response_valid,
+                "cannot acknowledge an invalid response",
+            )?;
             let response = adapter
                 .response
                 .as_ref()
@@ -293,7 +325,10 @@ fn apply_action(adapter: &mut Adapter, state: &ItfState) -> AnyResult<()> {
                 "acknowledgement id does not match the in-flight request",
             )?;
             let changed = adapter.queue.acknowledge(response, request)?;
-            ensure(changed == 1, format!("acknowledgement changed {changed} rows"))?;
+            ensure(
+                changed == 1,
+                format!("acknowledgement changed {changed} rows"),
+            )?;
             adapter.request = None;
             adapter.response = None;
             adapter.response_valid = false;
@@ -304,13 +339,39 @@ fn apply_action(adapter: &mut Adapter, state: &ItfState) -> AnyResult<()> {
                 .set_checkpoint(state_u64(state, "local_checkpoint")?.to_string())?;
         }
         "begin_reset" => {
-            ensure(!adapter.replacing_snapshot, "snapshot replacement already active")?;
+            ensure(
+                !adapter.replacing_snapshot,
+                "snapshot replacement already active",
+            )?;
             adapter.replacing_snapshot = true;
         }
         "crash_during_reset" => {
             ensure(
                 adapter.replacing_snapshot,
                 "crash_during_reset without an active replacement",
+            )?;
+            let snapshot = SnapshotResponse {
+                protocol_version: 1,
+                checkpoint: state_u64(state, "server_checkpoint")?.to_string(),
+                records: Vec::new(),
+            };
+            let before = adapter.queue.clone();
+            let error = adapter
+                .queue
+                .install_snapshot(&snapshot, |_| {
+                    Err::<(), _>("simulated snapshot replacement crash")
+                })
+                .expect_err("the simulated snapshot replacement must fail");
+            ensure(
+                matches!(
+                    error,
+                    SnapshotInstallError::Replace("simulated snapshot replacement crash")
+                ),
+                format!("snapshot replacement returned unexpected error: {error}"),
+            )?;
+            ensure(
+                adapter.queue == before,
+                "failed snapshot replacement mutated the protocol queue",
             )?;
             adapter.replacing_snapshot = false;
         }
@@ -324,9 +385,15 @@ fn apply_action(adapter: &mut Adapter, state: &ItfState) -> AnyResult<()> {
                 checkpoint: state_u64(state, "server_checkpoint")?.to_string(),
                 records: Vec::new(),
             };
-            adapter
-                .queue
-                .install_snapshot(&snapshot, |_| Ok::<(), &'static str>(()))?;
+            let mut replacement_called = false;
+            adapter.queue.install_snapshot(&snapshot, |_| {
+                replacement_called = true;
+                Ok::<(), &'static str>(())
+            })?;
+            ensure(
+                replacement_called,
+                "successful snapshot installation skipped authoritative replacement",
+            )?;
             adapter.replacing_snapshot = false;
         }
         action => return Err(invalid(format!("unsupported model action `{action}`"))),
@@ -383,9 +450,7 @@ fn assert_projection(adapter: &Adapter, state: &ItfState, context: &str) -> AnyR
     )?;
     ensure(
         actual_confirmed == expected_confirmed,
-        format!(
-            "{context}: confirmed {actual_confirmed:?} != model {expected_confirmed:?}"
-        ),
+        format!("{context}: confirmed {actual_confirmed:?} != model {expected_confirmed:?}"),
     )?;
 
     let actual_all = adapter
@@ -462,18 +527,36 @@ fn assert_projection(adapter: &Adapter, state: &ItfState, context: &str) -> AnyR
     Ok(())
 }
 
-fn replay(path: &Path) -> AnyResult<usize> {
+struct ReplaySummary {
+    states: usize,
+    actions: BTreeSet<String>,
+}
+
+fn replay(path: &Path) -> AnyResult<ReplaySummary> {
     let bytes = fs::read(path)?;
     let trace: ItfTrace = serde_json::from_slice(&bytes)?;
     ensure(!trace.states.is_empty(), "ITF trace has no states")?;
+    ensure(
+        trace
+            .states
+            .first()
+            .is_some_and(|state| state.action == "init"),
+        "ITF trace must begin with the model init action",
+    )?;
 
     let mut adapter = Adapter::new()?;
+    let mut actions = BTreeSet::new();
     for (index, state) in trace.states.iter().enumerate() {
+        actions.insert(state.action.clone());
         let context = format!("{} state {index} action {}", path.display(), state.action);
-        apply_action(&mut adapter, state).map_err(|error| invalid(format!("{context}: {error}")))?;
+        apply_action(&mut adapter, state)
+            .map_err(|error| invalid(format!("{context}: {error}")))?;
         assert_projection(&adapter, state, &context)?;
     }
-    Ok(trace.states.len())
+    Ok(ReplaySummary {
+        states: trace.states.len(),
+        actions,
+    })
 }
 
 fn main() -> AnyResult<()> {
@@ -483,19 +566,40 @@ fn main() -> AnyResult<()> {
         .collect::<Vec<_>>();
     ensure(
         !paths.is_empty(),
-        "usage: cargo run --example quint_itf_replay -- <trace.itf.json>...",
+        "usage: cargo run --manifest-path formal/rust-itf-replay/Cargo.toml -- \
+         <trace.itf.json>...",
     )?;
     paths.sort();
 
     let mut states = 0usize;
+    let mut actions = BTreeSet::new();
     for path in &paths {
-        let count = replay(path)?;
-        states += count;
-        println!("replayed {count} model states from {}", path.display());
+        let summary = replay(path)?;
+        states += summary.states;
+        actions.extend(summary.actions);
+        println!(
+            "replayed {} model states from {}",
+            summary.states,
+            path.display()
+        );
     }
+    let missing = REQUIRED_ACTIONS
+        .iter()
+        .copied()
+        .filter(|action| !actions.contains(*action))
+        .collect::<Vec<_>>();
+    ensure(
+        missing.is_empty(),
+        format!(
+            "trace suite left production adapter branches untested: {}",
+            missing.join(", ")
+        ),
+    )?;
     println!(
-        "Rust ProtocolQueue conformed to {states} states across {} Quint ITF traces",
-        paths.len()
+        "Rust ProtocolQueue conformed to {states} states across {} Quint ITF traces \
+         covering all {} model actions",
+        paths.len(),
+        REQUIRED_ACTIONS.len()
     );
     Ok(())
 }
