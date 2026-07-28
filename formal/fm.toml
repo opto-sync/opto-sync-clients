@@ -1,5 +1,4 @@
-# Provisional manifest for the planned Rust formal-methods orchestrator.
-# The current GitHub Actions workflow executes these settings directly.
+# Formal-methods manifest consumed by tools/fmctl.
 schema_version = 1
 project = "opto-sync-clients"
 model = "protocol-v1"
@@ -18,6 +17,12 @@ witnesses = [
 [toolchain]
 quint = "0.32.0"
 java = ">=17"
+npx = "npx"
+
+[execution]
+timeout_seconds = 1200
+max_output_bytes = 8388608
+artifacts_dir = ".formal-artifacts"
 
 [simulation]
 backend = "typescript"
@@ -33,6 +38,7 @@ format = "itf"
 model_based_testing_metadata = true
 count = 8
 max_steps = 30
+max_samples = 500
 
 [adapters.rust]
 strategy = "quint-connect"
