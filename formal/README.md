@@ -93,15 +93,17 @@ cargo run \
   --locked \
   --manifest-path clients/rust/Cargo.toml \
   --no-default-features \
-  --example quint_itf_replay \
+  --bin quint_itf_replay \
   -- .formal-artifacts/opto-sync-*.itf.json
 ```
 
 ## Rust implementation conformance
 
-`clients/rust/examples/quint_itf_replay.rs` is an active ITF adapter, not a second
-copy of the model. It reads the action and state metadata emitted by Quint and maps
-those actions to public production APIs:
+`clients/rust/src/bin/quint_itf_replay.rs` is an active ITF adapter, not a second
+copy of the model. It is a non-networked diagnostic binary rather than a conventional
+Cargo example, preserving the clean-room package contract that reserves consumer
+examples for the pinned core-identity probe. The binary reads the action and state
+metadata emitted by Quint and maps those actions to public production APIs:
 
 - `enqueue` calls `ProtocolQueue::queue_upsert` and checks contiguous allocation;
 - `send` calls `push_request(1)` and retains the immutable request envelope;
@@ -131,7 +133,7 @@ the same observable projection.
 
 | Runtime | Adapter target | Status |
 |---|---|---|
-| Rust | `clients/rust/examples/quint_itf_replay.rs` against `ProtocolQueue` | Active |
+| Rust | `clients/rust/src/bin/quint_itf_replay.rs` against `ProtocolQueue` | Active |
 | TypeScript | Node/Dexie driver invoking `OptoSyncClient` and projecting IndexedDB state | Planned |
 | Dart | VM/Drift driver using the same command/state JSON schema | Planned |
 | Go | Generic trace-runner SDK; opto-sync can add a client when one exists | Planned |
