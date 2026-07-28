@@ -153,28 +153,39 @@ jobs:
           cache: npm
           cache-dependency-path: source/clients/ts/package-lock.json
 
-      - name: Install from the extracted target and build the native engine
+      - name: Install from the extracted target
         shell: bash
         run: |
           set -euo pipefail
           cd "$EXTRACTED_TARGET/clients/ts"
           npm ci
 
-      - name: Build the extracted TypeScript client
+      - name: Verify extracted native and WASM bindings after install
         shell: bash
         run: |
           set -euo pipefail
           cd "$EXTRACTED_TARGET/clients/ts"
-          npm run build
-
-      - name: Prove the native runtime reports the certified core
-        shell: bash
-        run: |
-          set -euo pipefail
-          cd "$EXTRACTED_TARGET/clients/ts"
+          test -f node_modules/@opto-sync/syncer/package.json
+          test -f node_modules/@opto-sync/syncer-wasm/package.json
+          test -f ../../syncer.c/bindings/typescript/build/Release/syncer.node
           version="$(node -e "process.stdout.write(require('@opto-sync/syncer').version())")"
           echo "native syncer.c version: $version"
           test "$version" = '0.2.1'
+
+      - name: Compile the extracted CommonJS client
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/ts"
+          npx tsc --pretty false
+
+      - name: Compile the extracted ESM client and mark module scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/ts"
+          npx tsc -p tsconfig.esm.json --pretty false
+          node scripts/postbuild.mjs
 
       - name: Run the extracted Node client tests
         shell: bash
