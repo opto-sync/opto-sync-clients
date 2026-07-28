@@ -85,7 +85,7 @@ def main() -> int:
         require_file(relative)
 
     if (ROOT / "clients/ts/test").exists():
-        fail("conventional test/ path must be remapped to smoke/ for the packed target")
+        fail("conventional test path must be remapped to smoke for the packed target")
 
     manifest = load_toml(ROOT / ".zpkg.toml")
     package_meta = manifest.get("package", {})
@@ -131,6 +131,18 @@ def main() -> int:
     client = load_json(client_manifest_path)
     if client.get("name") != "@opto-sync/client" or client.get("version") != "0.2.0":
         fail("unexpected TypeScript client package identity")
+    scripts = client.get("scripts", {})
+    expected_scripts = {
+        "test": "npm run build && npm run test:node && npm run test:browser",
+        "test:node": "node --test smoke/queue.test.js smoke/reconcile.test.js",
+        "test:browser": "node --test smoke/browser-e2e.test.mjs",
+    }
+    for name, expected in expected_scripts.items():
+        if scripts.get(name) != expected:
+            fail(f"package script {name!r} must use the extracted smoke corpus")
+    if "test/" in json.dumps(scripts, sort_keys=True):
+        fail("staged package scripts still reference the omitted conventional test directory")
+
     dependencies = client.get("dependencies", {})
     optional = client.get("optionalDependencies", {})
     expected_paths = {
@@ -196,7 +208,7 @@ def main() -> int:
         "resolve(packageRoot, '..', '..', '..', 'syncer.c', 'bindings', 'typescript')"
     )
     if approved_binding_path not in bootstrap:
-        fail("client bootstrap must resolve syncer.c from the target/repository root")
+        fail("client bootstrap must resolve syncer.c from the target or repository root")
     if stale_sibling_path in bootstrap:
         fail("client bootstrap still resolves the removed sibling-checkout layout")
 
