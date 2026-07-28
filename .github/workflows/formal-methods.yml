@@ -1,0 +1,82 @@
+name: Formal methods
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  opto-sync-protocol:
+    name: Quint protocol model
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      QUINT_PACKAGE: '@informalsystems/quint@0.32.0'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install Java for TLC/Apalache
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Typecheck the executable specification
+        run: >-
+          npx --yes --package="$QUINT_PACKAGE" quint typecheck
+          formal/opto_sync_protocol.qnt
+
+      - name: Simulate safety and reach failure-recovery witnesses
+        run: |
+          npx --yes --package="$QUINT_PACKAGE" quint run \
+            formal/opto_sync_protocol.qnt \
+            --max-samples=10000 \
+            --max-steps=40 \
+            --invariant=protocol_safety \
+            --witnesses \
+              ambiguous_commit_reached \
+              duplicate_retry_reached \
+              reset_crash_reached
+
+      - name: Exhaustively model-check the finite protocol state space
+        run: |
+          npx --yes --package="$QUINT_PACKAGE" quint verify \
+            formal/opto_sync_protocol.qnt \
+            --backend=tlc \
+            --invariant=protocol_safety
+
+      - name: Generate model-based testing traces
+        run: |
+          mkdir -p .formal-artifacts
+          npx --yes --package="$QUINT_PACKAGE" quint run \
+            formal/opto_sync_protocol.qnt \
+            --max-samples=500 \
+            --max-steps=30 \
+            --n-traces=8 \
+            --mbt \
+            --out-itf='.formal-artifacts/opto-sync-{seq}.itf.json'
+
+      - name: Upload ITF traces
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opto-sync-protocol-itf-traces
+          path: .formal-artifacts/*.itf.json
+          if-no-files-found: warn
+          retention-days: 14
