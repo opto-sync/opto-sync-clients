@@ -18,6 +18,7 @@ witnesses = [
 [toolchain]
 quint = "0.32.0"
 java = ">=17"
+node = "22"
 
 [simulation]
 backend = "typescript"
@@ -35,14 +36,28 @@ count = 8
 max_steps = 30
 
 [adapters.rust]
-strategy = "quint-connect"
+strategy = "itf-json-driver"
 target = "clients/rust"
-status = "planned"
+status = "in-review"
+issue = "DEN-573"
 
 [adapters.typescript]
 strategy = "itf-json-driver"
 target = "clients/ts"
-status = "planned"
+driver = "clients/ts/formal/quint-itf-replay.mjs"
+implementation = "OptoSyncClient + Dexie + fake-indexeddb"
+projection = [
+  "next_mutation_id",
+  "pending_mutation_ids",
+  "confirmed_mutation_ids",
+  "allocated_mutation_ids",
+  "in_flight_request_id",
+  "response_identity_and_validity",
+  "pull_checkpoint",
+  "reset_replacement_phase",
+]
+status = "active"
+issue = "DEN-583"
 
 [adapters.dart]
 strategy = "itf-json-driver"
@@ -51,7 +66,7 @@ status = "planned"
 
 [adapters.go]
 strategy = "itf-json-driver"
-status = "planned"
+status = "planned-reference-sdk"
 
 [adapters.gleam]
 strategy = "itf-json-driver"
