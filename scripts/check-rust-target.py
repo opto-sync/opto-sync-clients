@@ -84,7 +84,7 @@ def main() -> int:
         "clients/rust/Cargo.toml",
         "clients/rust/Cargo.lock",
         "clients/rust/src/lib.rs",
-        "clients/rust/examples/core_identity.rs",
+        "clients/rust/src/bin/core_identity.rs",
         "syncer.c/SOURCE_SHA",
         "syncer.c/core/include/syncer.h",
         "syncer.c/core/src/syncer.c",
@@ -95,6 +95,8 @@ def main() -> int:
     )
     for relative in required:
         require_file(relative)
+    if (ROOT / "clients/rust/examples").exists():
+        fail("conventional examples/ must not carry the packed identity probe")
 
     manifest = load_toml(ROOT / ".zpkg.toml")
     package = manifest.get("package", {})
