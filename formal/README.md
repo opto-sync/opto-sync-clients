@@ -7,17 +7,17 @@ The design separates three concerns:
 
 1. **A language-neutral behavioral specification.** Quint is the source of truth
    for states, actions, invariants, temporal properties, and counterexamples.
-2. **A Rust orchestration layer.** A separate `fmctl.rs`/formal-methods repository
-   should discover manifests like `fm.toml`, invoke model-checker backends, normalize
-   traces, cache tools, and expose the same operations through a CLI, JSON-RPC, and
-   eventually an MCP/HTTP server.
+2. **A Rust orchestration layer.** The `formal-methods.rs` workspace tracked by
+   DEN-565/DEN-580 should discover manifests like `fm.toml`, invoke model-checker
+   backends, normalize traces, supervise implementation adapters, and expose the
+   same deterministic library through a CLI before any remote service is added.
 3. **Implementation adapters.** Rust, TypeScript/JavaScript, Dart, Go, and Gleam
    implementations replay generated traces and compare observable implementation
    state with the Quint model. The adapter boundary is trace JSON, not source-code
    parsing or language-specific reimplementation of the model checker.
 
 This keeps the trusted design artifact independent of the runtime while still
-letting Rust own the operational tooling and the first model-based test adapter.
+letting Rust own the operational tooling and protocol schemas.
 
 ## Current model
 
@@ -134,15 +134,59 @@ cannot silently become vacuous. The workflow formats, lints, tests, and replays
 the non-published crate with the Rust 1.88 client compatibility toolchain before
 uploading the ITF and replay logs.
 
+## TypeScript/Dexie implementation conformance
+
+`formal/typescript-itf-replay.mjs` is a non-published Node adapter for DEN-583.
+It loads the normally built `@opto-sync/client` package through its public
+CommonJS entry point; it does not contain a second queue implementation.
+`fake-indexeddb` supplies the Node IndexedDB runtime, so the same Dexie schema,
+transactions, durable sequence, queue rows, metadata, and public protocol
+methods used by consumers execute during replay. Keeping the adapter outside
+`clients/ts` also keeps it out of both the npm package and the isolated
+TypeScript source target.
+
+For each raw ITF state, the driver reads Quint's `mbt::actionTaken` and
+`mbt::nondetPicks` metadata without rewriting the trace, maps the action to a
+public client operation, and compares this canonical projection:
+
+- durable next mutation id;
+- pending, confirmed, and all allocated mutation-id sets;
+- immutable in-flight request identity;
+- response identity, watermark, checkpoint, and validity;
+- local pull checkpoint; and
+- snapshot replacement phase.
+
+The adapter additionally retains the first complete request for each mutation
+and requires every retry to be deeply identical. Mismatched acknowledgements
+execute the real validator and must leave all queue and metadata rows unchanged.
+Reset crashes execute `installSnapshot` with a failing replacement callback and
+must preserve the checkpoint and pending queue exactly; successful resets assert
+that authoritative replacement ran before the checkpoint advanced.
+
+Server ledger and effect facts remain model inputs used only to synthesize
+protocol responses. They are not claimed as TypeScript implementation coverage.
+
+```bash
+(cd clients/ts && npm ci && npm run build)
+node formal/typescript-itf-replay.mjs \
+  .formal-artifacts/opto-sync-*.itf.json
+```
+
+Each trace receives a fresh database that is deleted after replay. Tagged ITF
+integers are handled as JavaScript `BigInt` values, so protocol decimal strings
+are never narrowed to IEEE-754 numbers. A mismatch reports the trace, state
+index, action, and first divergent field. Like the Rust adapter, the TypeScript
+adapter independently fails unless the complete trace suite covers all 17 model
+actions.
+
 ## Cross-language implementation checks
 
-Each additional adapter should consume the same ITF action/state shape and return
-the same observable projection.
+Every adapter consumes the same raw ITF corpus and projection vocabulary.
 
 | Runtime | Adapter target | Status |
 |---|---|---|
 | Rust | `formal/rust-itf-replay` against `ProtocolQueue` | Active |
-| TypeScript | Node/Dexie driver invoking `OptoSyncClient` and projecting IndexedDB state | Planned |
+| TypeScript | `formal/typescript-itf-replay.mjs` against public `OptoSyncClient` + Dexie | Active |
 | Dart | VM/Drift driver using the same command/state JSON schema | Planned |
 | Go | Generic trace-runner SDK; opto-sync can add a client when one exists | Planned |
 | Gleam | BEAM runner for implemented protocol codec/state transitions | Planned |
@@ -191,5 +235,5 @@ The next opto-sync models should cover, in order:
 5. multi-client convergence and TypeScript/Dart/Gleam trace replay.
 
 `fm.toml` is a provisional manifest for the planned Rust orchestrator. Until that
-CLI exists, the GitHub Actions workflow invokes Quint and the Rust adapter directly,
-so the proof and conformance gate remains independently reproducible.
+CLI exists, the GitHub Actions workflow invokes Quint and both active adapters
+directly, so the proof and conformance gate remains independently reproducible.

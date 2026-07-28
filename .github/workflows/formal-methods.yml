@@ -15,9 +15,9 @@ permissions:
 
 jobs:
   opto-sync-protocol:
-    name: Quint protocol model and Rust conformance
+    name: Quint protocol model and Rust/TypeScript conformance
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     env:
       QUINT_PACKAGE: '@informalsystems/quint@0.32.0'
     steps:
@@ -132,6 +132,32 @@ jobs:
             --bin quint-itf-replay \
             -- .formal-artifacts/opto-sync-*.itf.json 2>&1 \
             | tee .formal-artifacts/rust-itf-replay.log
+          status=${PIPESTATUS[0]}
+          set -e
+          exit "$status"
+
+      - name: Install and build the TypeScript client
+        working-directory: clients/ts
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          {
+            npm ci
+            npm run build
+            node --check ../../formal/typescript-itf-replay.mjs
+          } 2>&1 | tee ../../.formal-artifacts/typescript-build.log
+          status=${PIPESTATUS[0]}
+          set -e
+          exit "$status"
+
+      - name: Replay generated traces against TypeScript Dexie state
+        shell: bash
+        run: |
+          set +e
+          node formal/typescript-itf-replay.mjs \
+            .formal-artifacts/opto-sync-*.itf.json 2>&1 \
+            | tee .formal-artifacts/typescript-itf-replay.log
           status=${PIPESTATUS[0]}
           set -e
           exit "$status"

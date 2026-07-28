@@ -18,6 +18,7 @@ witnesses = [
 [toolchain]
 quint = "0.32.0"
 java = ">=17"
+node = "22"
 rust = "1.88.0"
 
 [simulation]
@@ -70,11 +71,25 @@ observable_state = [
   "snapshotReplacementPhase",
 ]
 status = "active"
+issue = "DEN-573"
 
 [adapters.typescript]
 strategy = "itf-json-driver"
-target = "clients/ts"
-status = "planned"
+target = "formal/typescript-itf-replay.mjs"
+command = "node formal/typescript-itf-replay.mjs {traces}"
+implementation = "clients/ts public OptoSyncClient package + Dexie + fake-indexeddb"
+observable_state = [
+  "nextMutationId",
+  "pendingMutationIds",
+  "confirmedMutationIds",
+  "allocatedMutationIds",
+  "inFlightRequest",
+  "response",
+  "checkpoint",
+  "snapshotReplacementPhase",
+]
+status = "active"
+issue = "DEN-583"
 
 [adapters.dart]
 strategy = "itf-json-driver"
