@@ -20,7 +20,6 @@ IGNORED = {
     "build",
     "_build",
     ".dart_tool",
-    "dist",
     "coverage",
     "playwright-report",
     "test-results",
@@ -77,6 +76,9 @@ def main() -> int:
         )
 
     copy_tree(ROOT / "clients/ts", output / "clients/ts")
+    # Client build output must be reproduced by the extracted consumer. The
+    # checked-in WASM distribution, in contrast, is a required source artifact.
+    shutil.rmtree(output / "clients/ts/dist", ignore_errors=True)
     copy_tree(ROOT / "syncer.c/core/include", output / "syncer.c/core/include")
     copy_tree(ROOT / "syncer.c/core/src", output / "syncer.c/core/src")
     copy_tree(
@@ -172,6 +174,8 @@ browser/WASM tests before it can be wired into the coordinated release set.
         relative = path.relative_to(output)
         if path.is_symlink() or any(part in IGNORED for part in relative.parts):
             forbidden.append(str(relative))
+    if (output / "clients/ts/dist").exists():
+        forbidden.append("clients/ts/dist")
     if forbidden:
         fail("staged target contains forbidden state: " + ", ".join(forbidden))
 
