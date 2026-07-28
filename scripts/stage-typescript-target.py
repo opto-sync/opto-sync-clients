@@ -23,6 +23,7 @@ IGNORED = {
     "coverage",
     "playwright-report",
     "test-results",
+    ".tmp",
 }
 
 
@@ -79,6 +80,18 @@ def main() -> int:
     # Client build output must be reproduced by the extracted consumer. The
     # checked-in WASM distribution, in contrast, is a required source artifact.
     shutil.rmtree(output / "clients/ts/dist", ignore_errors=True)
+
+    # Zed source packing deliberately omits conventional test directories. Keep
+    # the clean-room consumer corpus under an explicit smoke/ path so the exact
+    # packed artifact can prove native, IndexedDB, and Chromium behavior.
+    test_source = output / "clients/ts/test"
+    smoke_target = output / "clients/ts/smoke"
+    if not test_source.is_dir():
+        fail("clients/ts/test is missing from the source tree")
+    if smoke_target.exists():
+        fail("clients/ts/smoke already exists; staging would overwrite it")
+    test_source.rename(smoke_target)
+
     copy_tree(ROOT / "syncer.c/core/include", output / "syncer.c/core/include")
     copy_tree(ROOT / "syncer.c/core/src", output / "syncer.c/core/src")
     copy_tree(
@@ -138,6 +151,7 @@ exclude = [
   "**/build/**",
   "**/target/**",
   "**/coverage/**",
+  "**/.tmp/**",
   "clients/ts/dist/**",
 ]
 
@@ -153,6 +167,7 @@ test = "python3 scripts/check-typescript-target.py ."
 This clean-room source target contains only:
 
 - `clients/ts` (`@opto-sync/client` 0.2.0);
+- `clients/ts/smoke` (credential-free extracted-artifact consumer tests);
 - `syncer.c/core`;
 - `syncer.c/bindings/typescript` (`@opto-sync/syncer` 0.2.1); and
 - `syncer.c/bindings/wasm` (`@opto-sync/syncer-wasm` 0.2.1).
@@ -176,6 +191,8 @@ browser/WASM tests before it can be wired into the coordinated release set.
             forbidden.append(str(relative))
     if (output / "clients/ts/dist").exists():
         forbidden.append("clients/ts/dist")
+    if (output / "clients/ts/test").exists():
+        forbidden.append("clients/ts/test")
     if forbidden:
         fail("staged target contains forbidden state: " + ", ".join(forbidden))
 
