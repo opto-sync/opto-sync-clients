@@ -66,6 +66,11 @@ def main() -> int:
         "clients/ts/package.json",
         "clients/ts/package-lock.json",
         "clients/ts/scripts/bootstrap-native-binding.mjs",
+        "clients/ts/smoke/reconcile.test.js",
+        "clients/ts/smoke/queue.test.js",
+        "clients/ts/smoke/browser-e2e.test.mjs",
+        "clients/ts/smoke/helpers/bundle.mjs",
+        "clients/ts/smoke/helpers/corpus.mjs",
         "syncer.c/SOURCE_SHA",
         "syncer.c/core/include/syncer.h",
         "syncer.c/core/src/syncer.c",
@@ -78,6 +83,9 @@ def main() -> int:
     )
     for relative in required:
         require_file(relative)
+
+    if (ROOT / "clients/ts/test").exists():
+        fail("conventional test/ path must be remapped to smoke/ for the packed target")
 
     manifest = load_toml(ROOT / ".zpkg.toml")
     package_meta = manifest.get("package", {})
@@ -163,7 +171,17 @@ def main() -> int:
     if other_clients:
         fail(f"TypeScript target leaked other client roots: {sorted(other_clients)}")
 
-    forbidden_names = {".git", ".github", ".zed", "node_modules", "target", "build", "_build", ".dart_tool"}
+    forbidden_names = {
+        ".git",
+        ".github",
+        ".zed",
+        "node_modules",
+        "target",
+        "build",
+        "_build",
+        ".dart_tool",
+        ".tmp",
+    }
     for path in ROOT.rglob("*"):
         if path.is_symlink():
             fail(f"source artifact contains a symlink: {path.relative_to(ROOT)}")
