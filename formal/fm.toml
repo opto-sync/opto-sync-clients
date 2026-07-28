@@ -36,8 +36,8 @@ max_steps = 30
 
 [adapters.rust]
 strategy = "itf-json-driver"
-target = "clients/rust/examples/quint_itf_replay.rs"
-command = "cargo run --locked --manifest-path clients/rust/Cargo.toml --no-default-features --example quint_itf_replay -- {traces}"
+target = "clients/rust/src/bin/quint_itf_replay.rs"
+command = "cargo run --locked --manifest-path clients/rust/Cargo.toml --no-default-features --bin quint_itf_replay -- {traces}"
 observable_state = [
   "nextMutationId",
   "pendingMutationIds",
