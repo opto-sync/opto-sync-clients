@@ -172,14 +172,25 @@ jobs:
         working-directory: opto-sync-clients/clients/dart
         run: node tool/web_e2e.mjs
 
-      - name: clients/rust — SQLite, core-only, format, and lint
+      - name: clients/rust — formatting
         if: matrix.client == 'rust'
         working-directory: opto-sync-clients/clients/rust
-        run: |
-          cargo fmt --check
-          cargo test --locked --all-targets
-          cargo test --locked --no-default-features --all-targets
-          cargo clippy --locked --all-targets --all-features -- -D warnings
+        run: cargo fmt --check
+
+      - name: clients/rust — default SQLite tests
+        if: matrix.client == 'rust'
+        working-directory: opto-sync-clients/clients/rust
+        run: cargo test --locked --all-targets
+
+      - name: clients/rust — core-only tests
+        if: matrix.client == 'rust'
+        working-directory: opto-sync-clients/clients/rust
+        run: cargo test --locked --no-default-features --all-targets
+
+      - name: clients/rust — Clippy with all features
+        if: matrix.client == 'rust'
+        working-directory: opto-sync-clients/clients/rust
+        run: cargo clippy --locked --all-targets --all-features -- -D warnings
 
       - name: Install Gleam/BEAM toolchain
         if: matrix.client == 'gleam'
