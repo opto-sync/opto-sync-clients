@@ -171,8 +171,16 @@ def main() -> int:
             fail(f"generated/VCS state leaked into target: {path.relative_to(ROOT)}")
 
     bootstrap = (ROOT / "clients/ts/scripts/bootstrap-native-binding.mjs").read_text(encoding="utf-8")
-    if "'syncer.c', 'bindings', 'typescript'" not in bootstrap:
-        fail("client bootstrap no longer resolves the bundled native binding")
+    approved_binding_path = (
+        "resolve(packageRoot, '..', '..', 'syncer.c', 'bindings', 'typescript')"
+    )
+    stale_sibling_path = (
+        "resolve(packageRoot, '..', '..', '..', 'syncer.c', 'bindings', 'typescript')"
+    )
+    if approved_binding_path not in bootstrap:
+        fail("client bootstrap must resolve syncer.c from the target/repository root")
+    if stale_sibling_path in bootstrap:
+        fail("client bootstrap still resolves the removed sibling-checkout layout")
 
     kind = "source stage" if lock_path.exists() else "packed/extracted artifact"
     print(
