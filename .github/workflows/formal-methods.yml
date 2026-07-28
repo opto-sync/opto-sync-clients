@@ -38,12 +38,21 @@ jobs:
           java-version: '21'
 
       - name: Typecheck the executable specification
-        run: >-
-          npx --yes --package="$QUINT_PACKAGE" quint typecheck
-          formal/opto_sync_protocol.qnt
+        shell: bash
+        run: |
+          mkdir -p .formal-artifacts
+          set +e
+          npx --yes --package="$QUINT_PACKAGE" quint typecheck \
+            formal/opto_sync_protocol.qnt 2>&1 \
+            | tee .formal-artifacts/typecheck.log
+          status=${PIPESTATUS[0]}
+          set -e
+          exit "$status"
 
       - name: Simulate safety and reach failure-recovery witnesses
+        shell: bash
         run: |
+          set +e
           npx --yes --package="$QUINT_PACKAGE" quint run \
             formal/opto_sync_protocol.qnt \
             --max-samples=10000 \
@@ -52,31 +61,46 @@ jobs:
             --witnesses \
               ambiguous_commit_reached \
               duplicate_retry_reached \
-              reset_crash_reached
+              reset_crash_reached 2>&1 \
+            | tee .formal-artifacts/simulation.log
+          status=${PIPESTATUS[0]}
+          set -e
+          exit "$status"
 
       - name: Exhaustively model-check the finite protocol state space
+        shell: bash
         run: |
+          set +e
           npx --yes --package="$QUINT_PACKAGE" quint verify \
             formal/opto_sync_protocol.qnt \
             --backend=tlc \
-            --invariant=protocol_safety
+            --invariant=protocol_safety 2>&1 \
+            | tee .formal-artifacts/tlc.log
+          status=${PIPESTATUS[0]}
+          set -e
+          exit "$status"
 
       - name: Generate model-based testing traces
+        shell: bash
         run: |
-          mkdir -p .formal-artifacts
+          set +e
           npx --yes --package="$QUINT_PACKAGE" quint run \
             formal/opto_sync_protocol.qnt \
             --max-samples=500 \
             --max-steps=30 \
             --n-traces=8 \
             --mbt \
-            --out-itf='.formal-artifacts/opto-sync-{seq}.itf.json'
+            --out-itf='.formal-artifacts/opto-sync-{seq}.itf.json' 2>&1 \
+            | tee .formal-artifacts/trace-generation.log
+          status=${PIPESTATUS[0]}
+          set -e
+          exit "$status"
 
-      - name: Upload ITF traces
+      - name: Upload formal-methods artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: opto-sync-protocol-itf-traces
-          path: .formal-artifacts/*.itf.json
-          if-no-files-found: warn
+          name: opto-sync-formal-methods
+          path: .formal-artifacts/
+          if-no-files-found: error
           retention-days: 14
