@@ -7,10 +7,11 @@ The design separates three concerns:
 
 1. **A language-neutral behavioral specification.** Quint is the source of truth
    for states, actions, invariants, temporal properties, and counterexamples.
-2. **A Rust orchestration layer.** The `formal-methods.rs` workspace tracked by
-   DEN-565/DEN-580 should discover manifests like `fm.toml`, invoke model-checker
-   backends, normalize traces, supervise implementation adapters, and expose the
-   same deterministic library through a CLI before any remote service is added.
+2. **A Rust orchestration layer.** `tools/fmctl` is the in-repository incubator
+   for the `formal-methods.rs` workspace tracked by DEN-565/DEN-580. It discovers
+   manifests like `fm.toml`, invokes model-checker backends, validates generated
+   traces, supervises implementation adapters, and exposes the same deterministic
+   application core through a CLI and newline-delimited JSON-RPC server.
 3. **Implementation adapters.** Rust, TypeScript/JavaScript, Dart, Go, and Gleam
    implementations replay generated traces and compare observable implementation
    state with the Quint model. The adapter boundary is trace JSON, not source-code
@@ -57,46 +58,33 @@ vacuous.
 
 ## Run locally
 
-The workflow pins Quint so local and CI semantics match. Java 17 or newer is
-required by the model-checker backends.
+The canonical entry point is `fmctl`. Local runs require Node.js 22, Java 17 or
+newer, and Rust 1.88.0; the manifest pins the exact Quint package, Rust evaluator
+seed, trace count, and execution limits used by CI.
 
 ```bash
-QUINT='npx --yes --package=@informalsystems/quint@0.32.0 quint'
+cargo build --locked --release --manifest-path tools/fmctl/Cargo.toml
+FMCTL=tools/fmctl/target/release/fmctl
 
-$QUINT typecheck formal/opto_sync_protocol.qnt
+$FMCTL validate
+$FMCTL check
+$FMCTL simulate
+$FMCTL verify
+$FMCTL trace --output '.formal-artifacts/opto-sync-{seq}.itf.json'
 
-$QUINT run formal/opto_sync_protocol.qnt \
-  --max-samples=10000 \
-  --max-steps=40 \
-  --invariant=protocol_safety \
-  --witnesses \
-    ambiguous_commit_reached \
-    duplicate_retry_reached \
-    reset_crash_reached
+(cd clients/ts && npm ci && npm run build)
 
-# Exhaustive verification of this finite model.
-$QUINT verify formal/opto_sync_protocol.qnt \
-  --backend=tlc \
-  --invariant=protocol_safety
-
-# Generate implementation-replay traces in Informal Trace Format (ITF).
-mkdir -p .formal-artifacts
-$QUINT run formal/opto_sync_protocol.qnt \
-  --backend=rust \
-  --seed=0x4b27def6cf7f060b \
-  --max-samples=16 \
-  --max-steps=40 \
-  --n-traces=16 \
-  --mbt \
-  --out-itf='.formal-artifacts/opto-sync-{seq}.itf.json'
-
-# Replay every generated state through the production Rust ProtocolQueue API.
-cargo run \
-  --locked \
-  --manifest-path formal/rust-itf-replay/Cargo.toml \
-  --bin quint-itf-replay \
-  -- .formal-artifacts/opto-sync-*.itf.json
+traces=()
+for trace in .formal-artifacts/opto-sync-*.itf.json; do
+  traces+=(--trace "$trace")
+done
+$FMCTL replay --adapter rust "${traces[@]}"
+$FMCTL replay --adapter typescript "${traces[@]}"
 ```
+
+`fmctl plan <operation>` or `--dry-run` prints the exact argv, working directory,
+sanitized environment, resource bounds, and artifact destinations without
+starting the verifier.
 
 ## Rust implementation conformance
 
@@ -234,6 +222,9 @@ The next opto-sync models should cover, in order:
 4. IndexedDB/Drift/SQLite transaction and restart boundaries;
 5. multi-client convergence and TypeScript/Dart/Gleam trace replay.
 
-`fm.toml` is a provisional manifest for the planned Rust orchestrator. Until that
-CLI exists, the GitHub Actions workflow invokes Quint and both active adapters
-directly, so the proof and conformance gate remains independently reproducible.
+`fm.toml` is the active schema-v1 manifest for the incubating Rust orchestrator.
+GitHub Actions builds and tests `fmctl`, runs every Quint phase through it, checks
+its JSON-RPC interface, and replays the same validated ITF corpus through both
+active adapters. Extraction into the shared DEN-565/DEN-580 workspace remains a
+separate lifecycle step; this repository keeps the complete gate reproducible
+until that shared release is available.

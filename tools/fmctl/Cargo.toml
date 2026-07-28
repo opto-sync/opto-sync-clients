@@ -1,0 +1,27 @@
+[package]
+name = "fmctl"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+description = "Reproducible formal-methods orchestration for Quint and implementation trace adapters"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "fmctl"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "=4.5.23", features = ["derive"] }
+libc = "=0.2.189"
+serde = { version = "=1.0.217", features = ["derive"] }
+serde_json = "=1.0.134"
+thiserror = "=2.0.9"
+toml = "=0.8.23"
+wait-timeout = "=0.2.0"
+
+[dev-dependencies]
+tempfile = "=3.14.0"

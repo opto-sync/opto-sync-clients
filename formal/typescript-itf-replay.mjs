@@ -10,7 +10,8 @@
  * and snapshot installation execute through the compiled client package.
  */
 
-import { readFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import process from 'node:process';
@@ -21,6 +22,7 @@ const requireFromClient = createRequire(
 );
 requireFromClient('fake-indexeddb/auto');
 const { OptoSyncClient, SYNC_STATUS } = requireFromClient('.');
+const { version: clientVersion } = requireFromClient('./package.json');
 
 const MUTATION_SEQUENCE_KEY = 'mutation.seq';
 const ACTION_FIELD = 'mbt::actionTaken';
@@ -575,30 +577,121 @@ async function replay(tracePath) {
   }
 }
 
-async function main() {
-  const paths = process.argv.slice(2).sort();
+async function replayPaths(paths, protocolMode) {
   ensure(
     paths.length > 0,
     'usage: node formal/quint-itf-replay.mjs <trace.itf.json>...',
   );
 
   let states = 0;
+  let passed = 0;
   const actions = new Set();
+  const mismatches = [];
   for (const tracePath of paths) {
-    const summary = await replay(tracePath);
-    states += summary.states;
-    for (const action of summary.actions) actions.add(action);
-    process.stdout.write(`replayed ${summary.states} model states from ${tracePath}\n`);
+    try {
+      const summary = await replay(tracePath);
+      states += summary.states;
+      passed += 1;
+      for (const action of summary.actions) actions.add(action);
+      const diagnostic = `replayed ${summary.states} model states from ${tracePath}\n`;
+      if (protocolMode) process.stderr.write(diagnostic);
+      else process.stdout.write(diagnostic);
+    } catch (error) {
+      if (!protocolMode) throw error;
+      mismatches.push({
+        trace: tracePath,
+        step: null,
+        action: null,
+        message: error instanceof Error ? error.message : String(error),
+        expected: null,
+        actual: null,
+      });
+    }
   }
   const missing = REQUIRED_ACTIONS.filter((action) => !actions.has(action));
+  if (missing.length > 0) {
+    const message =
+      `trace suite left production adapter branches untested: ${missing.join(', ')}`;
+    if (!protocolMode) throw invalid(message);
+    passed = Math.max(0, passed - 1);
+    mismatches.push({
+      trace: paths[0],
+      step: null,
+      action: missing[0],
+      message,
+      expected: REQUIRED_ACTIONS,
+      actual: [...actions].sort(),
+    });
+  }
+  if (!protocolMode) {
+    process.stdout.write(
+      `TypeScript OptoSyncClient conformed to ${states} states across ${paths.length} ` +
+        `Quint ITF traces covering all ${REQUIRED_ACTIONS.length} model actions\n`,
+    );
+  }
+  return {
+    protocol: 'fmctl.adapter.v1',
+    success: mismatches.length === 0 && passed === paths.length,
+    traces_total: paths.length,
+    traces_passed: passed,
+    mismatches,
+    implementation: {
+      language: 'typescript',
+      name: '@opto-sync/client OptoSyncClient',
+      version: clientVersion,
+    },
+  };
+}
+
+function validateProtocolRequest(request) {
   ensure(
-    missing.length === 0,
-    `trace suite left production adapter branches untested: ${missing.join(', ')}`,
+    request !== null && typeof request === 'object' && !Array.isArray(request),
+    'adapter request must be an object',
   );
-  process.stdout.write(
-    `TypeScript OptoSyncClient conformed to ${states} states across ${paths.length} ` +
-      `Quint ITF traces covering all ${REQUIRED_ACTIONS.length} model actions\n`,
+  const expectedKeys = [
+    'adapter',
+    'model',
+    'project',
+    'protocol',
+    'specification',
+    'traces',
+  ];
+  ensure(
+    isDeepStrictEqual(Object.keys(request).sort(), expectedKeys),
+    'adapter request contains missing or unknown fields',
   );
+  ensure(request.protocol === 'fmctl.adapter.v1', 'unsupported adapter protocol');
+  ensure(request.adapter === 'typescript', 'request selected a non-TypeScript adapter');
+  ensure(typeof request.project === 'string' && request.project.length > 0, 'empty project');
+  ensure(typeof request.model === 'string' && request.model.length > 0, 'empty model');
+  ensure(
+    typeof request.specification === 'string' && request.specification.length > 0,
+    'invalid specification path',
+  );
+  ensure(
+    Array.isArray(request.traces) &&
+      request.traces.length > 0 &&
+      request.traces.every((trace) => typeof trace === 'string' && trace.length > 0),
+    'request must contain nonempty trace paths',
+  );
+}
+
+async function runProtocol() {
+  const input = readFileSync(0, 'utf8');
+  const request = JSON.parse(input);
+  validateProtocolRequest(request);
+  ensure((await stat(request.specification)).isFile(), 'specification is not a file');
+  const response = await replayPaths(request.traces, true);
+  process.stdout.write(JSON.stringify(response));
+}
+
+async function main() {
+  const paths = process.argv.slice(2).sort();
+  if (paths.length === 0) {
+    await runProtocol();
+  } else {
+    await replayPaths(paths, false);
+  }
 }
 
 main().catch((error) => {

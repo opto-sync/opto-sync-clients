@@ -11,13 +11,13 @@ use opto_sync_client::protocol::{
     LocalProtocolStatus, MutationResult, ProtocolError, ProtocolQueue, PushRequest, PushResponse,
     ResultStatus, SnapshotInstallError, SnapshotResponse,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::Display;
 use std::fs;
-use std::io;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 const CLIENT_ID: &str = "formal-client";
@@ -42,6 +42,44 @@ const REQUIRED_ACTIONS: &[&str] = &[
 ];
 
 type AnyResult<T> = Result<T, Box<dyn Error>>;
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReplayRequest {
+    protocol: String,
+    project: String,
+    model: String,
+    adapter: String,
+    specification: PathBuf,
+    traces: Vec<PathBuf>,
+}
+
+#[derive(Debug, Serialize)]
+struct ReplayResponse {
+    protocol: &'static str,
+    success: bool,
+    traces_total: u64,
+    traces_passed: u64,
+    mismatches: Vec<ReplayMismatch>,
+    implementation: Implementation,
+}
+
+#[derive(Debug, Serialize)]
+struct ReplayMismatch {
+    trace: PathBuf,
+    step: Option<u64>,
+    action: Option<String>,
+    message: String,
+    expected: Value,
+    actual: Value,
+}
+
+#[derive(Debug, Serialize)]
+struct Implementation {
+    language: &'static str,
+    name: &'static str,
+    version: &'static str,
+}
 
 #[derive(Debug, Deserialize)]
 struct ItfTrace {
@@ -559,47 +597,135 @@ fn replay(path: &Path) -> AnyResult<ReplaySummary> {
     })
 }
 
-fn main() -> AnyResult<()> {
-    let mut paths = std::env::args_os()
-        .skip(1)
-        .map(PathBuf::from)
-        .collect::<Vec<_>>();
+fn replay_paths(paths: &[PathBuf], protocol_mode: bool) -> AnyResult<ReplayResponse> {
     ensure(
         !paths.is_empty(),
         "usage: cargo run --manifest-path formal/rust-itf-replay/Cargo.toml -- \
          <trace.itf.json>...",
     )?;
-    paths.sort();
 
     let mut states = 0usize;
     let mut actions = BTreeSet::new();
-    for path in &paths {
-        let summary = replay(path)?;
-        states += summary.states;
-        actions.extend(summary.actions);
-        println!(
-            "replayed {} model states from {}",
-            summary.states,
-            path.display()
-        );
+    let mut passed = 0u64;
+    let mut mismatches = Vec::new();
+    for path in paths {
+        match replay(path) {
+            Ok(summary) => {
+                states += summary.states;
+                actions.extend(summary.actions);
+                passed += 1;
+                if protocol_mode {
+                    eprintln!(
+                        "replayed {} model states from {}",
+                        summary.states,
+                        path.display()
+                    );
+                } else {
+                    println!(
+                        "replayed {} model states from {}",
+                        summary.states,
+                        path.display()
+                    );
+                }
+            }
+            Err(error) if protocol_mode => mismatches.push(ReplayMismatch {
+                trace: path.clone(),
+                step: None,
+                action: None,
+                message: error.to_string(),
+                expected: Value::Null,
+                actual: Value::Null,
+            }),
+            Err(error) => return Err(error),
+        }
     }
     let missing = REQUIRED_ACTIONS
         .iter()
         .copied()
         .filter(|action| !actions.contains(*action))
         .collect::<Vec<_>>();
-    ensure(
-        missing.is_empty(),
-        format!(
+    if !missing.is_empty() {
+        let message = format!(
             "trace suite left production adapter branches untested: {}",
             missing.join(", ")
+        );
+        if protocol_mode {
+            passed = passed.saturating_sub(1);
+            mismatches.push(ReplayMismatch {
+                trace: paths[0].clone(),
+                step: None,
+                action: missing.first().map(|action| (*action).to_owned()),
+                message,
+                expected: json!(REQUIRED_ACTIONS),
+                actual: json!(actions),
+            });
+        } else {
+            return Err(invalid(message));
+        }
+    }
+    if !protocol_mode {
+        println!(
+            "Rust ProtocolQueue conformed to {states} states across {} Quint ITF traces \
+             covering all {} model actions",
+            paths.len(),
+            REQUIRED_ACTIONS.len()
+        );
+    }
+    let total = u64::try_from(paths.len()).map_err(|_| invalid("too many trace paths"))?;
+    Ok(ReplayResponse {
+        protocol: "fmctl.adapter.v1",
+        success: mismatches.is_empty() && passed == total,
+        traces_total: total,
+        traces_passed: passed,
+        mismatches,
+        implementation: Implementation {
+            language: "rust",
+            name: "opto-sync ProtocolQueue",
+            version: env!("CARGO_PKG_VERSION"),
+        },
+    })
+}
+
+fn run_protocol() -> AnyResult<()> {
+    let mut input = String::new();
+    io::stdin().read_to_string(&mut input)?;
+    let request: ReplayRequest = serde_json::from_str(&input)?;
+    ensure(
+        request.protocol == "fmctl.adapter.v1",
+        format!("unsupported adapter protocol {:?}", request.protocol),
+    )?;
+    ensure(
+        request.adapter == "rust",
+        "request selected a non-Rust adapter",
+    )?;
+    ensure(
+        !request.project.trim().is_empty(),
+        "request project is empty",
+    )?;
+    ensure(!request.model.trim().is_empty(), "request model is empty")?;
+    ensure(
+        request.specification.is_file(),
+        format!(
+            "request specification is not a file: {}",
+            request.specification.display()
         ),
     )?;
-    println!(
-        "Rust ProtocolQueue conformed to {states} states across {} Quint ITF traces \
-         covering all {} model actions",
-        paths.len(),
-        REQUIRED_ACTIONS.len()
-    );
+    ensure(!request.traces.is_empty(), "request contains no traces")?;
+    let response = replay_paths(&request.traces, true)?;
+    serde_json::to_writer(io::stdout().lock(), &response)?;
     Ok(())
+}
+
+fn main() -> AnyResult<()> {
+    let mut paths = std::env::args_os()
+        .skip(1)
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    if paths.is_empty() {
+        run_protocol()
+    } else {
+        paths.sort();
+        replay_paths(&paths, false)?;
+        Ok(())
+    }
 }

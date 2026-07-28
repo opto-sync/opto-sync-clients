@@ -7,6 +7,10 @@
 **/_build/
 **/deps/
 
+# Formal-methods runtime output
+.formal-artifacts/
+_apalache-out/
+
 # Zed deterministic package output
 .zed/
 .zed-pack/

@@ -15,11 +15,12 @@ permissions:
 
 jobs:
   opto-sync-protocol:
-    name: Quint protocol model and Rust/TypeScript conformance
+    name: fmctl + Quint protocol model and Rust/TypeScript conformance
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 45
     env:
-      QUINT_PACKAGE: '@informalsystems/quint@0.32.0'
+      NO_COLOR: '1'
+      RUST_BACKTRACE: '1'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,78 +33,93 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install Java for TLC/Apalache
+      - name: Install Java for TLC and Apalache
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
 
-      - name: Install the Rust client compatibility toolchain
+      - name: Install pinned Rust toolchain
         uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0 # 1.88.0
         with:
           toolchain: '1.88.0'
           components: clippy, rustfmt
 
-      - name: Typecheck the executable specification
-        shell: bash
-        run: |
-          mkdir -p .formal-artifacts
-          set +e
-          npx --yes --package="$QUINT_PACKAGE" quint typecheck \
-            formal/opto_sync_protocol.qnt 2>&1 \
-            | tee .formal-artifacts/typecheck.log
-          status=${PIPESTATUS[0]}
-          set -e
-          exit "$status"
+      - name: Format-check fmctl
+        run: cargo fmt --manifest-path tools/fmctl/Cargo.toml -- --check
 
-      - name: Simulate safety and reach failure-recovery witnesses
-        shell: bash
+      - name: Lint fmctl
         run: |
-          set +e
-          npx --yes --package="$QUINT_PACKAGE" quint run \
-            formal/opto_sync_protocol.qnt \
-            --max-samples=10000 \
-            --max-steps=40 \
-            --invariant=protocol_safety \
-            --witnesses \
-              ambiguous_commit_reached \
-              duplicate_retry_reached \
-              reset_crash_reached 2>&1 \
-            | tee .formal-artifacts/simulation.log
-          status=${PIPESTATUS[0]}
-          set -e
-          exit "$status"
+          cargo clippy \
+            --locked \
+            --manifest-path tools/fmctl/Cargo.toml \
+            --all-targets \
+            --all-features \
+            -- -D warnings
 
-      - name: Exhaustively model-check the finite protocol state space
-        shell: bash
+      - name: Test fmctl
         run: |
-          set +e
-          npx --yes --package="$QUINT_PACKAGE" quint verify \
-            formal/opto_sync_protocol.qnt \
-            --backend=tlc \
-            --invariant=protocol_safety 2>&1 \
-            | tee .formal-artifacts/tlc.log
-          status=${PIPESTATUS[0]}
-          set -e
-          exit "$status"
+          cargo test \
+            --locked \
+            --manifest-path tools/fmctl/Cargo.toml \
+            --all-targets \
+            --all-features
 
-      - name: Generate model-based testing traces
+      - name: Build fmctl
+        run: |
+          cargo build \
+            --locked \
+            --release \
+            --manifest-path tools/fmctl/Cargo.toml
+
+      - name: Validate the formal-methods manifest
+        run: |
+          mkdir -p .formal-artifacts/fmctl
+          tools/fmctl/target/release/fmctl --format json validate \
+            | tee .formal-artifacts/fmctl/validate.json
+
+      - name: Validate the configured toolchain through fmctl
+        run: |
+          tools/fmctl/target/release/fmctl --format json doctor \
+            | tee .formal-artifacts/fmctl/doctor.json
+
+      - name: Typecheck through fmctl
+        run: tools/fmctl/target/release/fmctl check
+
+      - name: Simulate safety and reach failure-recovery witnesses through fmctl
+        run: tools/fmctl/target/release/fmctl simulate
+
+      - name: Exhaustively model-check the finite protocol state space through fmctl
+        run: tools/fmctl/target/release/fmctl verify
+
+      - name: Generate the deterministic model-based testing corpus through fmctl
+        run: |
+          tools/fmctl/target/release/fmctl trace \
+            --output '.formal-artifacts/opto-sync-{seq}.itf.json'
+
+      - name: Exercise the JSON-RPC server over stdio
         shell: bash
         run: |
-          set +e
-          npx --yes --package="$QUINT_PACKAGE" quint run \
-            formal/opto_sync_protocol.qnt \
-            --backend=rust \
-            --seed=0x4b27def6cf7f060b \
-            --max-samples=16 \
-            --max-steps=40 \
-            --n-traces=16 \
-            --mbt \
-            --out-itf='.formal-artifacts/opto-sync-{seq}.itf.json' 2>&1 \
-            | tee .formal-artifacts/trace-generation.log
-          status=${PIPESTATUS[0]}
-          set -e
-          exit "$status"
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"fm.capabilities"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"fm.plan","params":{"operation":"verify"}}' \
+            '{"jsonrpc":"2.0","id":3,"method":"fm.shutdown"}' \
+            | tools/fmctl/target/release/fmctl serve \
+            | tee .formal-artifacts/fmctl/rpc.jsonl
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          responses = [
+              json.loads(line)
+              for line in Path('.formal-artifacts/fmctl/rpc.jsonl').read_text().splitlines()
+              if line.strip()
+          ]
+          assert [response['id'] for response in responses] == [1, 2, 3]
+          assert responses[0]['result']['adapter_protocol'] == 'fmctl.adapter.v1'
+          assert responses[1]['result']['plan']['operation'] == 'verify'
+          assert responses[2]['result']['shutdown'] is True
+          PY
 
       - name: Validate the non-published Rust replay adapter
         shell: bash
@@ -122,20 +138,6 @@ jobs:
             --manifest-path formal/rust-itf-replay/Cargo.toml \
             --all-targets
 
-      - name: Replay generated traces against the Rust protocol queue
-        shell: bash
-        run: |
-          set +e
-          cargo run \
-            --locked \
-            --manifest-path formal/rust-itf-replay/Cargo.toml \
-            --bin quint-itf-replay \
-            -- .formal-artifacts/opto-sync-*.itf.json 2>&1 \
-            | tee .formal-artifacts/rust-itf-replay.log
-          status=${PIPESTATUS[0]}
-          set -e
-          exit "$status"
-
       - name: Install and build the TypeScript client
         working-directory: clients/ts
         shell: bash
@@ -151,23 +153,43 @@ jobs:
           set -e
           exit "$status"
 
-      - name: Replay generated traces against TypeScript Dexie state
+      - name: Replay generated traces against the Rust protocol queue through fmctl
         shell: bash
         run: |
-          set +e
-          node formal/typescript-itf-replay.mjs \
-            .formal-artifacts/opto-sync-*.itf.json 2>&1 \
-            | tee .formal-artifacts/typescript-itf-replay.log
-          status=${PIPESTATUS[0]}
-          set -e
-          exit "$status"
+          set -euo pipefail
+          traces=()
+          for trace in .formal-artifacts/opto-sync-*.itf.json; do
+            test -f "$trace"
+            traces+=(--trace "$trace")
+          done
+          tools/fmctl/target/release/fmctl replay \
+            --adapter rust \
+            "${traces[@]}" 2>&1 \
+            | tee .formal-artifacts/rust-itf-replay.log
 
-      - name: Upload formal-methods artifacts
+      - name: Replay generated traces against TypeScript Dexie state through fmctl
+        shell: bash
+        run: |
+          set -euo pipefail
+          traces=()
+          for trace in .formal-artifacts/opto-sync-*.itf.json; do
+            test -f "$trace"
+            traces+=(--trace "$trace")
+          done
+          tools/fmctl/target/release/fmctl replay \
+            --adapter typescript \
+            "${traces[@]}" 2>&1 \
+            | tee .formal-artifacts/typescript-itf-replay.log
+
+      - name: Upload verifier, trace, lockfile, and normalized fmctl artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: opto-sync-formal-methods
-          path: .formal-artifacts/
+          path: |
+            .formal-artifacts/
+            tools/fmctl/Cargo.lock
+            formal/rust-itf-replay/Cargo.lock
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
