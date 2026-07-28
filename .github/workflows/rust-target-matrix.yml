@@ -225,27 +225,58 @@ jobs:
         with:
           components: clippy, rustfmt
 
-      - name: Preserve Cargo.lock through locked builds
+      - name: Record Cargo.lock identity and fetch the locked graph
         shell: bash
         run: |
           set -euo pipefail
           cd "$EXTRACTED_TARGET/clients/rust"
-          before="$(python3 - <<'PY'
+          lock_sha="$(python3 - <<'PY'
           import hashlib
           print(hashlib.sha256(open('Cargo.lock','rb').read()).hexdigest())
           PY
           )"
+          echo "CARGO_LOCK_SHA=$lock_sha" >> "$GITHUB_ENV"
           cargo fetch --locked
+
+      - name: Check extracted Rust formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/rust"
           cargo fmt --check
+
+      - name: Run extracted default-feature SQLite tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/rust"
           cargo test --locked --all-targets
+
+      - name: Run extracted core-only tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/rust"
           cargo test --locked --no-default-features --all-targets
+
+      - name: Run extracted Clippy gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/rust"
           cargo clippy --locked --all-targets --all-features -- -D warnings
-          after="$(python3 - <<'PY'
+
+      - name: Verify Cargo.lock remained byte-identical
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/rust"
+          actual="$(python3 - <<'PY'
           import hashlib
           print(hashlib.sha256(open('Cargo.lock','rb').read()).hexdigest())
           PY
           )"
-          test "$before" = "$after"
+          test "$CARGO_LOCK_SHA" = "$actual"
 
       - name: Prove bundled core identity through the staged binary
         working-directory: ${{ env.EXTRACTED_TARGET }}/clients/rust
@@ -287,11 +318,6 @@ jobs:
         run: |
           set -euo pipefail
           cd "$EXTRACTED_TARGET/clients/rust"
-          expected_lock="$(python3 - <<'PY'
-          import hashlib
-          print(hashlib.sha256(open('Cargo.lock','rb').read()).hexdigest())
-          PY
-          )"
           python3 - <<'PY'
           from pathlib import Path
           import shutil
@@ -299,10 +325,10 @@ jobs:
               shutil.rmtree(path, ignore_errors=True)
           PY
           cargo test --locked --no-default-features --all-targets
-          actual_lock="$(python3 - <<'PY'
+          actual="$(python3 - <<'PY'
           import hashlib
           print(hashlib.sha256(open('Cargo.lock','rb').read()).hexdigest())
           PY
           )"
-          test "$expected_lock" = "$actual_lock"
+          test "$CARGO_LOCK_SHA" = "$actual"
           cargo run --locked --bin core_identity
