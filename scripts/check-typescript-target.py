@@ -66,9 +66,9 @@ def main() -> int:
         "clients/ts/package.json",
         "clients/ts/package-lock.json",
         "clients/ts/scripts/bootstrap-native-binding.mjs",
-        "clients/ts/smoke/reconcile.test.js",
-        "clients/ts/smoke/queue.test.js",
-        "clients/ts/smoke/browser-e2e.test.mjs",
+        "clients/ts/smoke/native-reconcile.cjs",
+        "clients/ts/smoke/indexeddb-queue.cjs",
+        "clients/ts/smoke/browser-indexeddb.mjs",
         "clients/ts/smoke/helpers/bundle.mjs",
         "clients/ts/smoke/helpers/corpus.mjs",
         "syncer.c/SOURCE_SHA",
@@ -85,7 +85,10 @@ def main() -> int:
         require_file(relative)
 
     if (ROOT / "clients/ts/test").exists():
-        fail("conventional test path must be remapped to smoke for the packed target")
+        fail("conventional test path must be omitted from the packed target")
+    for path in (ROOT / "clients/ts/smoke").rglob("*"):
+        if path.is_file() and ".test." in path.name:
+            fail(f"smoke consumer retains a test-like filename: {path.relative_to(ROOT)}")
 
     manifest = load_toml(ROOT / ".zpkg.toml")
     package_meta = manifest.get("package", {})
@@ -134,14 +137,15 @@ def main() -> int:
     scripts = client.get("scripts", {})
     expected_scripts = {
         "test": "npm run build && npm run test:node && npm run test:browser",
-        "test:node": "node --test smoke/queue.test.js smoke/reconcile.test.js",
-        "test:browser": "node --test smoke/browser-e2e.test.mjs",
+        "test:node": "node --test smoke/indexeddb-queue.cjs smoke/native-reconcile.cjs",
+        "test:browser": "node --test smoke/browser-indexeddb.mjs",
     }
     for name, expected in expected_scripts.items():
         if scripts.get(name) != expected:
-            fail(f"package script {name!r} must use the extracted smoke corpus")
-    if "test/" in json.dumps(scripts, sort_keys=True):
-        fail("staged package scripts still reference the omitted conventional test directory")
+            fail(f"package script {name!r} must use the extracted smoke consumers")
+    serialized_scripts = json.dumps(scripts, sort_keys=True)
+    if "test/" in serialized_scripts or ".test." in serialized_scripts:
+        fail("staged package scripts still reference omitted test artifacts")
 
     dependencies = client.get("dependencies", {})
     optional = client.get("optionalDependencies", {})
