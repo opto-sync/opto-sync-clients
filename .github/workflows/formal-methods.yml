@@ -15,9 +15,9 @@ permissions:
 
 jobs:
   opto-sync-protocol:
-    name: Quint protocol model
+    name: Quint protocol model and client conformance
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       QUINT_PACKAGE: '@informalsystems/quint@0.32.0'
     steps:
@@ -92,6 +92,26 @@ jobs:
             --mbt \
             --out-itf='.formal-artifacts/opto-sync-{seq}.itf.json' 2>&1 \
             | tee .formal-artifacts/trace-generation.log
+          status=${PIPESTATUS[0]}
+          set -e
+          exit "$status"
+
+      - name: Install and build the TypeScript client
+        working-directory: clients/ts
+        shell: bash
+        run: |
+          npm ci
+          npm run build
+          node --check formal/quint-itf-replay.mjs
+
+      - name: Replay ITF traces against TypeScript Dexie state
+        working-directory: clients/ts
+        shell: bash
+        run: |
+          set +e
+          node formal/quint-itf-replay.mjs \
+            ../../.formal-artifacts/opto-sync-*.itf.json 2>&1 \
+            | tee ../../.formal-artifacts/typescript-itf-replay.log
           status=${PIPESTATUS[0]}
           set -e
           exit "$status"
