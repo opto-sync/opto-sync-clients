@@ -15,9 +15,9 @@ permissions:
 
 jobs:
   opto-sync-protocol:
-    name: Quint protocol model
+    name: Quint protocol model and Rust conformance
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       QUINT_PACKAGE: '@informalsystems/quint@0.32.0'
     steps:
@@ -25,6 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          submodules: recursive
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -92,6 +93,21 @@ jobs:
             --mbt \
             --out-itf='.formal-artifacts/opto-sync-{seq}.itf.json' 2>&1 \
             | tee .formal-artifacts/trace-generation.log
+          status=${PIPESTATUS[0]}
+          set -e
+          exit "$status"
+
+      - name: Replay generated traces against the Rust protocol queue
+        shell: bash
+        run: |
+          set +e
+          cargo run \
+            --locked \
+            --manifest-path clients/rust/Cargo.toml \
+            --no-default-features \
+            --example quint_itf_replay \
+            -- .formal-artifacts/opto-sync-*.itf.json 2>&1 \
+            | tee .formal-artifacts/rust-itf-replay.log
           status=${PIPESTATUS[0]}
           set -e
           exit "$status"
