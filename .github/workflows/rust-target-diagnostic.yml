@@ -1,0 +1,55 @@
+name: Rust target diagnostic
+
+on:
+  pull_request:
+    paths:
+      - 'clients/rust/**'
+      - 'syncer.c'
+      - 'scripts/stage-rust-target.py'
+      - 'scripts/check-rust-target.py'
+      - '.github/workflows/rust-target-diagnostic.yml'
+      - '.github/workflows/rust-target-matrix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-target-diagnostic-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  default-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout clients and exact core
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0 # 1.88.0
+
+      - name: Stage the clean-room Rust source tree
+        run: python3 scripts/stage-rust-target.py "$RUNNER_TEMP/rust-target"
+
+      - name: Run default-feature tests with retained diagnostics
+        id: default_tests
+        shell: bash
+        run: |
+          set -o pipefail
+          cd "$RUNNER_TEMP/rust-target/clients/rust"
+          cargo test --locked --all-targets 2>&1 | tee "$RUNNER_TEMP/rust-default-tests.log"
+
+      - name: Upload concise compiler and test diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-default-test-diagnostics
+          path: ${{ runner.temp }}/rust-default-tests.log
+          if-no-files-found: error
+          retention-days: 3
