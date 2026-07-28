@@ -25,6 +25,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          submodules: recursive
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -100,9 +101,16 @@ jobs:
         working-directory: clients/ts
         shell: bash
         run: |
-          npm ci
-          npm run build
-          node --check formal/quint-itf-replay.mjs
+          set +e
+          set -o pipefail
+          {
+            npm ci
+            npm run build
+            node --check formal/quint-itf-replay.mjs
+          } 2>&1 | tee ../../.formal-artifacts/typescript-build.log
+          status=${PIPESTATUS[0]}
+          set -e
+          exit "$status"
 
       - name: Replay ITF traces against TypeScript Dexie state
         working-directory: clients/ts
