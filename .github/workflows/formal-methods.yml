@@ -15,9 +15,9 @@ permissions:
 
 jobs:
   opto-sync-protocol:
-    name: Quint protocol model and client conformance
+    name: Quint protocol model and Rust/TypeScript conformance
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     env:
       QUINT_PACKAGE: '@informalsystems/quint@0.32.0'
     steps:
@@ -37,6 +37,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+
+      - name: Install the Rust client compatibility toolchain
+        uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0 # 1.88.0
+        with:
+          toolchain: '1.88.0'
+          components: clippy, rustfmt
 
       - name: Typecheck the executable specification
         shell: bash
@@ -87,9 +93,11 @@ jobs:
           set +e
           npx --yes --package="$QUINT_PACKAGE" quint run \
             formal/opto_sync_protocol.qnt \
-            --max-samples=500 \
-            --max-steps=30 \
-            --n-traces=8 \
+            --backend=rust \
+            --seed=0x4b27def6cf7f060b \
+            --max-samples=16 \
+            --max-steps=40 \
+            --n-traces=16 \
             --mbt \
             --out-itf='.formal-artifacts/opto-sync-{seq}.itf.json' 2>&1 \
             | tee .formal-artifacts/trace-generation.log
@@ -97,28 +105,36 @@ jobs:
           set -e
           exit "$status"
 
-      - name: Normalize Quint MBT metadata for implementation adapters
+      - name: Validate the non-published Rust replay adapter
         shell: bash
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          traces=(.formal-artifacts/opto-sync-*.itf.json)
-          if (( ${#traces[@]} == 0 )); then
-            printf 'no Quint ITF traces were generated\n' >&2
-            exit 1
-          fi
-          for trace in "${traces[@]}"; do
-            temporary="${trace}.normalized"
-            jq '
-              .states |= map(
-                . + {
-                  action: .["mbt::actionTaken"],
-                  nondetPicks: .["mbt::nondetPicks"]
-                }
-              )
-            ' "$trace" > "$temporary"
-            mv "$temporary" "$trace"
-          done
+          cargo fmt \
+            --manifest-path formal/rust-itf-replay/Cargo.toml \
+            -- --check
+          cargo clippy \
+            --locked \
+            --manifest-path formal/rust-itf-replay/Cargo.toml \
+            --all-targets \
+            -- -D warnings
+          cargo test \
+            --locked \
+            --manifest-path formal/rust-itf-replay/Cargo.toml \
+            --all-targets
+
+      - name: Replay generated traces against the Rust protocol queue
+        shell: bash
+        run: |
+          set +e
+          cargo run \
+            --locked \
+            --manifest-path formal/rust-itf-replay/Cargo.toml \
+            --bin quint-itf-replay \
+            -- .formal-artifacts/opto-sync-*.itf.json 2>&1 \
+            | tee .formal-artifacts/rust-itf-replay.log
+          status=${PIPESTATUS[0]}
+          set -e
+          exit "$status"
 
       - name: Install and build the TypeScript client
         working-directory: clients/ts
@@ -129,20 +145,19 @@ jobs:
           {
             npm ci
             npm run build
-            node --check formal/quint-itf-replay.mjs
+            node --check ../../formal/typescript-itf-replay.mjs
           } 2>&1 | tee ../../.formal-artifacts/typescript-build.log
           status=${PIPESTATUS[0]}
           set -e
           exit "$status"
 
-      - name: Replay ITF traces against TypeScript Dexie state
-        working-directory: clients/ts
+      - name: Replay generated traces against TypeScript Dexie state
         shell: bash
         run: |
           set +e
-          node formal/quint-itf-replay.mjs \
-            ../../.formal-artifacts/opto-sync-*.itf.json 2>&1 \
-            | tee ../../.formal-artifacts/typescript-itf-replay.log
+          node formal/typescript-itf-replay.mjs \
+            .formal-artifacts/opto-sync-*.itf.json 2>&1 \
+            | tee .formal-artifacts/typescript-itf-replay.log
           status=${PIPESTATUS[0]}
           set -e
           exit "$status"

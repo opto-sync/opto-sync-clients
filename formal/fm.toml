@@ -19,6 +19,7 @@ witnesses = [
 quint = "0.32.0"
 java = ">=17"
 node = "22"
+rust = "1.88.0"
 
 [simulation]
 backend = "typescript"
@@ -32,29 +33,60 @@ exhaustive_finite_model = true
 [traces]
 format = "itf"
 model_based_testing_metadata = true
-count = 8
-max_steps = 30
+backend = "rust"
+seed = "0x4b27def6cf7f060b"
+count = 16
+max_steps = 40
+required_actions = [
+  "init",
+  "idle",
+  "compact",
+  "enqueue",
+  "send",
+  "apply_new",
+  "reject_new",
+  "reply_duplicate",
+  "inject_mismatched_response",
+  "lose_committed_response",
+  "lose_uncommitted_request",
+  "discard_malformed_response",
+  "acknowledge",
+  "pull",
+  "begin_reset",
+  "crash_during_reset",
+  "finish_reset",
+]
 
 [adapters.rust]
 strategy = "itf-json-driver"
-target = "clients/rust"
-status = "in-review"
+target = "formal/rust-itf-replay"
+command = "cargo run --locked --manifest-path formal/rust-itf-replay/Cargo.toml --bin quint-itf-replay -- {traces}"
+observable_state = [
+  "nextMutationId",
+  "pendingMutationIds",
+  "confirmedMutationIds",
+  "inFlightRequest",
+  "response",
+  "checkpoint",
+  "snapshotReplacementPhase",
+]
+status = "active"
 issue = "DEN-573"
 
 [adapters.typescript]
 strategy = "itf-json-driver"
-target = "clients/ts"
-driver = "clients/ts/formal/quint-itf-replay.mjs"
-implementation = "OptoSyncClient + Dexie + fake-indexeddb"
-projection = [
-  "next_mutation_id",
-  "pending_mutation_ids",
-  "confirmed_mutation_ids",
-  "allocated_mutation_ids",
-  "in_flight_request_id",
-  "response_identity_and_validity",
-  "pull_checkpoint",
-  "reset_replacement_phase",
+target = "formal/typescript-itf-replay.mjs"
+command = "node formal/typescript-itf-replay.mjs {traces}"
+implementation = "clients/ts public OptoSyncClient package + Dexie + fake-indexeddb"
+observable_state = [
+  "nextMutationId",
+  "pendingMutationIds",
+  "confirmedMutationIds",
+  "allocatedMutationIds",
+  "inFlightRequest",
+  "response",
+  "checkpoint",
+  "snapshotReplacementPhase",
 ]
 status = "active"
 issue = "DEN-583"
@@ -66,7 +98,7 @@ status = "planned"
 
 [adapters.go]
 strategy = "itf-json-driver"
-status = "planned-reference-sdk"
+status = "planned"
 
 [adapters.gleam]
 strategy = "itf-json-driver"

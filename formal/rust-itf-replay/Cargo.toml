@@ -1,0 +1,17 @@
+[package]
+name = "opto-sync-quint-itf-replay"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.88"
+publish = false
+description = "Non-published Quint ITF conformance driver for opto-sync's Rust ProtocolQueue"
+license = "MIT"
+
+[[bin]]
+name = "quint-itf-replay"
+path = "src/main.rs"
+
+[dependencies]
+opto-sync-client = { path = "../../clients/rust", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
