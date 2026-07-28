@@ -102,5 +102,6 @@ jobs:
         with:
           name: opto-sync-formal-methods
           path: .formal-artifacts/
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
