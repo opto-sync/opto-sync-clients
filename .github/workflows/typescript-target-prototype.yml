@@ -108,9 +108,9 @@ jobs:
             'pkg/scripts/check-typescript-target.py'
             'pkg/clients/ts/package.json'
             'pkg/clients/ts/package-lock.json'
-            'pkg/clients/ts/smoke/reconcile.test.js'
-            'pkg/clients/ts/smoke/queue.test.js'
-            'pkg/clients/ts/smoke/browser-e2e.test.mjs'
+            'pkg/clients/ts/smoke/native-reconcile.cjs'
+            'pkg/clients/ts/smoke/indexeddb-queue.cjs'
+            'pkg/clients/ts/smoke/browser-indexeddb.mjs'
             'pkg/clients/ts/smoke/helpers/bundle.mjs'
             'pkg/clients/ts/smoke/helpers/corpus.mjs'
             'pkg/syncer.c/SOURCE_SHA'
@@ -135,8 +135,8 @@ jobs:
             grep -E '^pkg/clients/(dart|rust|gleam)(/|$)' "$listing"
             exit 1
           fi
-          if grep -Eq '^pkg/clients/ts/test(/|$)' "$listing"; then
-            echo '::error title=conventional test path leaked into TypeScript target::Use the explicit smoke corpus'
+          if grep -Eq '^pkg/clients/ts/test(/|$)|\.test\.(js|mjs|cjs)$' "$listing"; then
+            echo '::error title=test artifact naming leaked into TypeScript target::Use explicit smoke consumers'
             exit 1
           fi
           if grep -Eq '(^|/)(\.git|\.github|\.zed)(/|$)|/(node_modules|target|build|_build|\.dart_tool|\.tmp)(/|$)' "$listing"; then
@@ -196,19 +196,19 @@ jobs:
           npx tsc -p tsconfig.esm.json --pretty false
           node scripts/postbuild.mjs
 
-      - name: Run extracted native reconciliation smoke tests
+      - name: Run extracted native reconciliation smoke consumer
         shell: bash
         run: |
           set -euo pipefail
           cd "$EXTRACTED_TARGET/clients/ts"
-          node --test smoke/reconcile.test.js
+          node --test smoke/native-reconcile.cjs
 
-      - name: Run extracted IndexedDB mutation queue smoke tests
+      - name: Run extracted IndexedDB mutation queue smoke consumer
         shell: bash
         run: |
           set -euo pipefail
           cd "$EXTRACTED_TARGET/clients/ts"
-          node --test smoke/queue.test.js
+          node --test smoke/indexeddb-queue.cjs
 
       - name: Run the real Chromium WASM and IndexedDB smoke consumer
         shell: bash
@@ -216,7 +216,7 @@ jobs:
           set -euo pipefail
           cd "$EXTRACTED_TARGET/clients/ts"
           npx playwright install --with-deps chromium
-          node --test smoke/browser-e2e.test.mjs
+          node --test smoke/browser-indexeddb.mjs
 
       - name: Revalidate source identity after consumer execution
         shell: bash
