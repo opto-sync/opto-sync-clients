@@ -1,4 +1,126 @@
-name: Rust target diagnostic
+name: Apply explicit Rust target MSRV
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'clients/rust/**'
+      - 'syncer.c'
+      - 'scripts/stage-rust-target.py'
+      - 'scripts/check-rust-target.py'
+      - 'docs/RUST_ZED_TARGET.md'
+      - '.github/workflows/rust-target-diagnostic.yml'
+      - '.github/workflows/rust-target-matrix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rust-target-msrv-materialize
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.head_ref == 'agent/DEN-553-rust-target'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout writable target branch and exact core
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: agent/DEN-553-rust-target
+          fetch-depth: 0
+          persist-credentials: true
+          submodules: recursive
+
+      - name: Install the declared package toolchain
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: '1.96.1'
+          components: clippy, rustfmt
+
+      - name: Materialize the explicit MSRV contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, before: str, after: str, label: str) -> None:
+              text = path.read_text(encoding='utf-8')
+              if after in text:
+                  return
+              if text.count(before) != 1:
+                  raise SystemExit(f'{label}: expected one source anchor, found {text.count(before)}')
+              path.write_text(text.replace(before, after), encoding='utf-8')
+
+          cargo = Path('clients/rust/Cargo.toml')
+          replace_once(
+              cargo,
+              'edition = "2021"\n',
+              'edition = "2021"\nrust-version = "1.96"\n',
+              'Rust client MSRV',
+          )
+
+          matrix = Path('.github/workflows/rust-target-matrix.yml')
+          replace_once(
+              matrix,
+              "      - name: Install pinned Rust toolchain\n        uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0 # 1.88.0\n        with:\n          components: clippy, rustfmt\n",
+              "      - name: Install package MSRV toolchain\n        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4\n        with:\n          toolchain: '1.96.1'\n          components: clippy, rustfmt\n\n      - name: Verify the declared package MSRV\n        shell: bash\n        run: |\n          set -euo pipefail\n          rustc --version | grep -E '^rustc 1\\.96\\.1 '
+          python3 - <<'PY_INNER'\n          import os, pathlib, tomllib\n          manifest = pathlib.Path(os.environ['EXTRACTED_TARGET']) / 'clients/rust/Cargo.toml'\n          with manifest.open('rb') as handle:\n              value = tomllib.load(handle)\n          assert value['package']['rust-version'] == '1.96'\n          PY_INNER\n",
+              'clean-room matrix Rust toolchain',
+          )
+
+          stage = Path('scripts/stage-rust-target.py')
+          replace_once(
+              stage,
+              '        "cargoLockSha256": lock_hash,\n        "coreResolution": "bundled-source",\n',
+              '        "cargoLockSha256": lock_hash,\n        "rustMsrv": "1.96",\n        "ciRustToolchain": "1.96.1",\n        "coreResolution": "bundled-source",\n',
+              'release-set Rust metadata',
+          )
+          replace_once(
+              stage,
+              '- Cargo.lock SHA-256: `{lock_hash}`\n\nPublication is disabled',
+              '- Cargo.lock SHA-256: `{lock_hash}`\n- Rust MSRV: `1.96`\n- Certification toolchain: `1.96.1`\n\nPublication is disabled',
+              'staged README Rust metadata',
+          )
+
+          checker = Path('scripts/check-rust-target.py')
+          replace_once(
+              checker,
+              '        "coreResolution": "bundled-source",\n        "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.2.0",\n',
+              '        "coreResolution": "bundled-source",\n        "rustMsrv": "1.96",\n        "ciRustToolchain": "1.96.1",\n        "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.2.0",\n',
+              'target validator Rust metadata',
+          )
+          replace_once(
+              checker,
+              '    if (client_package.get("name"), client_package.get("version")) != (\n        "opto-sync-client",\n        "0.1.0",\n    ):\n        fail("unexpected Rust client package identity")\n',
+              '    if (client_package.get("name"), client_package.get("version")) != (\n        "opto-sync-client",\n        "0.1.0",\n    ):\n        fail("unexpected Rust client package identity")\n    if client_package.get("rust-version") != release["rustMsrv"]:\n        fail("Rust client package MSRV differs from release-set rustMsrv")\n',
+              'target validator Cargo MSRV',
+          )
+
+          docs = Path('docs/RUST_ZED_TARGET.md')
+          text = docs.read_text(encoding='utf-8')
+          if '## Rust version contract' not in text:
+              marker = '## Supported platforms\n'
+              section = '''## Rust version contract
+
+The source package declares Rust `1.96` as its minimum supported Rust version.
+Certification uses the patched `1.96.1` toolchain on every operating system.
+This matches the locked SQLite graph instead of silently testing an older
+compiler than the package dependencies support. Raising the MSRV requires an
+explicit package-contract change, release-set update, and complete clean-room
+matrix; it must never happen accidentally through runner drift.
+
+'''
+              if text.count(marker) != 1:
+                  raise SystemExit('Rust target documentation section anchor is missing')
+              docs.write_text(text.replace(marker, section + marker), encoding='utf-8')
+
+          final_workflow = '''name: Rust target diagnostic
 
 on:
   pull_request:
@@ -7,6 +129,7 @@ on:
       - 'syncer.c'
       - 'scripts/stage-rust-target.py'
       - 'scripts/check-rust-target.py'
+      - 'docs/RUST_ZED_TARGET.md'
       - '.github/workflows/rust-target-diagnostic.yml'
       - '.github/workflows/rust-target-matrix.yml'
   workflow_dispatch:
@@ -20,67 +143,79 @@ concurrency:
 
 jobs:
   default-tests:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
       - name: Checkout clients and exact core
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
           submodules: recursive
 
-      - name: Install pinned Rust toolchain
-        uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0
+      - name: Install package MSRV toolchain
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
         with:
-          toolchain: '1.88.0'
-
-      - name: Generate the last SQLite graph compatible with the declared MSRV
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path('clients/rust/Cargo.toml')
-          text = path.read_text(encoding='utf-8')
-          old = 'rusqlite = { version = "0.40.1", features = ["bundled"], optional = true }'
-          new = 'rusqlite = { version = "=0.39.0", features = ["bundled"], optional = true }'
-          if text.count(old) != 1:
-              raise SystemExit('expected exactly one optional rusqlite 0.40.1 dependency')
-          path.write_text(text.replace(old, new), encoding='utf-8')
-          PY
-          cargo update \
-            --manifest-path clients/rust/Cargo.toml \
-            -p rusqlite \
-            --precise 0.39.0
-          cargo metadata \
-            --manifest-path clients/rust/Cargo.toml \
-            --locked \
-            --format-version 1 \
-            --no-deps > "$RUNNER_TEMP/rust-metadata.json"
+          toolchain: '1.96.1'
+          components: clippy, rustfmt
 
       - name: Stage the clean-room Rust source tree
         run: python3 scripts/stage-rust-target.py "$RUNNER_TEMP/rust-target"
 
-      - name: Run default-feature tests with retained diagnostics
-        id: default_tests
+      - name: Verify the package MSRV and run default-feature tests
         shell: bash
         run: |
           set -o pipefail
+          rustc --version | tee "$RUNNER_TEMP/rust-version.txt"
+          grep -E '^rustc 1\.96\.1 ' "$RUNNER_TEMP/rust-version.txt"
           cd "$RUNNER_TEMP/rust-target/clients/rust"
           cargo test --locked --all-targets --no-fail-fast -- --nocapture 2>&1 \
             | tee "$RUNNER_TEMP/rust-default-tests.log"
 
-      - name: Upload the generated locked graph and diagnostics
+      - name: Upload concise compiler and test diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: rust-msrv-compatible-graph
+          name: rust-default-test-diagnostics
           path: |
-            clients/rust/Cargo.toml
-            clients/rust/Cargo.lock
-            ${{ runner.temp }}/rust-metadata.json
+            ${{ runner.temp }}/rust-version.txt
             ${{ runner.temp }}/rust-default-tests.log
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 3
+'''
+          Path('.github/workflows/rust-target-diagnostic.yml').write_text(
+              final_workflow,
+              encoding='utf-8',
+          )
+          PY
+
+      - name: Validate the materialized contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/stage-rust-target.py scripts/check-rust-target.py
+          python3 scripts/stage-rust-target.py "$RUNNER_TEMP/rust-target"
+          rustc --version | grep -E '^rustc 1\.96\.1 '
+          cargo fmt --manifest-path clients/rust/Cargo.toml --check
+          cargo test --locked --manifest-path clients/rust/Cargo.toml --all-targets
+          cargo test --locked --manifest-path clients/rust/Cargo.toml --no-default-features --all-targets
+          git diff --check
+
+      - name: Commit the explicit Rust version contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            .github/workflows/rust-target-diagnostic.yml \
+            .github/workflows/rust-target-matrix.yml \
+            clients/rust/Cargo.toml \
+            docs/RUST_ZED_TARGET.md \
+            scripts/check-rust-target.py \
+            scripts/stage-rust-target.py
+          git diff --cached --check
+          git diff --cached --name-status
+          git commit -m 'fix(DEN-553): declare the Rust target MSRV explicitly'
+          git push origin HEAD:agent/DEN-553-rust-target
