@@ -160,15 +160,35 @@ jobs:
           grep -F 'unsupported native target plan9-mips' <<<"$output"
           grep -F 'browser export/WASM engine' <<<"$output"
 
-      - name: Install and prove the native core from the blank consumer
+      - name: Install from the blank consumer and preserve lock identity
         shell: bash
         run: |
           set -euo pipefail
           cd "$EXTRACTED_TARGET/clients/ts"
           before="$(node -e "const f=require('fs'),c=require('crypto');process.stdout.write(c.createHash('sha256').update(f.readFileSync('package-lock.json')).digest('hex'))")"
-          npm ci
+          if [[ "$RUNNER_OS" == 'Windows' ]]; then
+            set -o pipefail
+            npm ci --foreground-scripts --loglevel verbose 2>&1 | tee "$RUNNER_TEMP/windows-native-install.log"
+          else
+            npm ci
+          fi
           after="$(node -e "const f=require('fs'),c=require('crypto');process.stdout.write(c.createHash('sha256').update(f.readFileSync('package-lock.json')).digest('hex'))")"
           test "$before" = "$after"
+
+      - name: Upload safe Windows native-install diagnostics
+        if: failure() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-typescript-native-install-log
+          path: ${{ runner.temp }}/windows-native-install.log
+          if-no-files-found: warn
+          retention-days: 3
+
+      - name: Prove the native core and run Node consumers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/ts"
           test -f ../../syncer.c/bindings/typescript/build/Release/syncer.node
           version="$(node -e "process.stdout.write(require('@opto-sync/syncer').version())")"
           test "$version" = '0.2.1'
