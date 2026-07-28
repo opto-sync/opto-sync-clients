@@ -50,13 +50,16 @@
  * runs succeed through npm's own path and this script is a no-op.
  *
  * Never fatal. Someone installing a browser-only package may not have a native
- * toolchain, and does not need the addon — that case exits 0 with a note.
+ * toolchain, and does not need the addon — that case exits 0 with a note. The
+ * Node entry point still fails explicitly if imported without its native addon;
+ * there is no silent substitution of a different merge engine.
  */
 import { existsSync, mkdirSync, lstatSync, rmSync, symlinkSync, readlinkSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, relative, resolve } from 'node:path';
+import { nativePlatformSupport } from './native-platform.mjs';
 
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 // clients/ts -> repository (or extracted target) root -> syncer.c. The old
@@ -67,6 +70,12 @@ const linkDir = join(packageRoot, 'node_modules', '@opto-sync');
 const linkPath = join(linkDir, 'syncer');
 
 const log = (msg) => console.log(`bootstrap-native-binding: ${msg}`);
+const platform = nativePlatformSupport();
+
+if (!platform.supported) {
+  log(`ERROR: ${platform.message}`);
+  process.exit(0);
+}
 
 if (!existsSync(join(bindingDir, 'package.json'))) {
   log(`no bundled native binding at ${bindingDir} — skipping (the wasm engine needs no build)`);
