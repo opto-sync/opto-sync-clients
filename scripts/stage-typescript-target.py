@@ -131,7 +131,7 @@ url = "https://github.com/opto-sync/opto-sync-clients"
 [publish]
 include_readme = true
 tag_format = "typescript-v{version}"
-smoke_test = "python3 \"$ZED_PKG_TEST_TARGET/scripts/check-typescript-target.py\" \"$ZED_PKG_TEST_TARGET\""
+smoke_test = 'python3 "$ZED_PKG_TEST_TARGET/scripts/check-typescript-target.py" "$ZED_PKG_TEST_TARGET"'
 exclude = [
   ".zed/**",
   "**/node_modules/**",
