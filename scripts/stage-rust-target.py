@@ -88,12 +88,12 @@ def main() -> int:
     )
     (output / "syncer.c/SOURCE_SHA").write_text(gitlink_sha + "\n", encoding="utf-8")
 
-    # The example is part of the staged source artifact and proves that a normal
-    # external-style Rust binary can import the client and observe the exact C
-    # core identity without relying on test-only APIs.
-    examples = output / "clients/rust/examples"
-    examples.mkdir(exist_ok=True)
-    (examples / "core_identity.rs").write_text(
+    # Zed source packing intentionally omits conventional examples/ trees. Put
+    # the identity probe under src/bin so the exact packed artifact retains a
+    # normal executable target that Cargo can compile on every supported OS.
+    identity_bin = output / "clients/rust/src/bin"
+    identity_bin.mkdir(parents=True, exist_ok=True)
+    (identity_bin / "core_identity.rs").write_text(
         "fn main() {\n"
         "    let version = opto_sync_client::core_version();\n"
         "    println!(\"syncer.c {version}\");\n"
