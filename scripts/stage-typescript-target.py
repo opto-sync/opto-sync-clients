@@ -92,6 +92,19 @@ def main() -> int:
         fail("clients/ts/smoke already exists; staging would overwrite it")
     test_source.rename(smoke_target)
 
+    # The staged artifact owns its smoke path, so its public npm commands must
+    # remain runnable after extraction rather than pointing at the omitted
+    # repository-only test/ location.
+    package_path = output / "clients/ts/package.json"
+    package = json.loads(package_path.read_text(encoding="utf-8"))
+    scripts = package.setdefault("scripts", {})
+    scripts["test"] = "npm run build && npm run test:node && npm run test:browser"
+    scripts["test:node"] = (
+        "node --test smoke/queue.test.js smoke/reconcile.test.js"
+    )
+    scripts["test:browser"] = "node --test smoke/browser-e2e.test.mjs"
+    write(package_path, json.dumps(package, indent=2) + "\n")
+
     copy_tree(ROOT / "syncer.c/core/include", output / "syncer.c/core/include")
     copy_tree(ROOT / "syncer.c/core/src", output / "syncer.c/core/src")
     copy_tree(
