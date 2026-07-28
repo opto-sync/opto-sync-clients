@@ -187,12 +187,19 @@ jobs:
           npx tsc -p tsconfig.esm.json --pretty false
           node scripts/postbuild.mjs
 
-      - name: Run the extracted Node client tests
+      - name: Run extracted native reconciliation tests
         shell: bash
         run: |
           set -euo pipefail
           cd "$EXTRACTED_TARGET/clients/ts"
-          npm run test:node
+          node --test test/reconcile.test.js
+
+      - name: Run extracted IndexedDB mutation queue tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/ts"
+          node --test test/queue.test.js
 
       - name: Run the real Chromium WASM and IndexedDB consumer
         shell: bash
