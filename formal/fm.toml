@@ -1,0 +1,59 @@
+# Provisional manifest for the planned Rust formal-methods orchestrator.
+# The current GitHub Actions workflow executes these settings directly.
+schema_version = 1
+project = "opto-sync-clients"
+model = "protocol-v1"
+language = "quint"
+spec = "formal/opto_sync_protocol.qnt"
+main = "opto_sync_protocol"
+init = "init"
+step = "step"
+invariants = ["protocol_safety"]
+witnesses = [
+  "ambiguous_commit_reached",
+  "duplicate_retry_reached",
+  "reset_crash_reached",
+]
+
+[toolchain]
+quint = "0.32.0"
+java = ">=17"
+
+[simulation]
+backend = "typescript"
+max_samples = 10000
+max_steps = 40
+
+[verification]
+backend = "tlc"
+exhaustive_finite_model = true
+
+[traces]
+format = "itf"
+model_based_testing_metadata = true
+count = 8
+max_steps = 30
+
+[adapters.rust]
+strategy = "quint-connect"
+target = "clients/rust"
+status = "planned"
+
+[adapters.typescript]
+strategy = "itf-json-driver"
+target = "clients/ts"
+status = "planned"
+
+[adapters.dart]
+strategy = "itf-json-driver"
+target = "clients/dart"
+status = "planned"
+
+[adapters.go]
+strategy = "itf-json-driver"
+status = "planned"
+
+[adapters.gleam]
+strategy = "itf-json-driver"
+target = "clients/gleam"
+status = "planned"
