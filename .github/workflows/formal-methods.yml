@@ -105,7 +105,7 @@ jobs:
             --locked \
             --manifest-path clients/rust/Cargo.toml \
             --no-default-features \
-            --example quint_itf_replay \
+            --bin quint_itf_replay \
             -- .formal-artifacts/opto-sync-*.itf.json 2>&1 \
             | tee .formal-artifacts/rust-itf-replay.log
           status=${PIPESTATUS[0]}
