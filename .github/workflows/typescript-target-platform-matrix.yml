@@ -1,0 +1,207 @@
+name: TypeScript target platform matrix
+
+on:
+  pull_request:
+    paths:
+      - 'clients/ts/**'
+      - 'syncer.c'
+      - 'scripts/check-typescript-one-core.py'
+      - 'scripts/check-typescript-target.py'
+      - 'scripts/stage-typescript-target.py'
+      - 'docs/TYPESCRIPT_ZED_TARGET.md'
+      - '.github/workflows/typescript-target-platform-matrix.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'clients/ts/**'
+      - 'syncer.c'
+      - 'scripts/check-typescript-one-core.py'
+      - 'scripts/check-typescript-target.py'
+      - 'scripts/stage-typescript-target.py'
+      - 'docs/TYPESCRIPT_ZED_TARGET.md'
+      - '.github/workflows/typescript-target-platform-matrix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: typescript-target-platform-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ZED_CLI_SHA: c636fb8f6b08695c6b4fe94e2481f4d57270b2d7
+  ZED_INTERFACES_SHA: 415e871b1fb3dd97744c134351408a3224805dfb
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout clients and exact core
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Stage the exact isolated TypeScript target
+        working-directory: source
+        run: |
+          python3 scripts/check-target-layouts.py
+          python3 scripts/stage-typescript-target.py "$RUNNER_TEMP/typescript-target"
+          python3 scripts/check-typescript-one-core.py "$RUNNER_TEMP/typescript-target/release-set.json"
+
+      - name: Prove a two-core graph is rejected
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "$RUNNER_TEMP/typescript-target/release-set.json" "$RUNNER_TEMP/mismatched-release-set.json"
+          python3 - <<'PY'
+          import json, os
+          path = os.environ['RUNNER_TEMP'] + '/mismatched-release-set.json'
+          value = json.load(open(path))
+          value['syncerSourceSha'] = '0' * 40
+          json.dump(value, open(path, 'w'), indent=2, sort_keys=True)
+          PY
+          if python3 scripts/check-typescript-one-core.py "$RUNNER_TEMP/mismatched-release-set.json"; then
+            echo '::error title=two-core preflight failed open::mismatched target core was accepted'
+            exit 1
+          fi
+
+      - name: Checkout pinned Zed CLI
+        uses: actions/checkout@v4
+        with:
+          repository: zed-pkg/zed-cli
+          ref: ${{ env.ZED_CLI_SHA }}
+          path: zed-cli
+          persist-credentials: false
+
+      - name: Checkout pinned Zed interfaces
+        uses: actions/checkout@v4
+        with:
+          repository: zed-pkg/zed-interfaces
+          ref: ${{ env.ZED_INTERFACES_SHA }}
+          path: zed-interfaces
+          persist-credentials: false
+
+      - name: Build and pack with pinned Zed tooling
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --manifest-path zed-cli/Cargo.toml --bin zed
+          mkdir -p "$RUNNER_TEMP/typescript-platform-package"
+          (cd "$RUNNER_TEMP/typescript-target" && \
+            "$GITHUB_WORKSPACE/zed-cli/target/release/zed" pack \
+              --out "$RUNNER_TEMP/typescript-platform-package")
+          test "$(find "$RUNNER_TEMP/typescript-platform-package" -maxdepth 1 -name '*.tar.gz' -type f | wc -l)" -eq 1
+
+      - name: Upload the exact package tested by every operating system
+        uses: actions/upload-artifact@v4
+        with:
+          name: opto-sync-typescript-target-platform-package
+          path: ${{ runner.temp }}/typescript-platform-package/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  blank-consumer:
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-14
+          - windows-2022
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Download the exact packed target
+        uses: actions/download-artifact@v4
+        with:
+          name: opto-sync-typescript-target-platform-package
+          path: ${{ runner.temp }}/typescript-platform-package
+
+      - name: Extract without Git metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$(find "$RUNNER_TEMP/typescript-platform-package" -maxdepth 1 -name '*.tar.gz' -type f | head -n1)"
+          test -n "$archive"
+          mkdir -p "$RUNNER_TEMP/typescript-platform-extracted"
+          python3 - "$archive" "$RUNNER_TEMP/typescript-platform-extracted" <<'PY'
+          import sys, tarfile
+          with tarfile.open(sys.argv[1], 'r:gz') as archive:
+              archive.extractall(sys.argv[2], filter='data')
+          PY
+          test ! -e "$RUNNER_TEMP/typescript-platform-extracted/pkg/.git"
+          python3 "$RUNNER_TEMP/typescript-platform-extracted/pkg/scripts/check-typescript-target.py" \
+            "$RUNNER_TEMP/typescript-platform-extracted/pkg"
+          echo "EXTRACTED_TARGET=$RUNNER_TEMP/typescript-platform-extracted/pkg" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Verify supported and unsupported native target diagnostics
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/ts"
+          node scripts/native-platform.mjs
+          set +e
+          output="$(node scripts/native-platform.mjs plan9 mips 2>&1)"
+          status=$?
+          set -e
+          test "$status" -eq 2
+          grep -F 'unsupported native target plan9-mips' <<<"$output"
+          grep -F 'browser export/WASM engine' <<<"$output"
+
+      - name: Install and prove the native core from the blank consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/ts"
+          before="$(node -e "const f=require('fs'),c=require('crypto');process.stdout.write(c.createHash('sha256').update(f.readFileSync('package-lock.json')).digest('hex'))")"
+          npm ci
+          after="$(node -e "const f=require('fs'),c=require('crypto');process.stdout.write(c.createHash('sha256').update(f.readFileSync('package-lock.json')).digest('hex'))")"
+          test "$before" = "$after"
+          test -f ../../syncer.c/bindings/typescript/build/Release/syncer.node
+          version="$(node -e "process.stdout.write(require('@opto-sync/syncer').version())")"
+          test "$version" = '0.2.1'
+          npx tsc --pretty false
+          npx tsc -p tsconfig.esm.json --pretty false
+          node scripts/postbuild.mjs
+          node --test smoke/native-reconcile.cjs smoke/indexeddb-queue.cjs
+
+      - name: Install Chromium dependencies on Linux
+        if: runner.os == 'Linux'
+        working-directory: ${{ env.EXTRACTED_TARGET }}/clients/ts
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Chromium on macOS and Windows
+        if: runner.os != 'Linux'
+        working-directory: ${{ env.EXTRACTED_TARGET }}/clients/ts
+        run: npx playwright install chromium
+
+      - name: Run real Chromium WASM and IndexedDB consumer
+        working-directory: ${{ env.EXTRACTED_TARGET }}/clients/ts
+        run: node --test smoke/browser-indexeddb.mjs
+
+      - name: Prove frozen reinstall preserves lock and core identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/ts"
+          expected_lock="$(node -e "const f=require('fs'),c=require('crypto');process.stdout.write(c.createHash('sha256').update(f.readFileSync('package-lock.json')).digest('hex'))")"
+          rm -rf node_modules ../../syncer.c/bindings/typescript/node_modules ../../syncer.c/bindings/typescript/build
+          npm ci
+          actual_lock="$(node -e "const f=require('fs'),c=require('crypto');process.stdout.write(c.createHash('sha256').update(f.readFileSync('package-lock.json')).digest('hex'))")"
+          test "$expected_lock" = "$actual_lock"
+          version="$(node -e "process.stdout.write(require('@opto-sync/syncer').version())")"
+          test "$version" = '0.2.1'
+          expected_core="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('../../release-set.json')).syncerSourceSha)")"
+          test "$(cat ../../syncer.c/SOURCE_SHA)" = "$expected_core"
