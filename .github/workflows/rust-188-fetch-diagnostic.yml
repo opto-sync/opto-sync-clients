@@ -1,0 +1,64 @@
+name: Rust 1.88 locked-graph diagnostic
+
+on:
+  pull_request:
+    paths:
+      - 'clients/rust/**'
+      - 'syncer.c'
+      - 'scripts/stage-rust-target.py'
+      - '.github/workflows/rust-188-fetch-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-188-fetch-diagnostic-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fetch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact client and core source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install the existing Rust 1.88 compatibility toolchain
+        uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0 # 1.88.0
+        with:
+          components: clippy, rustfmt
+
+      - name: Stage the exact clean-room target
+        run: python3 scripts/stage-rust-target.py "$RUNNER_TEMP/rust-target"
+
+      - name: Capture locked graph resolution
+        id: fetch
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          {
+            rustc --version
+            cargo --version
+            sed -n '1,80p' "$RUNNER_TEMP/rust-target/clients/rust/Cargo.toml"
+            cargo fetch --locked --manifest-path "$RUNNER_TEMP/rust-target/clients/rust/Cargo.toml" -vv
+          } 2>&1 | tee "$RUNNER_TEMP/rust-188-fetch.log"
+
+      - name: Upload complete resolver diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-188-fetch-diagnostic
+          path: ${{ runner.temp }}/rust-188-fetch.log
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Enforce locked graph resolution
+        if: steps.fetch.outcome == 'failure'
+        run: cat "$RUNNER_TEMP/rust-188-fetch.log" && exit 1
