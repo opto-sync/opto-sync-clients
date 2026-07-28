@@ -14,17 +14,22 @@ JSON request on stdin and return one JSON response on stdout.
 Run from the repository root:
 
 ```bash
-cargo run --manifest-path tools/fmctl/Cargo.toml -- validate
-cargo run --manifest-path tools/fmctl/Cargo.toml -- check
-cargo run --manifest-path tools/fmctl/Cargo.toml -- simulate
-cargo run --manifest-path tools/fmctl/Cargo.toml -- verify
-cargo run --manifest-path tools/fmctl/Cargo.toml -- trace
-cargo run --manifest-path tools/fmctl/Cargo.toml -- doctor
+cargo run --locked --manifest-path tools/fmctl/Cargo.toml -- validate
+cargo run --locked --manifest-path tools/fmctl/Cargo.toml -- check
+cargo run --locked --manifest-path tools/fmctl/Cargo.toml -- simulate
+cargo run --locked --manifest-path tools/fmctl/Cargo.toml -- verify
+cargo run --locked --manifest-path tools/fmctl/Cargo.toml -- trace
+cargo run --locked --manifest-path tools/fmctl/Cargo.toml -- doctor
 ```
 
 All operations discover `formal/fm.toml` by default. Use `--workspace` and
 `--manifest` for another repository or manifest. `--dry-run` prints the exact
 argv/cwd/environment/artifact plan without starting a verifier.
+
+`trace` validates the complete generated corpus before it can pass: the exact
+configured number of regular, non-empty JSON files must exist and their combined
+model-based testing metadata must contain every required action. `replay` then
+binds an adapter response to the selected language and exact canonical trace set.
 
 `init` creates a schema-v1 manifest and a small Quint specification:
 
@@ -58,13 +63,15 @@ semantics relative to the CLI. HTTP and MCP transports can wrap this core later.
 `fm.toml` declares:
 
 - the specification, state-machine entry points, invariants, and witnesses;
-- pinned Quint and Java requirements;
+- pinned Quint, Java, Node.js, and Rust requirements;
 - bounded simulation, verification, trace, timeout, and output settings;
+- deterministic trace backend, seed, count, and required-action coverage; and
 - implementation adapters and their executable argv arrays.
 
 `fmctl validate` rejects path traversal, unsupported backend names, duplicate or
 invalid property identifiers, unpinned verifier tokens, active adapters without a
-command, and invalid resource limits.
+command, output paths that escape through symlinked ancestors, and invalid
+resource limits.
 
 ## Adapter protocol
 
@@ -90,10 +97,16 @@ not private IndexedDB, Drift, SQLite, BEAM, or in-memory layouts.
 
 ## Artifacts and exit behavior
 
-Each external operation writes bounded stdout, stderr, and a normalized result JSON
-under `.formal-artifacts/fmctl/`. Trace generation additionally writes ITF files.
-The child process is killed after the manifest timeout, and output beyond the
-configured byte limit is drained but not retained.
+Each model or adapter operation writes bounded stdout, stderr, and one final
+normalized result JSON under `.formal-artifacts/fmctl/`. Trace generation
+additionally writes ITF files. Artifact writes are atomic and constrained to the
+canonical workspace.
+
+Child processes receive a recorded, minimal environment with isolated runtime,
+Cargo, and npm directories. On Unix, each child runs in its own process group so
+a timeout terminates descendants as well as the direct process. Output beyond the
+configured byte limit is drained but not retained, and truncation makes the
+operation fail.
 
 Exit status is zero only when the requested operation succeeds. Timeouts use 124;
 manifest/configuration errors use stable low-numbered codes; model-checker and
@@ -102,6 +115,9 @@ adapter failures preserve a useful child status where possible.
 ## Current extraction boundary
 
 The crate has no imports from the opto-sync clients. The only repository-specific
-inputs are `formal/fm.toml` and the files named by that manifest. Extraction to a
-neutral repository therefore consists of moving this directory and preserving the
-schema/protocol compatibility tests.
+inputs are `formal/fm.toml` and the files named by that manifest. It is still an
+incubator, however: `fmctl.adapter.v1` is the repository-local protocol exercised
+by this gate, not yet a compatibility promise from the future shared
+`formal-methods.rs` release. Extraction under DEN-565/DEN-580 must preserve the
+manifest, artifact, process-supervision, and protocol-binding tests before this
+copy can be retired.

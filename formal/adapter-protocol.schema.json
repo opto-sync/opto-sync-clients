@@ -27,6 +27,7 @@
         "traces": {
           "type": "array",
           "minItems": 1,
+          "uniqueItems": true,
           "items": { "type": "string", "minLength": 1 }
         }
       }
@@ -55,7 +56,7 @@
       "properties": {
         "trace": { "type": "string", "minLength": 1 },
         "step": { "type": ["integer", "null"], "minimum": 0 },
-        "action": { "type": ["string", "null"] },
+        "action": { "type": ["string", "null"], "minLength": 1 },
         "message": { "type": "string", "minLength": 1 },
         "expected": {},
         "actual": {}
@@ -75,7 +76,7 @@
       "properties": {
         "protocol": { "const": "fmctl.adapter.v1" },
         "success": { "type": "boolean" },
-        "traces_total": { "type": "integer", "minimum": 0 },
+        "traces_total": { "type": "integer", "minimum": 1 },
         "traces_passed": { "type": "integer", "minimum": 0 },
         "mismatches": {
           "type": "array",

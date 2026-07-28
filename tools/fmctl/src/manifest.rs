@@ -44,6 +44,8 @@ pub enum SpecLanguage {
 pub struct ToolchainConfig {
     pub quint: String,
     pub java: String,
+    pub node: Option<String>,
+    pub rust: Option<String>,
     #[serde(default = "default_npx_program")]
     pub npx: String,
 }
@@ -108,9 +110,13 @@ pub struct TraceConfig {
     pub format: String,
     #[serde(default)]
     pub model_based_testing_metadata: bool,
+    pub backend: Option<String>,
+    pub seed: Option<String>,
     pub count: u64,
     pub max_steps: u64,
     pub max_samples: Option<u64>,
+    #[serde(default)]
+    pub required_actions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -118,6 +124,10 @@ pub struct TraceConfig {
 pub struct AdapterConfig {
     pub strategy: String,
     pub target: Option<PathBuf>,
+    pub implementation: Option<String>,
+    #[serde(default)]
+    pub observable_state: Vec<String>,
+    pub issue: Option<String>,
     #[serde(default)]
     pub status: AdapterStatus,
     #[serde(default)]
@@ -167,20 +177,17 @@ pub struct ValidationReport {
 
 impl LoadedManifest {
     pub fn load(workspace: &Path, manifest_path: &Path) -> Result<Self, FmError> {
-        let workspace = fs::canonicalize(workspace).map_err(|source| FmError::io(workspace, source))?;
-        let manifest_path = canonicalize_existing_under_workspace(
-            &workspace,
-            manifest_path,
-            "manifest",
-        )?;
+        let workspace =
+            fs::canonicalize(workspace).map_err(|source| FmError::io(workspace, source))?;
+        let manifest_path =
+            canonicalize_existing_under_workspace(&workspace, manifest_path, "manifest")?;
         let source = fs::read_to_string(&manifest_path)
             .map_err(|error| FmError::io(&manifest_path, error))?;
-        let manifest: Manifest = toml::from_str(&source).map_err(|source| {
-            FmError::ManifestSyntax {
+        let manifest: Manifest =
+            toml::from_str(&source).map_err(|source| FmError::ManifestSyntax {
                 path: manifest_path.clone(),
                 source,
-            }
-        })?;
+            })?;
 
         let mut errors = validate_manifest_shape(&manifest);
         if let Err(message) = validate_relative_path("spec", &manifest.spec) {
@@ -209,12 +216,23 @@ impl LoadedManifest {
             return Err(FmError::Validation(format_validation_errors(&errors)));
         }
 
-        Ok(Self {
+        let loaded = Self {
             workspace,
             manifest_path,
             spec_path,
             manifest,
-        })
+        };
+        loaded.resolve_output_path(&loaded.manifest.execution.artifacts_dir)?;
+        for (name, adapter) in &loaded.manifest.adapters {
+            if let Some(target) = &adapter.target {
+                resolve_workspace_descendant(
+                    &loaded.workspace,
+                    target,
+                    &format!("adapter '{name}' target"),
+                )?;
+            }
+        }
+        Ok(loaded)
     }
 
     pub fn report(&self) -> ValidationReport {
@@ -250,7 +268,7 @@ impl LoadedManifest {
 
     pub fn resolve_output_path(&self, path: &Path) -> Result<PathBuf, FmError> {
         validate_relative_path("output", path).map_err(FmError::Validation)?;
-        Ok(self.workspace.join(path))
+        resolve_workspace_descendant(&self.workspace, path, "output")
     }
 
     pub fn resolve_adapter_working_directory(
@@ -264,7 +282,8 @@ impl LoadedManifest {
             .unwrap_or_else(|| Path::new("."));
         validate_relative_path("adapter working_directory", path).map_err(FmError::Validation)?;
         let candidate = self.workspace.join(path);
-        let canonical = fs::canonicalize(&candidate).map_err(|source| FmError::io(&candidate, source))?;
+        let canonical =
+            fs::canonicalize(&candidate).map_err(|source| FmError::io(&candidate, source))?;
         if !canonical.starts_with(&self.workspace) {
             return Err(FmError::Validation(format!(
                 "adapter working directory escapes workspace: {}",
@@ -306,6 +325,20 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
     if manifest.toolchain.java.trim().is_empty() {
         errors.push("toolchain.java must not be empty".to_owned());
     }
+    if let Some(node) = &manifest.toolchain.node {
+        if !is_safe_version(node) {
+            errors.push(format!(
+                "toolchain.node must be a pinned version token, got {node:?}"
+            ));
+        }
+    }
+    if let Some(rust) = &manifest.toolchain.rust {
+        if !is_safe_version(rust) {
+            errors.push(format!(
+                "toolchain.rust must be a pinned version token, got {rust:?}"
+            ));
+        }
+    }
     if !is_safe_program(&manifest.toolchain.npx) {
         errors.push(format!(
             "toolchain.npx must be one executable token without whitespace, got {:?}",
@@ -319,10 +352,9 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
     if manifest.execution.max_output_bytes < 1_024 {
         errors.push("execution.max_output_bytes must be at least 1024".to_owned());
     }
-    if let Err(message) = validate_relative_path(
-        "execution.artifacts_dir",
-        &manifest.execution.artifacts_dir,
-    ) {
+    if let Err(message) =
+        validate_relative_path("execution.artifacts_dir", &manifest.execution.artifacts_dir)
+    {
         errors.push(message);
     }
 
@@ -363,6 +395,20 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
                 traces.format
             ));
         }
+        if let Some(backend) = &traces.backend {
+            if !matches!(backend.as_str(), "typescript" | "rust") {
+                errors.push(format!(
+                    "traces.backend must be 'typescript' or 'rust', got {backend:?}"
+                ));
+            }
+        }
+        if let Some(seed) = &traces.seed {
+            if !is_safe_version(seed) {
+                errors.push(format!(
+                    "traces.seed must be one deterministic seed token, got {seed:?}"
+                ));
+            }
+        }
         if traces.count == 0 {
             errors.push("traces.count must be greater than zero".to_owned());
         }
@@ -372,6 +418,11 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
         if traces.max_samples == Some(0) {
             errors.push("traces.max_samples must be greater than zero when set".to_owned());
         }
+        validate_unique_identifiers(
+            "traces.required_actions",
+            &traces.required_actions,
+            &mut errors,
+        );
     }
 
     for (name, adapter) in &manifest.adapters {
@@ -380,7 +431,8 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
             errors.push(format!("adapter '{name}' strategy must not be empty"));
         }
         if let Some(target) = &adapter.target {
-            if let Err(message) = validate_relative_path(&format!("adapter '{name}' target"), target)
+            if let Err(message) =
+                validate_relative_path(&format!("adapter '{name}' target"), target)
             {
                 errors.push(message);
             }
@@ -393,12 +445,39 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
                 errors.push(message);
             }
         }
+        if let Some(implementation) = &adapter.implementation {
+            validate_label(
+                &format!("adapter '{name}' implementation"),
+                implementation,
+                &mut errors,
+            );
+        }
+        if let Some(issue) = &adapter.issue {
+            validate_label(&format!("adapter '{name}' issue"), issue, &mut errors);
+        }
+        let mut observable_fields = BTreeSet::new();
+        for field in &adapter.observable_state {
+            validate_label(
+                &format!("adapter '{name}' observable_state"),
+                field,
+                &mut errors,
+            );
+            if !observable_fields.insert(field) {
+                errors.push(format!(
+                    "adapter '{name}' observable_state contains duplicate value {field:?}"
+                ));
+            }
+        }
         if adapter.status == AdapterStatus::Active && adapter.command.is_empty() {
             errors.push(format!(
                 "active adapter '{name}' must declare a command array"
             ));
         }
-        if adapter.command.iter().any(|part| part.is_empty() || part.contains('\0')) {
+        if adapter
+            .command
+            .iter()
+            .any(|part| part.is_empty() || part.contains('\0'))
+        {
             errors.push(format!(
                 "adapter '{name}' command contains an empty or NUL-bearing argument"
             ));
@@ -459,9 +538,7 @@ fn is_safe_version(version: &str) -> bool {
 }
 
 fn is_safe_program(program: &str) -> bool {
-    !program.is_empty()
-        && !program.contains('\0')
-        && !program.chars().any(char::is_whitespace)
+    !program.is_empty() && !program.contains('\0') && !program.chars().any(char::is_whitespace)
 }
 
 pub fn validate_relative_path(label: &str, path: &Path) -> Result<(), String> {
@@ -494,7 +571,8 @@ fn canonicalize_existing_under_workspace(
     } else {
         workspace.join(path)
     };
-    let canonical = fs::canonicalize(&candidate).map_err(|source| FmError::io(&candidate, source))?;
+    let canonical =
+        fs::canonicalize(&candidate).map_err(|source| FmError::io(&candidate, source))?;
     if !canonical.starts_with(workspace) {
         return Err(FmError::Validation(format!(
             "{label} path escapes the workspace: {}",
@@ -502,6 +580,40 @@ fn canonicalize_existing_under_workspace(
         )));
     }
     Ok(canonical)
+}
+
+fn resolve_workspace_descendant(
+    workspace: &Path,
+    path: &Path,
+    label: &str,
+) -> Result<PathBuf, FmError> {
+    validate_relative_path(label, path).map_err(FmError::Validation)?;
+    let candidate = workspace.join(path);
+    let mut existing = candidate.as_path();
+    while !existing.exists() {
+        existing = existing.parent().ok_or_else(|| {
+            FmError::Validation(format!("{label} has no existing workspace ancestor"))
+        })?;
+    }
+    let canonical_ancestor =
+        fs::canonicalize(existing).map_err(|source| FmError::io(existing, source))?;
+    if !canonical_ancestor.starts_with(workspace) {
+        return Err(FmError::Validation(format!(
+            "{label} escapes the workspace through symlinked ancestor {}",
+            existing.display()
+        )));
+    }
+    if candidate.exists() {
+        let canonical =
+            fs::canonicalize(&candidate).map_err(|source| FmError::io(&candidate, source))?;
+        if !canonical.starts_with(workspace) {
+            return Err(FmError::Validation(format!(
+                "{label} escapes the workspace: {}",
+                canonical.display()
+            )));
+        }
+    }
+    Ok(candidate)
 }
 
 fn format_validation_errors(errors: &[String]) -> String {
@@ -516,6 +628,7 @@ fn format_validation_errors(errors: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
     #[test]
     fn rejects_parent_directory_components() {
@@ -528,5 +641,23 @@ mod tests {
     fn accepts_workspace_relative_paths() {
         validate_relative_path("spec", Path::new("formal/model.qnt"))
             .expect("normal relative path should be accepted");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_output_symlink_that_escapes_workspace() {
+        use std::os::unix::fs::symlink;
+
+        let workspace = TempDir::new().expect("workspace");
+        let outside = TempDir::new().expect("outside");
+        symlink(outside.path(), workspace.path().join("artifacts")).expect("symlink");
+        let canonical_workspace = fs::canonicalize(workspace.path()).expect("workspace path");
+        let error = resolve_workspace_descendant(
+            &canonical_workspace,
+            Path::new("artifacts/result.json"),
+            "output",
+        )
+        .expect_err("symlink escape must fail");
+        assert!(error.to_string().contains("symlinked ancestor"));
     }
 }

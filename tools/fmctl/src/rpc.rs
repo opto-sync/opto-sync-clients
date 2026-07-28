@@ -15,10 +15,28 @@ const MAX_REQUEST_BYTES: usize = 1024 * 1024;
 struct RpcRequest {
     jsonrpc: String,
     #[serde(default)]
-    id: Option<Value>,
+    id: RequestId,
     method: String,
     #[serde(default)]
     params: Value,
+}
+
+#[derive(Debug, Default)]
+struct RequestId(Option<Value>);
+
+impl<'de> Deserialize<'de> for RequestId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Value::deserialize(deserializer).map(|value| Self(Some(value)))
+    }
+}
+
+enum BoundedLine {
+    Eof,
+    Line,
+    Oversized,
 }
 
 #[derive(Debug, Serialize)]
@@ -60,33 +78,32 @@ pub fn run_server<R: BufRead, W: Write>(
     mut reader: R,
     mut writer: W,
 ) -> Result<(), FmError> {
-    let mut line = String::new();
+    let mut line = Vec::new();
     loop {
-        line.clear();
-        let bytes = reader
-            .read_line(&mut line)
-            .map_err(|source| FmError::io("<json-rpc stdin>", source))?;
-        if bytes == 0 {
-            break;
+        match read_bounded_line(&mut reader, &mut line)
+            .map_err(|source| FmError::io("<json-rpc stdin>", source))?
+        {
+            BoundedLine::Eof => break,
+            BoundedLine::Oversized => {
+                write_response(
+                    &mut writer,
+                    RpcResponse::error(
+                        Value::Null,
+                        -32600,
+                        format!("request exceeds {MAX_REQUEST_BYTES} bytes"),
+                        None,
+                    ),
+                )?;
+                continue;
+            }
+            BoundedLine::Line => {}
         }
-        if line.trim().is_empty() {
-            continue;
-        }
-        if bytes > MAX_REQUEST_BYTES {
-            write_response(
-                &mut writer,
-                RpcResponse::error(
-                    Value::Null,
-                    -32600,
-                    format!("request exceeds {MAX_REQUEST_BYTES} bytes"),
-                    None,
-                ),
-            )?;
+        if line.iter().all(|byte| byte.is_ascii_whitespace()) {
             continue;
         }
 
-        let request: RpcRequest = match serde_json::from_str(&line) {
-            Ok(request) => request,
+        let value: Value = match serde_json::from_slice(&line) {
+            Ok(value) => value,
             Err(error) => {
                 write_response(
                     &mut writer,
@@ -100,8 +117,37 @@ pub fn run_server<R: BufRead, W: Write>(
                 continue;
             }
         };
-        let id = request.id.clone().unwrap_or(Value::Null);
-        let notification = request.id.is_none();
+        let request: RpcRequest = match serde_json::from_value(value) {
+            Ok(request) => request,
+            Err(error) => {
+                write_response(
+                    &mut writer,
+                    RpcResponse::error(
+                        Value::Null,
+                        -32600,
+                        "invalid request".to_owned(),
+                        Some(json!({ "detail": error.to_string() })),
+                    ),
+                )?;
+                continue;
+            }
+        };
+        let id = request.id.0.clone().unwrap_or(Value::Null);
+        let notification = request.id.0.is_none();
+        if !matches!(&id, Value::Null | Value::String(_) | Value::Number(_)) {
+            if !notification {
+                write_response(
+                    &mut writer,
+                    RpcResponse::error(
+                        Value::Null,
+                        -32600,
+                        "request id must be a string, number, or null".to_owned(),
+                        None,
+                    ),
+                )?;
+            }
+            continue;
+        }
 
         if request.jsonrpc != JSON_RPC_VERSION {
             if !notification {
@@ -131,6 +177,42 @@ pub fn run_server<R: BufRead, W: Write>(
         }
     }
     Ok(())
+}
+
+fn read_bounded_line<R: BufRead>(reader: &mut R, line: &mut Vec<u8>) -> io::Result<BoundedLine> {
+    line.clear();
+    let mut oversized = false;
+    loop {
+        let available = reader.fill_buf()?;
+        if available.is_empty() {
+            return if line.is_empty() && !oversized {
+                Ok(BoundedLine::Eof)
+            } else if oversized {
+                Ok(BoundedLine::Oversized)
+            } else {
+                Ok(BoundedLine::Line)
+            };
+        }
+        let consumed = available
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .map_or(available.len(), |index| index + 1);
+        let newline = available[consumed - 1] == b'\n';
+        if !oversized {
+            let remaining = MAX_REQUEST_BYTES.saturating_sub(line.len());
+            let copied = consumed.min(remaining);
+            line.extend_from_slice(&available[..copied]);
+            oversized = copied < consumed;
+        }
+        reader.consume(consumed);
+        if newline {
+            return Ok(if oversized {
+                BoundedLine::Oversized
+            } else {
+                BoundedLine::Line
+            });
+        }
+    }
 }
 
 fn dispatch(app: &App, method: &str, params: Value) -> Result<Value, RpcFault> {
@@ -308,6 +390,40 @@ mod tests {
         run_server(app, input, &mut output).expect("server");
         let lines = String::from_utf8(output).expect("utf8");
         assert!(lines.contains("\"valid\":true"));
+        assert!(lines.contains("\"shutdown\":true"));
+    }
+
+    #[test]
+    fn explicit_null_id_is_not_a_notification() {
+        let directory = TempDir::new().expect("tempdir");
+        let app = App::new(directory.path(), "formal/fm.toml");
+        app.init(&InitRequest {
+            project: "example".to_owned(),
+            model: "counter".to_owned(),
+            spec: PathBuf::from("formal/counter.qnt"),
+            main: "counter".to_owned(),
+            force: false,
+        })
+        .expect("init");
+        let input =
+            Cursor::new(b"{\"jsonrpc\":\"2.0\",\"id\":null,\"method\":\"fm.capabilities\"}\n");
+        let mut output = Vec::new();
+        run_server(app, input, &mut output).expect("server");
+        let response: Value = serde_json::from_slice(&output).expect("response");
+        assert!(response.get("id").is_some_and(Value::is_null));
+        assert!(response.get("result").is_some());
+    }
+
+    #[test]
+    fn oversized_request_is_drained_before_the_next_request() {
+        let directory = TempDir::new().expect("tempdir");
+        let app = App::new(directory.path(), "formal/fm.toml");
+        let mut input = vec![b'x'; MAX_REQUEST_BYTES + 1];
+        input.extend_from_slice(b"\n{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"fm.shutdown\"}\n");
+        let mut output = Vec::new();
+        run_server(app, Cursor::new(input), &mut output).expect("server");
+        let lines = String::from_utf8(output).expect("utf8");
+        assert!(lines.contains("request exceeds"));
         assert!(lines.contains("\"shutdown\":true"));
     }
 }

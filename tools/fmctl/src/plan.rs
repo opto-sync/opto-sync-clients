@@ -1,13 +1,12 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use crate::error::FmError;
-use crate::manifest::{
-    validate_relative_path, AdapterStatus, LoadedManifest, SpecLanguage,
-};
+use crate::manifest::{validate_relative_path, AdapterStatus, LoadedManifest, SpecLanguage};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
@@ -15,8 +14,13 @@ pub enum Operation {
     Check,
     Simulate,
     Verify,
-    Trace { output: Option<PathBuf> },
-    Replay { adapter: String, traces: Vec<PathBuf> },
+    Trace {
+        output: Option<PathBuf>,
+    },
+    Replay {
+        adapter: String,
+        traces: Vec<PathBuf>,
+    },
 }
 
 impl Operation {
@@ -39,6 +43,7 @@ pub struct CommandPlan {
     pub operation: String,
     pub program: String,
     pub args: Vec<String>,
+    pub workspace: PathBuf,
     pub cwd: PathBuf,
     pub environment: BTreeMap<String, String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -99,12 +104,14 @@ fn build_quint_plan(
             args.push(path_argument(&manifest.spec));
         }
         Operation::Simulate => {
-            let simulation = manifest.simulation.as_ref().ok_or_else(|| {
-                FmError::OperationNotConfigured {
-                    operation: "simulate",
-                    manifest: loaded.manifest_path.clone(),
-                }
-            })?;
+            let simulation =
+                manifest
+                    .simulation
+                    .as_ref()
+                    .ok_or_else(|| FmError::OperationNotConfigured {
+                        operation: "simulate",
+                        manifest: loaded.manifest_path.clone(),
+                    })?;
             args.push("run".to_owned());
             args.push(path_argument(&manifest.spec));
             push_machine_arguments(&mut args, loaded);
@@ -115,12 +122,14 @@ fn build_quint_plan(
             push_named_values(&mut args, "--witnesses", &manifest.witnesses);
         }
         Operation::Verify => {
-            let verification = manifest.verification.as_ref().ok_or_else(|| {
-                FmError::OperationNotConfigured {
-                    operation: "verify",
-                    manifest: loaded.manifest_path.clone(),
-                }
-            })?;
+            let verification =
+                manifest
+                    .verification
+                    .as_ref()
+                    .ok_or_else(|| FmError::OperationNotConfigured {
+                        operation: "verify",
+                        manifest: loaded.manifest_path.clone(),
+                    })?;
             args.push("verify".to_owned());
             args.push(path_argument(&manifest.spec));
             push_machine_arguments(&mut args, loaded);
@@ -131,12 +140,14 @@ fn build_quint_plan(
             }
         }
         Operation::Trace { output } => {
-            let traces = manifest.traces.as_ref().ok_or_else(|| {
-                FmError::OperationNotConfigured {
-                    operation: "trace",
-                    manifest: loaded.manifest_path.clone(),
-                }
-            })?;
+            let traces =
+                manifest
+                    .traces
+                    .as_ref()
+                    .ok_or_else(|| FmError::OperationNotConfigured {
+                        operation: "trace",
+                        manifest: loaded.manifest_path.clone(),
+                    })?;
             let relative_pattern = output.clone().unwrap_or_else(|| {
                 manifest.execution.artifacts_dir.join(format!(
                     "{}-{}-{{seq}}.itf.json",
@@ -146,6 +157,20 @@ fn build_quint_plan(
             });
             validate_relative_path("trace output", &relative_pattern)
                 .map_err(FmError::Validation)?;
+            if !relative_pattern.starts_with(&manifest.execution.artifacts_dir) {
+                return Err(FmError::Validation(format!(
+                    "trace output must remain beneath execution.artifacts_dir {}",
+                    manifest.execution.artifacts_dir.display()
+                )));
+            }
+            let pattern_text = relative_pattern.to_str().ok_or_else(|| {
+                FmError::Validation("trace output must be valid UTF-8".to_owned())
+            })?;
+            if pattern_text.matches("{seq}").count() != 1 {
+                return Err(FmError::Validation(
+                    "trace output must contain exactly one '{seq}' placeholder".to_owned(),
+                ));
+            }
             let absolute_pattern = loaded.resolve_output_path(&relative_pattern)?;
             if let Some(parent) = absolute_pattern.parent() {
                 create_directories.push(parent.to_path_buf());
@@ -154,8 +179,16 @@ fn build_quint_plan(
             args.push("run".to_owned());
             args.push(path_argument(&manifest.spec));
             push_machine_arguments(&mut args, loaded);
-            if let Some(simulation) = &manifest.simulation {
-                args.push(format!("--backend={}", simulation.backend));
+            if let Some(backend) = traces.backend.as_deref().or_else(|| {
+                manifest
+                    .simulation
+                    .as_ref()
+                    .map(|value| value.backend.as_str())
+            }) {
+                args.push(format!("--backend={backend}"));
+            }
+            if let Some(seed) = &traces.seed {
+                args.push(format!("--seed={seed}"));
             }
             args.push(format!(
                 "--max-samples={}",
@@ -169,16 +202,13 @@ fn build_quint_plan(
             if traces.model_based_testing_metadata {
                 args.push("--mbt".to_owned());
             }
-            args.push(format!(
-                "--out-itf={}",
-                path_argument(&relative_pattern)
-            ));
+            args.push(format!("--out-itf={}", path_argument(&relative_pattern)));
             trace_pattern = Some(absolute_pattern);
         }
         Operation::Replay { .. } => unreachable!("replay has a dedicated plan builder"),
     }
 
-    Ok(finalize_plan(
+    finalize_plan(
         loaded,
         operation,
         manifest.toolchain.npx.clone(),
@@ -188,7 +218,7 @@ fn build_quint_plan(
         None,
         create_directories,
         trace_pattern,
-    ))
+    )
 }
 
 fn build_replay_plan(
@@ -196,13 +226,14 @@ fn build_replay_plan(
     adapter_name: &str,
     traces: &[PathBuf],
 ) -> Result<CommandPlan, FmError> {
-    let adapter = loaded
-        .manifest
-        .adapters
-        .get(adapter_name)
-        .ok_or_else(|| FmError::UnknownAdapter {
-            adapter: adapter_name.to_owned(),
-        })?;
+    let adapter =
+        loaded
+            .manifest
+            .adapters
+            .get(adapter_name)
+            .ok_or_else(|| FmError::UnknownAdapter {
+                adapter: adapter_name.to_owned(),
+            })?;
 
     if adapter.status != AdapterStatus::Active || adapter.command.is_empty() {
         return Err(FmError::AdapterCommandMissing {
@@ -211,13 +242,31 @@ fn build_replay_plan(
     }
 
     let mut canonical_traces = Vec::with_capacity(traces.len());
+    let mut unique_traces = BTreeSet::new();
     for trace in traces {
         validate_relative_path("replay trace", trace).map_err(FmError::Validation)?;
         let candidate = loaded.workspace.join(trace);
-        let canonical = fs::canonicalize(&candidate).map_err(|source| FmError::io(&candidate, source))?;
+        let canonical =
+            fs::canonicalize(&candidate).map_err(|source| FmError::io(&candidate, source))?;
         if !canonical.starts_with(&loaded.workspace) {
             return Err(FmError::Validation(format!(
                 "replay trace escapes workspace: {}",
+                canonical.display()
+            )));
+        }
+        let metadata =
+            fs::metadata(&canonical).map_err(|source| FmError::io(&canonical, source))?;
+        let max_trace_bytes =
+            u64::try_from(loaded.manifest.execution.max_output_bytes).unwrap_or(u64::MAX);
+        if !metadata.is_file() || metadata.len() == 0 || metadata.len() > max_trace_bytes {
+            return Err(FmError::Validation(format!(
+                "replay trace must be a non-empty regular file no larger than {max_trace_bytes} bytes: {}",
+                canonical.display()
+            )));
+        }
+        if !unique_traces.insert(canonical.clone()) {
+            return Err(FmError::Validation(format!(
+                "replay trace was supplied more than once: {}",
                 canonical.display()
             )));
         }
@@ -228,6 +277,7 @@ fn build_replay_plan(
             "replay requires at least one trace".to_owned(),
         ));
     }
+    canonical_traces.sort();
 
     let request = ReplayRequest {
         protocol: "fmctl.adapter.v1".to_owned(),
@@ -240,13 +290,14 @@ fn build_replay_plan(
     let mut stdin = serde_json::to_string(&request)?;
     stdin.push('\n');
 
-    let program = adapter
-        .command
-        .first()
-        .cloned()
-        .ok_or_else(|| FmError::AdapterCommandMissing {
-            adapter: adapter_name.to_owned(),
-        })?;
+    let program =
+        adapter
+            .command
+            .first()
+            .cloned()
+            .ok_or_else(|| FmError::AdapterCommandMissing {
+                adapter: adapter_name.to_owned(),
+            })?;
     let args = adapter.command.iter().skip(1).cloned().collect();
     let cwd = loaded.resolve_adapter_working_directory(adapter)?;
     let mut environment = adapter.environment.clone();
@@ -255,7 +306,7 @@ fn build_replay_plan(
         "fmctl.adapter.v1".to_owned(),
     );
 
-    Ok(finalize_plan(
+    finalize_plan(
         loaded,
         &Operation::Replay {
             adapter: adapter_name.to_owned(),
@@ -268,7 +319,7 @@ fn build_replay_plan(
         Some(stdin),
         Vec::new(),
         None,
-    ))
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -278,27 +329,84 @@ fn finalize_plan(
     program: String,
     args: Vec<String>,
     cwd: PathBuf,
-    environment: BTreeMap<String, String>,
+    mut environment: BTreeMap<String, String>,
     stdin: Option<String>,
     mut create_directories: Vec<PathBuf>,
     trace_pattern: Option<PathBuf>,
-) -> CommandPlan {
+) -> Result<CommandPlan, FmError> {
     let artifact_root = loaded
-        .workspace
-        .join(&loaded.manifest.execution.artifacts_dir)
+        .resolve_output_path(&loaded.manifest.execution.artifacts_dir)?
         .join("fmctl");
+    let runtime_root = artifact_root.join("runtime");
+    let runtime_home = runtime_root.join("home");
+    let runtime_tmp = runtime_root.join("tmp");
+    let cargo_home = runtime_root.join("cargo-home");
+    let npm_cache = runtime_root.join("npm-cache");
     create_directories.push(artifact_root.clone());
+    create_directories.push(runtime_home.clone());
+    create_directories.push(runtime_tmp.clone());
+    create_directories.push(cargo_home.clone());
+    create_directories.push(npm_cache.clone());
     create_directories.sort();
     create_directories.dedup();
 
+    let mut sanitized_environment = BTreeMap::new();
+    copy_environment_variable(&mut sanitized_environment, "PATH");
+    copy_environment_variable(&mut sanitized_environment, "JAVA_HOME");
+    copy_environment_variable(&mut sanitized_environment, "SSL_CERT_FILE");
+    copy_environment_variable(&mut sanitized_environment, "SSL_CERT_DIR");
+    copy_environment_variable(&mut sanitized_environment, "LANG");
+    copy_environment_variable(&mut sanitized_environment, "LC_ALL");
+    copy_environment_variable(&mut sanitized_environment, "CI");
+    if let Some(rustup_home) = env::var_os("RUSTUP_HOME").or_else(|| {
+        env::var_os("HOME").map(|home| PathBuf::from(home).join(".rustup").into_os_string())
+    }) {
+        sanitized_environment.insert(
+            "RUSTUP_HOME".to_owned(),
+            rustup_home.to_string_lossy().into_owned(),
+        );
+    }
+    if let Some(rust) = &loaded.manifest.toolchain.rust {
+        sanitized_environment.insert("RUSTUP_TOOLCHAIN".to_owned(), rust.clone());
+    }
+    sanitized_environment.insert(
+        "HOME".to_owned(),
+        runtime_home.to_string_lossy().into_owned(),
+    );
+    sanitized_environment.insert(
+        "TMPDIR".to_owned(),
+        runtime_tmp.to_string_lossy().into_owned(),
+    );
+    sanitized_environment.insert(
+        "CARGO_HOME".to_owned(),
+        cargo_home.to_string_lossy().into_owned(),
+    );
+    sanitized_environment.insert(
+        "NPM_CONFIG_CACHE".to_owned(),
+        npm_cache.to_string_lossy().into_owned(),
+    );
+    sanitized_environment.insert(
+        "NPM_CONFIG_USERCONFIG".to_owned(),
+        runtime_root.join("npmrc").to_string_lossy().into_owned(),
+    );
+    sanitized_environment.extend(environment);
+    environment = sanitized_environment;
+
     let operation_name = operation.name();
-    CommandPlan {
+    let artifact_name = match operation {
+        Operation::Replay { adapter, .. } => {
+            format!("{operation_name}-{}", file_component(adapter))
+        }
+        _ => operation_name.to_owned(),
+    };
+    Ok(CommandPlan {
         schema_version: 1,
         project: loaded.manifest.project.clone(),
         model: loaded.manifest.model.clone(),
         operation: operation_name.to_owned(),
         program,
         args,
+        workspace: loaded.workspace.clone(),
         cwd,
         environment,
         stdin,
@@ -306,11 +414,17 @@ fn finalize_plan(
         max_output_bytes: loaded.manifest.execution.max_output_bytes,
         create_directories,
         artifacts: CommandArtifacts {
-            stdout: artifact_root.join(format!("{operation_name}.stdout.log")),
-            stderr: artifact_root.join(format!("{operation_name}.stderr.log")),
-            result: artifact_root.join(format!("{operation_name}.result.json")),
+            stdout: artifact_root.join(format!("{artifact_name}.stdout.log")),
+            stderr: artifact_root.join(format!("{artifact_name}.stderr.log")),
+            result: artifact_root.join(format!("{artifact_name}.result.json")),
             trace_pattern,
         },
+    })
+}
+
+fn copy_environment_variable(environment: &mut BTreeMap<String, String>, name: &str) {
+    if let Some(value) = env::var_os(name) {
+        environment.insert(name.to_owned(), value.to_string_lossy().into_owned());
     }
 }
 
@@ -415,13 +529,24 @@ max_steps = 10
     #[test]
     fn trace_plan_stays_inside_artifact_directory() {
         let (_directory, loaded) = fixture();
-        let plan = build_plan(&loaded, &Operation::Trace { output: None })
-            .expect("trace plan");
+        let plan = build_plan(&loaded, &Operation::Trace { output: None }).expect("trace plan");
         let pattern = plan
             .artifacts
             .trace_pattern
             .expect("trace pattern should be present");
         assert!(pattern.starts_with(&loaded.workspace));
         assert!(pattern.to_string_lossy().contains("{seq}"));
+    }
+
+    #[test]
+    fn trace_plan_uses_its_own_backend_and_seed() {
+        let (_directory, mut loaded) = fixture();
+        let traces = loaded.manifest.traces.as_mut().expect("traces");
+        traces.backend = Some("rust".to_owned());
+        traces.seed = Some("0x1234".to_owned());
+        let plan = build_plan(&loaded, &Operation::Trace { output: None }).expect("trace plan");
+        assert!(plan.args.contains(&"--backend=rust".to_owned()));
+        assert!(plan.args.contains(&"--seed=0x1234".to_owned()));
+        assert!(!plan.args.contains(&"--backend=typescript".to_owned()));
     }
 }

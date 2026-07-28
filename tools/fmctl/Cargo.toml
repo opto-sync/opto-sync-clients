@@ -16,10 +16,11 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "=4.5.23", features = ["derive"] }
+libc = "=0.2.189"
 serde = { version = "=1.0.217", features = ["derive"] }
 serde_json = "=1.0.134"
 thiserror = "=2.0.9"
-toml = "=0.8.19"
+toml = "=0.8.23"
 wait-timeout = "=0.2.0"
 
 [dev-dependencies]

@@ -15,14 +15,15 @@ permissions:
 
 jobs:
   opto-sync-protocol:
-    name: fmctl + Quint protocol model
+    name: fmctl + Quint protocol model and Rust/TypeScript conformance
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           persist-credentials: false
+          submodules: recursive
 
       - name: Install Node.js
         uses: actions/setup-node@v4
@@ -36,23 +37,37 @@ jobs:
           java-version: '21'
 
       - name: Install pinned Rust toolchain
-        run: rustup toolchain install 1.88.0 --profile minimal --component clippy,rustfmt
+        uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0 # 1.88.0
+        with:
+          toolchain: '1.88.0'
+          components: clippy, rustfmt
 
       - name: Format-check fmctl
-        working-directory: tools/fmctl
-        run: cargo fmt --all --check
+        run: cargo fmt --manifest-path tools/fmctl/Cargo.toml -- --check
 
       - name: Lint fmctl
-        working-directory: tools/fmctl
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: |
+          cargo clippy \
+            --locked \
+            --manifest-path tools/fmctl/Cargo.toml \
+            --all-targets \
+            --all-features \
+            -- -D warnings
 
       - name: Test fmctl
-        working-directory: tools/fmctl
-        run: cargo test --all-targets --all-features
+        run: |
+          cargo test \
+            --locked \
+            --manifest-path tools/fmctl/Cargo.toml \
+            --all-targets \
+            --all-features
 
       - name: Build fmctl
-        working-directory: tools/fmctl
-        run: cargo build --release
+        run: |
+          cargo build \
+            --locked \
+            --release \
+            --manifest-path tools/fmctl/Cargo.toml
 
       - name: Validate the formal-methods manifest
         run: |
@@ -69,8 +84,10 @@ jobs:
       - name: Exhaustively model-check the finite protocol state space through fmctl
         run: tools/fmctl/target/release/fmctl verify
 
-      - name: Generate model-based testing traces through fmctl
-        run: tools/fmctl/target/release/fmctl trace
+      - name: Generate the deterministic model-based testing corpus through fmctl
+        run: |
+          tools/fmctl/target/release/fmctl trace \
+            --output '.formal-artifacts/opto-sync-{seq}.itf.json'
 
       - name: Exercise the JSON-RPC server over stdio
         shell: bash
@@ -96,6 +113,66 @@ jobs:
           assert responses[2]['result']['shutdown'] is True
           PY
 
+      - name: Validate the non-published Rust replay adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt \
+            --manifest-path formal/rust-itf-replay/Cargo.toml \
+            -- --check
+          cargo clippy \
+            --locked \
+            --manifest-path formal/rust-itf-replay/Cargo.toml \
+            --all-targets \
+            -- -D warnings
+          cargo test \
+            --locked \
+            --manifest-path formal/rust-itf-replay/Cargo.toml \
+            --all-targets
+
+      - name: Install and build the TypeScript client
+        working-directory: clients/ts
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          {
+            npm ci
+            npm run build
+            node --check ../../formal/typescript-itf-replay.mjs
+          } 2>&1 | tee ../../.formal-artifacts/typescript-build.log
+          status=${PIPESTATUS[0]}
+          set -e
+          exit "$status"
+
+      - name: Replay generated traces against the Rust protocol queue through fmctl
+        shell: bash
+        run: |
+          set -euo pipefail
+          traces=()
+          for trace in .formal-artifacts/opto-sync-*.itf.json; do
+            test -f "$trace"
+            traces+=(--trace "$trace")
+          done
+          tools/fmctl/target/release/fmctl replay \
+            --adapter rust \
+            "${traces[@]}" 2>&1 \
+            | tee .formal-artifacts/rust-itf-replay.log
+
+      - name: Replay generated traces against TypeScript Dexie state through fmctl
+        shell: bash
+        run: |
+          set -euo pipefail
+          traces=()
+          for trace in .formal-artifacts/opto-sync-*.itf.json; do
+            test -f "$trace"
+            traces+=(--trace "$trace")
+          done
+          tools/fmctl/target/release/fmctl replay \
+            --adapter typescript \
+            "${traces[@]}" 2>&1 \
+            | tee .formal-artifacts/typescript-itf-replay.log
+
       - name: Upload verifier, trace, lockfile, and normalized fmctl artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -104,6 +181,7 @@ jobs:
           path: |
             .formal-artifacts/
             tools/fmctl/Cargo.lock
+            formal/rust-itf-replay/Cargo.lock
           include-hidden-files: true
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14

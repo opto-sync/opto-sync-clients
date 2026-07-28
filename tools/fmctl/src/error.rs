@@ -54,6 +54,13 @@ pub enum FmError {
         source: io::Error,
     },
 
+    #[error("failed to terminate '{program}' and its process group: {source}")]
+    Terminate {
+        program: String,
+        #[source]
+        source: io::Error,
+    },
+
     #[error("failed to write stdin for '{program}': {source}")]
     WriteStdin {
         program: String,
@@ -93,6 +100,7 @@ impl FmError {
             | Self::AdapterProtocol(_) => 3,
             Self::Spawn { .. }
             | Self::Wait { .. }
+            | Self::Terminate { .. }
             | Self::WriteStdin { .. }
             | Self::Output { .. }
             | Self::OutputWorkerPanicked => 4,

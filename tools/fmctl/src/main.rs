@@ -159,9 +159,7 @@ fn run(cli: Cli) -> Result<u8, FmError> {
             Ok(0)
         }
         Commands::Check => execute_or_plan(&app, cli.format, cli.dry_run, Operation::Check),
-        Commands::Simulate => {
-            execute_or_plan(&app, cli.format, cli.dry_run, Operation::Simulate)
-        }
+        Commands::Simulate => execute_or_plan(&app, cli.format, cli.dry_run, Operation::Simulate),
         Commands::Verify => execute_or_plan(&app, cli.format, cli.dry_run, Operation::Verify),
         Commands::Trace(args) => execute_or_plan(
             &app,
@@ -201,9 +199,9 @@ fn plan_operation(args: PlanArgs) -> Result<Operation, FmError> {
             output: args.output,
         }),
         PlanOperation::Replay => Ok(Operation::Replay {
-            adapter: args.adapter.ok_or_else(|| {
-                FmError::Validation("plan replay requires --adapter".to_owned())
-            })?,
+            adapter: args
+                .adapter
+                .ok_or_else(|| FmError::Validation("plan replay requires --adapter".to_owned()))?,
             traces: args.traces,
         }),
     }
@@ -242,7 +240,8 @@ fn print_plan(format: OutputFormat, plan: &CommandPlan) -> Result<(), FmError> {
         OutputFormat::Json => print_serialized(format, plan),
         OutputFormat::Human => {
             println!("operation: {}", plan.operation);
-            println!("workspace: {}", plan.cwd.display());
+            println!("workspace: {}", plan.workspace.display());
+            println!("working directory: {}", plan.cwd.display());
             println!("command: {}", command_display(&plan.program, &plan.args));
             println!("timeout: {}s", plan.timeout_seconds);
             println!("result: {}", plan.artifacts.result.display());
@@ -308,7 +307,11 @@ fn print_doctor(format: OutputFormat, report: &DoctorReport) -> Result<(), FmErr
                 println!(
                     "- {}: {}{}",
                     probe.name,
-                    if probe.available { "ok" } else { "missing/failed" },
+                    if probe.available {
+                        "ok"
+                    } else {
+                        "missing/failed"
+                    },
                     if detail.is_empty() {
                         String::new()
                     } else {
@@ -321,10 +324,7 @@ fn print_doctor(format: OutputFormat, report: &DoctorReport) -> Result<(), FmErr
     }
 }
 
-fn print_serialized<T: Serialize>(
-    _format: OutputFormat,
-    value: &T,
-) -> Result<(), FmError> {
+fn print_serialized<T: Serialize>(_format: OutputFormat, value: &T) -> Result<(), FmError> {
     println!("{}", serde_json::to_string_pretty(value)?);
     Ok(())
 }
@@ -339,7 +339,9 @@ fn print_error(format: OutputFormat, error: &FmError) {
                 "exit_code": error.exit_code(),
                 "error": error.to_string()
             }))
-            .unwrap_or_else(|_| "{\"success\":false,\"error\":\"serialization failure\"}".to_owned())
+            .unwrap_or_else(|_| {
+                "{\"success\":false,\"error\":\"serialization failure\"}".to_owned()
+            })
         ),
     }
 }

@@ -17,6 +17,8 @@ witnesses = [
 [toolchain]
 quint = "0.32.0"
 java = ">=17"
+node = "22"
+rust = "1.88.0"
 npx = "npx"
 
 [execution]
@@ -36,19 +38,79 @@ exhaustive_finite_model = true
 [traces]
 format = "itf"
 model_based_testing_metadata = true
-count = 8
-max_steps = 30
-max_samples = 500
+backend = "rust"
+seed = "0x4b27def6cf7f060b"
+count = 16
+max_steps = 40
+max_samples = 16
+required_actions = [
+  "init",
+  "idle",
+  "compact",
+  "enqueue",
+  "send",
+  "apply_new",
+  "reject_new",
+  "reply_duplicate",
+  "inject_mismatched_response",
+  "lose_committed_response",
+  "lose_uncommitted_request",
+  "discard_malformed_response",
+  "acknowledge",
+  "pull",
+  "begin_reset",
+  "crash_during_reset",
+  "finish_reset",
+]
 
 [adapters.rust]
-strategy = "quint-connect"
-target = "clients/rust"
-status = "planned"
+strategy = "itf-json-driver"
+target = "formal/rust-itf-replay"
+working_directory = "."
+command = [
+  "rustup",
+  "run",
+  "1.88.0",
+  "cargo",
+  "run",
+  "--quiet",
+  "--locked",
+  "--manifest-path",
+  "formal/rust-itf-replay/Cargo.toml",
+  "--bin",
+  "quint-itf-replay",
+  "--",
+]
+observable_state = [
+  "nextMutationId",
+  "pendingMutationIds",
+  "confirmedMutationIds",
+  "inFlightRequest",
+  "response",
+  "checkpoint",
+  "snapshotReplacementPhase",
+]
+status = "active"
+issue = "DEN-573"
 
 [adapters.typescript]
 strategy = "itf-json-driver"
-target = "clients/ts"
-status = "planned"
+target = "formal/typescript-itf-replay.mjs"
+working_directory = "."
+command = ["node", "formal/typescript-itf-replay.mjs"]
+implementation = "clients/ts public OptoSyncClient package + Dexie + fake-indexeddb"
+observable_state = [
+  "nextMutationId",
+  "pendingMutationIds",
+  "confirmedMutationIds",
+  "allocatedMutationIds",
+  "inFlightRequest",
+  "response",
+  "checkpoint",
+  "snapshotReplacementPhase",
+]
+status = "active"
+issue = "DEN-583"
 
 [adapters.dart]
 strategy = "itf-json-driver"
