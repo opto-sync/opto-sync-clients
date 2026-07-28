@@ -1,0 +1,295 @@
+name: Rust target clean-room matrix
+
+on:
+  pull_request:
+    paths:
+      - 'clients/rust/**'
+      - 'syncer.c'
+      - 'targets/layouts.v1.json'
+      - 'scripts/check-rust-target.py'
+      - 'scripts/check-rust-one-core.py'
+      - 'scripts/stage-rust-target.py'
+      - 'docs/RUST_ZED_TARGET.md'
+      - '.github/workflows/rust-target-matrix.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'clients/rust/**'
+      - 'syncer.c'
+      - 'targets/layouts.v1.json'
+      - 'scripts/check-rust-target.py'
+      - 'scripts/check-rust-one-core.py'
+      - 'scripts/stage-rust-target.py'
+      - 'docs/RUST_ZED_TARGET.md'
+      - '.github/workflows/rust-target-matrix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-target-matrix-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ZED_CLI_SHA: c636fb8f6b08695c6b4fe94e2481f4d57270b2d7
+  ZED_INTERFACES_SHA: 415e871b1fb3dd97744c134351408a3224805dfb
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout clients and exact core
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Stage and validate the isolated Rust target
+        working-directory: source
+        run: |
+          set -euo pipefail
+          python3 scripts/check-target-layouts.py
+          python3 scripts/stage-rust-target.py "$RUNNER_TEMP/rust-target"
+          python3 scripts/check-rust-one-core.py "$RUNNER_TEMP/rust-target/release-set.json"
+
+      - name: Prove a mismatched core fails before compilation
+        working-directory: source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp "$RUNNER_TEMP/rust-target/release-set.json" "$RUNNER_TEMP/rust-target-mismatch.json"
+          python3 - <<'PY'
+          import json, os
+          path = os.environ['RUNNER_TEMP'] + '/rust-target-mismatch.json'
+          value = json.load(open(path, encoding='utf-8'))
+          value['syncerSourceSha'] = '0' * 40
+          json.dump(value, open(path, 'w', encoding='utf-8'), indent=2, sort_keys=True)
+          PY
+          if python3 scripts/check-rust-one-core.py "$RUNNER_TEMP/rust-target-mismatch.json"; then
+            echo '::error title=two-core preflight failed open::mismatched Rust target core was accepted'
+            exit 1
+          fi
+
+      - name: Checkout pinned Zed CLI
+        uses: actions/checkout@v4
+        with:
+          repository: zed-pkg/zed-cli
+          ref: ${{ env.ZED_CLI_SHA }}
+          path: zed-cli
+          persist-credentials: false
+
+      - name: Checkout pinned Zed interfaces
+        uses: actions/checkout@v4
+        with:
+          repository: zed-pkg/zed-interfaces
+          ref: ${{ env.ZED_INTERFACES_SHA }}
+          path: zed-interfaces
+          persist-credentials: false
+
+      - name: Build pinned Zed CLI
+        run: cargo build --locked --release --manifest-path zed-cli/Cargo.toml --bin zed
+
+      - name: Pack twice and prove byte-for-byte determinism
+        shell: bash
+        run: |
+          set -euo pipefail
+          zed="$GITHUB_WORKSPACE/zed-cli/target/release/zed"
+          stage="$RUNNER_TEMP/rust-target"
+          first="$RUNNER_TEMP/rust-pack-one"
+          second="$RUNNER_TEMP/rust-pack-two"
+          mkdir -p "$first" "$second"
+          (cd "$stage" && "$zed" pack --out "$first")
+          (cd "$stage" && "$zed" pack --out "$second")
+          test "$(find "$first" -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 1
+          test "$(find "$second" -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 1
+          archive="$(find "$first" -maxdepth 1 -type f -name '*.tar.gz' -printf '%f\n')"
+          test -f "$second/$archive"
+          sha256sum "$first/$archive" "$second/$archive"
+          cmp "$first/$archive" "$second/$archive"
+          echo "RUST_TARGET_ARCHIVE=$archive" >> "$GITHUB_ENV"
+
+      - name: Audit the packed language boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/rust-pack-one/$RUST_TARGET_ARCHIVE"
+          listing="$RUNNER_TEMP/rust-target-files.txt"
+          tar -tzf "$archive" | sort > "$listing"
+          required=(
+            'pkg/.zpkg.toml'
+            'pkg/LICENSE'
+            'pkg/README.md'
+            'pkg/release-set.json'
+            'pkg/scripts/check-rust-target.py'
+            'pkg/clients/rust/Cargo.toml'
+            'pkg/clients/rust/Cargo.lock'
+            'pkg/clients/rust/src/lib.rs'
+            'pkg/clients/rust/examples/core_identity.rs'
+            'pkg/syncer.c/SOURCE_SHA'
+            'pkg/syncer.c/core/include/syncer.h'
+            'pkg/syncer.c/core/src/syncer.c'
+            'pkg/syncer.c/core/src/yyjson.c'
+            'pkg/syncer.c/bindings/rust/Cargo.toml'
+            'pkg/syncer.c/bindings/rust/build.rs'
+            'pkg/syncer.c/bindings/rust/src/lib.rs'
+          )
+          for path in "${required[@]}"; do
+            grep -Fqx "$path" "$listing" || {
+              echo "::error title=missing Rust target file::$path"
+              exit 1
+            }
+          done
+          if grep -Fqx 'pkg/.zpkg.lock' "$listing"; then
+            echo '::error title=source lock leaked into Rust target::.zpkg.lock must not ship'
+            exit 1
+          fi
+          if grep -Eq '^pkg/clients/(ts|dart|gleam)(/|$)' "$listing"; then
+            echo '::error title=other language leaked into Rust target::Only clients/rust may ship'
+            exit 1
+          fi
+          if grep -Eq '(^|/)(\.git|\.github|\.zed)(/|$)|/(node_modules|target|build|_build|\.dart_tool|\.tmp)(/|$)' "$listing"; then
+            echo '::error title=generated or VCS state leaked into Rust target'
+            exit 1
+          fi
+
+      - name: Upload the exact package tested by every operating system
+        uses: actions/upload-artifact@v4
+        with:
+          name: opto-sync-rust-target-package
+          path: ${{ runner.temp }}/rust-pack-one/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  blank-consumer:
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-14
+          - windows-2022
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 50
+    steps:
+      - name: Download the exact packed target
+        uses: actions/download-artifact@v4
+        with:
+          name: opto-sync-rust-target-package
+          path: ${{ runner.temp }}/rust-target-package
+
+      - name: Extract and validate without Git metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$(python3 - <<'PY'
+          from pathlib import Path
+          import os
+          matches = list((Path(os.environ['RUNNER_TEMP']) / 'rust-target-package').glob('*.tar.gz'))
+          if len(matches) != 1:
+              raise SystemExit(f'expected one Rust target archive, got {len(matches)}')
+          print(matches[0])
+          PY
+          )"
+          extracted="$RUNNER_TEMP/rust-target-extracted"
+          mkdir -p "$extracted"
+          python3 - "$archive" "$extracted" <<'PY'
+          import sys, tarfile
+          with tarfile.open(sys.argv[1], 'r:gz') as archive:
+              archive.extractall(sys.argv[2], filter='data')
+          PY
+          test ! -e "$extracted/pkg/.git"
+          python3 "$extracted/pkg/scripts/check-rust-target.py" "$extracted/pkg"
+          echo "EXTRACTED_TARGET=$extracted/pkg" >> "$GITHUB_ENV"
+
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0 # 1.88.0
+        with:
+          components: clippy, rustfmt
+
+      - name: Preserve Cargo.lock through locked builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/rust"
+          before="$(python3 - <<'PY'
+          import hashlib
+          print(hashlib.sha256(open('Cargo.lock','rb').read()).hexdigest())
+          PY
+          )"
+          cargo fetch --locked
+          cargo fmt --check
+          cargo test --locked --all-targets
+          cargo test --locked --no-default-features --all-targets
+          cargo clippy --locked --all-targets --all-features -- -D warnings
+          after="$(python3 - <<'PY'
+          import hashlib
+          print(hashlib.sha256(open('Cargo.lock','rb').read()).hexdigest())
+          PY
+          )"
+          test "$before" = "$after"
+
+      - name: Prove bundled core identity through the staged example
+        working-directory: ${{ env.EXTRACTED_TARGET }}/clients/rust
+        run: cargo run --locked --example core_identity
+
+      - name: Prove a blank external consumer imports the target
+        shell: bash
+        run: |
+          set -euo pipefail
+          consumer="$RUNNER_TEMP/rust-blank-consumer"
+          mkdir -p "$consumer/src"
+          python3 - "$EXTRACTED_TARGET/clients/rust" "$consumer/Cargo.toml" <<'PY'
+          import json, pathlib, sys
+          dependency = pathlib.Path(sys.argv[1]).resolve().as_posix()
+          pathlib.Path(sys.argv[2]).write_text(
+              '[package]\nname = "opto-sync-rust-blank-consumer"\nversion = "0.0.0"\nedition = "2021"\n\n'
+              f'[dependencies]\nopto-sync-client = {{ path = {json.dumps(dependency)}, default-features = false }}\n',
+              encoding='utf-8',
+          )
+          PY
+          cat > "$consumer/src/main.rs" <<'RS'
+          use opto_sync_client::{core_version, reconcile, ReconcileOptions};
+
+          fn main() {
+              assert_eq!(core_version(), "0.2.1");
+              let merged = reconcile(
+                  r#"{"id":"r1","updatedAt":100,"value":"old"}"#,
+                  r#"{"id":"r1","updatedAt":200,"value":"new"}"#,
+                  &ReconcileOptions::default(),
+              ).expect("clean-room reconciliation");
+              assert!(merged.contains("new"));
+              println!("blank consumer linked syncer.c {}", core_version());
+          }
+          RS
+          cargo run --manifest-path "$consumer/Cargo.toml" --offline
+
+      - name: Prove a cache-cleared rebuild retains core and lock identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/rust"
+          expected_lock="$(python3 - <<'PY'
+          import hashlib
+          print(hashlib.sha256(open('Cargo.lock','rb').read()).hexdigest())
+          PY
+          )"
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+          for path in (Path('target'), Path('../../syncer.c/bindings/rust/target')):
+              shutil.rmtree(path, ignore_errors=True)
+          PY
+          cargo test --locked --no-default-features --all-targets
+          actual_lock="$(python3 - <<'PY'
+          import hashlib
+          print(hashlib.sha256(open('Cargo.lock','rb').read()).hexdigest())
+          PY
+          )"
+          test "$expected_lock" = "$actual_lock"
+          cargo run --locked --example core_identity
