@@ -129,7 +129,7 @@ jobs:
             'pkg/clients/rust/Cargo.toml'
             'pkg/clients/rust/Cargo.lock'
             'pkg/clients/rust/src/lib.rs'
-            'pkg/clients/rust/examples/core_identity.rs'
+            'pkg/clients/rust/src/bin/core_identity.rs'
             'pkg/syncer.c/SOURCE_SHA'
             'pkg/syncer.c/core/include/syncer.h'
             'pkg/syncer.c/core/src/syncer.c'
@@ -150,6 +150,10 @@ jobs:
           fi
           if grep -Eq '^pkg/clients/(ts|dart|gleam)(/|$)' "$listing"; then
             echo '::error title=other language leaked into Rust target::Only clients/rust may ship'
+            exit 1
+          fi
+          if grep -Eq '^pkg/clients/rust/examples(/|$)' "$listing"; then
+            echo '::error title=conventional examples path leaked into Rust target::Use src/bin for packed identity probes'
             exit 1
           fi
           if grep -Eq '(^|/)(\.git|\.github|\.zed)(/|$)|/(node_modules|target|build|_build|\.dart_tool|\.tmp)(/|$)' "$listing"; then
@@ -234,9 +238,9 @@ jobs:
           )"
           test "$before" = "$after"
 
-      - name: Prove bundled core identity through the staged example
+      - name: Prove bundled core identity through the staged binary
         working-directory: ${{ env.EXTRACTED_TARGET }}/clients/rust
-        run: cargo run --locked --example core_identity
+        run: cargo run --locked --bin core_identity
 
       - name: Prove a blank external consumer imports the target
         shell: bash
@@ -292,4 +296,4 @@ jobs:
           PY
           )"
           test "$expected_lock" = "$actual_lock"
-          cargo run --locked --example core_identity
+          cargo run --locked --bin core_identity
