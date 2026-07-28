@@ -1,0 +1,159 @@
+name: Formal Methods / fmctl
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/formal-methods-fmctl.yml"
+      - "tools/fmctl/**"
+      - "formal/**"
+      - "clients/rust/**"
+      - "clients/ts/**"
+  pull_request:
+    paths:
+      - ".github/workflows/formal-methods-fmctl.yml"
+      - "tools/fmctl/**"
+      - "formal/**"
+      - "clients/rust/**"
+      - "clients/ts/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: formal-methods-fmctl-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fmctl:
+    name: Rust core and opto-sync replay
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      NO_COLOR: "1"
+      RUST_BACKTRACE: "1"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.88.0"
+          components: rustfmt, clippy
+
+      - name: Install and build the TypeScript client
+        run: |
+          npm ci --prefix clients/ts
+          npm run build --prefix clients/ts
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path tools/fmctl/Cargo.toml --all -- --check
+
+      - name: Lint the Rust core
+        run: cargo clippy --manifest-path tools/fmctl/Cargo.toml --all-targets --all-features -- -D warnings
+
+      - name: Test the Rust core
+        run: cargo test --manifest-path tools/fmctl/Cargo.toml --all-features
+
+      - name: Build fmctl
+        run: cargo build --manifest-path tools/fmctl/Cargo.toml
+
+      - name: Validate manifest and toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .formal-artifacts/fmctl-results
+          FMCTL=./tools/fmctl/target/debug/fmctl
+          "$FMCTL" --workspace . --manifest formal/fm.toml --json validate \
+            | tee .formal-artifacts/fmctl-results/validate.json
+          "$FMCTL" --workspace . --manifest formal/fm.toml --json doctor \
+            | tee .formal-artifacts/fmctl-results/doctor.json
+
+      - name: Type-check and simulate the model
+        shell: bash
+        run: |
+          set -euo pipefail
+          FMCTL=./tools/fmctl/target/debug/fmctl
+          "$FMCTL" --workspace . --manifest formal/fm.toml --json check \
+            | tee .formal-artifacts/fmctl-results/check.json
+          "$FMCTL" --workspace . --manifest formal/fm.toml --json simulate \
+            | tee .formal-artifacts/fmctl-results/simulate.json
+
+      - name: Verify the finite protocol model
+        shell: bash
+        run: |
+          set -euo pipefail
+          FMCTL=./tools/fmctl/target/debug/fmctl
+          "$FMCTL" --workspace . --manifest formal/fm.toml --json verify \
+            | tee .formal-artifacts/fmctl-results/verify.json
+
+      - name: Generate deterministic ITF traces
+        shell: bash
+        run: |
+          set -euo pipefail
+          FMCTL=./tools/fmctl/target/debug/fmctl
+          "$FMCTL" --workspace . --manifest formal/fm.toml --json trace \
+            | tee .formal-artifacts/fmctl-results/trace.json
+          test -n "$(find .formal-artifacts/opto-sync-clients/protocol-v1 -name '*.itf.json' -print -quit)"
+
+      - name: Replay traces through Rust
+        shell: bash
+        run: |
+          set -euo pipefail
+          FMCTL=./tools/fmctl/target/debug/fmctl
+          "$FMCTL" --workspace . --manifest formal/fm.toml --json \
+            replay rust \
+            --glob '.formal-artifacts/opto-sync-clients/protocol-v1/*.itf.json' \
+            | tee .formal-artifacts/fmctl-results/replay-rust.json
+
+      - name: Replay traces through TypeScript
+        shell: bash
+        run: |
+          set -euo pipefail
+          FMCTL=./tools/fmctl/target/debug/fmctl
+          "$FMCTL" --workspace . --manifest formal/fm.toml --json \
+            replay typescript \
+            --glob '.formal-artifacts/opto-sync-clients/protocol-v1/*.itf.json' \
+            | tee .formal-artifacts/fmctl-results/replay-typescript.json
+
+      - name: Smoke-test JSON-RPC server
+        shell: bash
+        run: |
+          set -euo pipefail
+          FMCTL=./tools/fmctl/target/debug/fmctl
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"validate"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"check","params":{"dry_run":true}}' \
+            '{"jsonrpc":"2.0","id":3,"method":"shutdown"}' \
+            | "$FMCTL" --workspace . --manifest formal/fm.toml serve \
+            | tee .formal-artifacts/fmctl-results/rpc.jsonl
+          grep -q '"operation":"validate"' .formal-artifacts/fmctl-results/rpc.jsonl
+          grep -q '"operation":"shutdown"' .formal-artifacts/fmctl-results/rpc.jsonl
+
+      - name: Upload formal-methods evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fmctl-formal-methods-${{ github.run_id }}
+          path: .formal-artifacts/**
+          if-no-files-found: warn
+          retention-days: 14
