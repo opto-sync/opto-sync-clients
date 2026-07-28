@@ -59,7 +59,6 @@ def resolve_dependency(manifest: Path, raw: str) -> Path:
 def main() -> int:
     required = (
         ".zpkg.toml",
-        ".zpkg.lock",
         "LICENSE",
         "README.md",
         "release-set.json",
@@ -75,6 +74,7 @@ def main() -> int:
         "syncer.c/bindings/typescript/binding.gyp",
         "syncer.c/bindings/wasm/package.json",
         "syncer.c/bindings/wasm/index.mjs",
+        "syncer.c/bindings/wasm/dist/syncer-core.single.mjs",
     )
     for relative in required:
         require_file(relative)
@@ -94,8 +94,9 @@ def main() -> int:
         fail("the staged prototype is already one isolated target; nested targets are forbidden")
     if manifest.get("dependencies"):
         fail("the bundled target must not resolve a second Zed core dependency")
-    if load_toml(ROOT / ".zpkg.lock").get("version") != 1:
-        fail(".zpkg.lock must declare format version 1")
+    lock_path = ROOT / ".zpkg.lock"
+    if lock_path.exists() and load_toml(lock_path).get("version") != 1:
+        fail(".zpkg.lock must declare format version 1 when present")
 
     release = load_json(ROOT / "release-set.json")
     if release.get("schemaVersion") != 1:
@@ -115,6 +116,8 @@ def main() -> int:
         fail("release-set package versions are inconsistent")
     if release.get("publicationEnabled") is not False:
         fail("prototype publication must remain disabled")
+    if release.get("coreResolution") != "bundled-source":
+        fail("TypeScript target must use the approved bundled-source strategy")
 
     client_manifest_path = ROOT / "clients/ts/package.json"
     client = load_json(client_manifest_path)
@@ -171,8 +174,9 @@ def main() -> int:
     if "'syncer.c', 'bindings', 'typescript'" not in bootstrap:
         fail("client bootstrap no longer resolves the bundled native binding")
 
+    kind = "source stage" if lock_path.exists() else "packed/extracted artifact"
     print(
-        "TypeScript target passed: self-contained client + native core + WASM, "
+        f"TypeScript target passed ({kind}): self-contained client + native core + WASM, "
         f"client={client_sha[:12]} core={core_sha[:12]} publication=disabled"
     )
     return 0
