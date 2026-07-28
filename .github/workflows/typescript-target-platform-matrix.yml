@@ -175,26 +175,63 @@ jobs:
           after="$(node -e "const f=require('fs'),c=require('crypto');process.stdout.write(c.createHash('sha256').update(f.readFileSync('package-lock.json')).digest('hex'))")"
           test "$before" = "$after"
 
-      - name: Upload safe Windows native-install diagnostics
-        if: failure() && runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-typescript-native-install-log
-          path: ${{ runner.temp }}/windows-native-install.log
-          if-no-files-found: warn
-          retention-days: 3
-
-      - name: Prove the native core and run Node consumers
+      - name: Prove the native addon identity
         shell: bash
         run: |
           set -euo pipefail
           cd "$EXTRACTED_TARGET/clients/ts"
-          test -f ../../syncer.c/bindings/typescript/build/Release/syncer.node
-          version="$(node -e "process.stdout.write(require('@opto-sync/syncer').version())")"
-          test "$version" = '0.2.1'
+          node - "$RUNNER_TEMP/native-addon-proof.json" <<'NODE'
+          const fs = require('fs');
+          const path = require('path');
+          const output = process.argv[2];
+          const addon = path.resolve('../../syncer.c/bindings/typescript/build/Release/syncer.node');
+          const packagePath = path.resolve('node_modules/@opto-sync/syncer/package.json');
+          const proof = {
+            platform: process.platform,
+            arch: process.arch,
+            addon,
+            addonExists: fs.existsSync(addon),
+            packagePath,
+            packageExists: fs.existsSync(packagePath),
+          };
+          try {
+            const syncer = require('@opto-sync/syncer');
+            proof.version = syncer.version();
+            proof.ok = proof.addonExists && proof.packageExists && proof.version === '0.2.1';
+          } catch (error) {
+            proof.ok = false;
+            proof.error = String(error?.stack || error);
+          }
+          fs.writeFileSync(output, JSON.stringify(proof, null, 2));
+          console.log(JSON.stringify(proof, null, 2));
+          if (!proof.ok) process.exit(1);
+          NODE
+
+      - name: Upload safe Windows native diagnostics
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-typescript-native-diagnostics
+          path: |
+            ${{ runner.temp }}/windows-native-install.log
+            ${{ runner.temp }}/native-addon-proof.json
+          if-no-files-found: warn
+          retention-days: 3
+
+      - name: Compile CommonJS and ESM from the blank consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/ts"
           npx tsc --pretty false
           npx tsc -p tsconfig.esm.json --pretty false
           node scripts/postbuild.mjs
+
+      - name: Run native reconciliation and IndexedDB queue consumers
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/ts"
           node --test smoke/native-reconcile.cjs smoke/indexeddb-queue.cjs
 
       - name: Install Chromium dependencies on Linux
