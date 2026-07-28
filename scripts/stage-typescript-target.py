@@ -56,6 +56,13 @@ def write(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8", newline="\n")
 
 
+def copy_required(source: Path, destination: Path) -> None:
+    if not source.is_file():
+        fail(f"required source file is missing: {source.relative_to(ROOT)}")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("output", type=Path)
@@ -81,28 +88,45 @@ def main() -> int:
     # checked-in WASM distribution, in contrast, is a required source artifact.
     shutil.rmtree(output / "clients/ts/dist", ignore_errors=True)
 
-    # Zed source packing deliberately omits conventional test directories. Keep
-    # the clean-room consumer corpus under an explicit smoke/ path so the exact
-    # packed artifact can prove native, IndexedDB, and Chromium behavior.
-    test_source = output / "clients/ts/test"
-    smoke_target = output / "clients/ts/smoke"
-    if not test_source.is_dir():
-        fail("clients/ts/test is missing from the source tree")
-    if smoke_target.exists():
-        fail("clients/ts/smoke already exists; staging would overwrite it")
-    test_source.rename(smoke_target)
+    # The source pack intentionally omits conventional test paths and test-file
+    # names. Preserve the strongest credential-free consumers as explicit smoke
+    # programs with non-test names, plus only the helpers needed by Chromium.
+    source_tests = ROOT / "clients/ts/test"
+    smoke = output / "clients/ts/smoke"
+    smoke.mkdir()
+    copy_required(
+        source_tests / "reconcile.test.js",
+        smoke / "native-reconcile.cjs",
+    )
+    copy_required(
+        source_tests / "queue.test.js",
+        smoke / "indexeddb-queue.cjs",
+    )
+    copy_required(
+        source_tests / "browser-e2e.test.mjs",
+        smoke / "browser-indexeddb.mjs",
+    )
+    copy_required(
+        source_tests / "helpers/bundle.mjs",
+        smoke / "helpers/bundle.mjs",
+    )
+    copy_required(
+        source_tests / "helpers/corpus.mjs",
+        smoke / "helpers/corpus.mjs",
+    )
+    shutil.rmtree(output / "clients/ts/test", ignore_errors=True)
 
     # The staged artifact owns its smoke path, so its public npm commands must
-    # remain runnable after extraction rather than pointing at the omitted
-    # repository-only test/ location.
+    # remain runnable after extraction rather than pointing at repository-only
+    # test paths.
     package_path = output / "clients/ts/package.json"
     package = json.loads(package_path.read_text(encoding="utf-8"))
     scripts = package.setdefault("scripts", {})
     scripts["test"] = "npm run build && npm run test:node && npm run test:browser"
     scripts["test:node"] = (
-        "node --test smoke/queue.test.js smoke/reconcile.test.js"
+        "node --test smoke/indexeddb-queue.cjs smoke/native-reconcile.cjs"
     )
-    scripts["test:browser"] = "node --test smoke/browser-e2e.test.mjs"
+    scripts["test:browser"] = "node --test smoke/browser-indexeddb.mjs"
     write(package_path, json.dumps(package, indent=2) + "\n")
 
     copy_tree(ROOT / "syncer.c/core/include", output / "syncer.c/core/include")
@@ -180,7 +204,7 @@ test = "python3 scripts/check-typescript-target.py ."
 This clean-room source target contains only:
 
 - `clients/ts` (`@opto-sync/client` 0.2.0);
-- `clients/ts/smoke` (credential-free extracted-artifact consumer tests);
+- `clients/ts/smoke` (credential-free extracted-artifact consumers);
 - `syncer.c/core`;
 - `syncer.c/bindings/typescript` (`@opto-sync/syncer` 0.2.1); and
 - `syncer.c/bindings/wasm` (`@opto-sync/syncer-wasm` 0.2.1).
