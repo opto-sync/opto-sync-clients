@@ -61,7 +61,7 @@ The workflow pins Quint so local and CI semantics match. Java 17 or newer is
 required by the model-checker backends.
 
 ```bash
-QUINT='npx --yes @informalsystems/quint@0.32.0'
+QUINT='npx --yes --package=@informalsystems/quint@0.32.0 quint'
 
 $QUINT typecheck formal/opto_sync_protocol.qnt
 
@@ -82,28 +82,72 @@ $QUINT verify formal/opto_sync_protocol.qnt \
 # Generate implementation-replay traces in Informal Trace Format (ITF).
 mkdir -p .formal-artifacts
 $QUINT run formal/opto_sync_protocol.qnt \
-  --max-samples=500 \
-  --max-steps=30 \
-  --n-traces=8 \
+  --backend=rust \
+  --seed=0x4b27def6cf7f060b \
+  --max-samples=16 \
+  --max-steps=40 \
+  --n-traces=16 \
   --mbt \
   --out-itf='.formal-artifacts/opto-sync-{seq}.itf.json'
+
+# Replay every generated state through the production Rust ProtocolQueue API.
+cargo run \
+  --locked \
+  --manifest-path formal/rust-itf-replay/Cargo.toml \
+  --bin quint-itf-replay \
+  -- .formal-artifacts/opto-sync-*.itf.json
 ```
+
+## Rust implementation conformance
+
+`formal/rust-itf-replay` is an active ITF adapter, not a second copy of the
+model. It is a separate `publish = false` diagnostic crate whose dependency on
+`opto-sync-client` disables default features. Keeping it outside `clients/rust`
+means neither Cargo packaging nor the isolated Zed Rust target ships the
+conformance tool to library consumers. The binary reads the action and state
+metadata emitted by Quint and maps those actions to public production APIs:
+
+- `enqueue` calls `ProtocolQueue::queue_upsert` and checks contiguous allocation;
+- `send` calls `push_request(1)`, retains the first immutable request envelope,
+  and requires every retry of that mutation to be byte-for-byte equivalent;
+- applied, rejected, and duplicate model outcomes synthesize protocol-v1 responses;
+- malformed responses are passed to `acknowledge` and must be rejected without
+  mutating the queue;
+- valid `acknowledge` actions execute the real acknowledgement validation and
+  confirmation transition;
+- `pull` advances the real durable checkpoint;
+- `finish_reset` executes a successful `install_snapshot`; reset crashes execute
+  the real API with a failing replacement callback and require the serialized
+  queue to remain exactly unchanged and retryable.
+
+After every model state, the adapter compares the real queue's observable
+projection with Quint: next mutation id, pending and confirmed identities,
+in-flight request, response envelope/validity, checkpoint, and snapshot-replacement
+phase. Server-only fields such as ledger contents and effect counters remain model
+state; they are not falsely claimed as client implementation coverage.
+
+The formal-methods workflow pins the Quint version, Rust evaluator backend, and
+trace seed. Its 16 generated traces cover every one of the model's 17 actions
+with the current model. The adapter independently refuses to pass if any action
+is missing, so duplicate retry, committed-response loss, and reset-crash code
+cannot silently become vacuous. The workflow formats, lints, tests, and replays
+the non-published crate with the Rust 1.88 client compatibility toolchain before
+uploading the ITF and replay logs.
 
 ## Cross-language implementation checks
 
-The next layer consumes the ITF traces produced above. Each adapter maps a model
-action to one public implementation operation and returns a canonical state
-projection.
+Each additional adapter should consume the same ITF action/state shape and return
+the same observable projection.
 
-| Runtime | Initial adapter target |
-|---|---|
-| Rust | `quint-connect` against `ProtocolQueue` and the SQLite atomic store |
-| TypeScript | Node/Dexie driver that invokes `OptoSyncClient` and projects IndexedDB state |
-| Dart | VM/Drift driver with the same command and state JSON schema |
-| Go | Generic trace-runner SDK; opto-sync can add a client when one exists |
-| Gleam | BEAM runner for the protocol codec/state transitions currently implemented |
+| Runtime | Adapter target | Status |
+|---|---|---|
+| Rust | `formal/rust-itf-replay` against `ProtocolQueue` | Active |
+| TypeScript | Node/Dexie driver invoking `OptoSyncClient` and projecting IndexedDB state | Planned |
+| Dart | VM/Drift driver using the same command/state JSON schema | Planned |
+| Go | Generic trace-runner SDK; opto-sync can add a client when one exists | Planned |
+| Gleam | BEAM runner for implemented protocol codec/state transitions | Planned |
 
-Adapters must never compare private storage layout byte-for-byte. They compare the
+Adapters must never compare private storage layout byte-for-byte. They compare
 observable protocol state: pending identities, request envelope, durable
 acknowledgements, checkpoint, authoritative record revision/tombstone, and error
 class. This lets implementations use IndexedDB, SQLite, files, or another store
@@ -132,10 +176,11 @@ becoming an accurate description of code nobody actually runs.
 
 ## Deliberate limits of this first model
 
-This slice uses one client, one logical stream, and three mutation identities. It
-abstracts authorization, payload content, SQL implementation details, HLC merge
-semantics, multi-record batches, and multiple tenants. Those are separate models or
-refinements rather than dimensions added to one unreviewable state space.
+This slice uses one client, one logical stream, one-mutation requests, and three
+mutation identities. It abstracts authorization, payload content, SQL implementation
+details, HLC merge semantics, multi-record batches, and multiple tenants. Those are
+separate models or refinements rather than dimensions added to one unreviewable state
+space.
 
 The next opto-sync models should cover, in order:
 
@@ -143,8 +188,8 @@ The next opto-sync models should cover, in order:
 2. pull pagination, filtered global checkpoints, and commit ordering;
 3. HLC monotonicity, LWW/FWW policies, tombstone resurrection, and pending rebase;
 4. IndexedDB/Drift/SQLite transaction and restart boundaries;
-5. multi-client convergence and cross-runtime trace replay.
+5. multi-client convergence and TypeScript/Dart/Gleam trace replay.
 
 `fm.toml` is a provisional manifest for the planned Rust orchestrator. Until that
-CLI exists, the GitHub Actions workflow invokes Quint directly and therefore remains
-an independently reproducible verification gate.
+CLI exists, the GitHub Actions workflow invokes Quint and the Rust adapter directly,
+so the proof and conformance gate remains independently reproducible.

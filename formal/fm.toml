@@ -18,6 +18,7 @@ witnesses = [
 [toolchain]
 quint = "0.32.0"
 java = ">=17"
+rust = "1.88.0"
 
 [simulation]
 backend = "typescript"
@@ -31,13 +32,44 @@ exhaustive_finite_model = true
 [traces]
 format = "itf"
 model_based_testing_metadata = true
-count = 8
-max_steps = 30
+backend = "rust"
+seed = "0x4b27def6cf7f060b"
+count = 16
+max_steps = 40
+required_actions = [
+  "init",
+  "idle",
+  "compact",
+  "enqueue",
+  "send",
+  "apply_new",
+  "reject_new",
+  "reply_duplicate",
+  "inject_mismatched_response",
+  "lose_committed_response",
+  "lose_uncommitted_request",
+  "discard_malformed_response",
+  "acknowledge",
+  "pull",
+  "begin_reset",
+  "crash_during_reset",
+  "finish_reset",
+]
 
 [adapters.rust]
-strategy = "quint-connect"
-target = "clients/rust"
-status = "planned"
+strategy = "itf-json-driver"
+target = "formal/rust-itf-replay"
+command = "cargo run --locked --manifest-path formal/rust-itf-replay/Cargo.toml --bin quint-itf-replay -- {traces}"
+observable_state = [
+  "nextMutationId",
+  "pendingMutationIds",
+  "confirmedMutationIds",
+  "inFlightRequest",
+  "response",
+  "checkpoint",
+  "snapshotReplacementPhase",
+]
+status = "active"
 
 [adapters.typescript]
 strategy = "itf-json-driver"
