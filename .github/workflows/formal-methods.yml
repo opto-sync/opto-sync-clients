@@ -18,6 +18,9 @@ jobs:
     name: fmctl + Quint protocol model and Rust/TypeScript conformance
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      NO_COLOR: '1'
+      RUST_BACKTRACE: '1'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -74,6 +77,11 @@ jobs:
           mkdir -p .formal-artifacts/fmctl
           tools/fmctl/target/release/fmctl --format json validate \
             | tee .formal-artifacts/fmctl/validate.json
+
+      - name: Validate the configured toolchain through fmctl
+        run: |
+          tools/fmctl/target/release/fmctl --format json doctor \
+            | tee .formal-artifacts/fmctl/doctor.json
 
       - name: Typecheck through fmctl
         run: tools/fmctl/target/release/fmctl check
