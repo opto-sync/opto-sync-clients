@@ -35,9 +35,19 @@ count = 8
 max_steps = 30
 
 [adapters.rust]
-strategy = "quint-connect"
-target = "clients/rust"
-status = "planned"
+strategy = "itf-json-driver"
+target = "clients/rust/examples/quint_itf_replay.rs"
+command = "cargo run --locked --manifest-path clients/rust/Cargo.toml --no-default-features --example quint_itf_replay -- {traces}"
+observable_state = [
+  "nextMutationId",
+  "pendingMutationIds",
+  "confirmedMutationIds",
+  "inFlightRequest",
+  "response",
+  "checkpoint",
+  "snapshotReplacementPhase",
+]
+status = "active"
 
 [adapters.typescript]
 strategy = "itf-json-driver"
