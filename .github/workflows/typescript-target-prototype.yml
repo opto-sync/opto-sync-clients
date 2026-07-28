@@ -41,6 +41,7 @@ jobs:
       - name: Checkout clients and the exact core gitlink
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: source
           fetch-depth: 0
           persist-credentials: false
@@ -153,26 +154,35 @@ jobs:
           cache-dependency-path: source/clients/ts/package-lock.json
 
       - name: Install from the extracted target and build the native engine
-        working-directory: ${{ env.EXTRACTED_TARGET }}/clients/ts
-        run: npm ci
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/ts"
+          npm ci
 
       - name: Prove the native runtime reports the certified core
-        working-directory: ${{ env.EXTRACTED_TARGET }}/clients/ts
+        shell: bash
         run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/ts"
           npm run build
           test "$(node -p "require('@opto-sync/syncer').version()")" = '0.2.1'
           npm run test:node
 
       - name: Run the real Chromium WASM and IndexedDB consumer
-        working-directory: ${{ env.EXTRACTED_TARGET }}/clients/ts
+        shell: bash
         run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/ts"
           npx playwright install --with-deps chromium
           npm run test:browser
 
       - name: Revalidate source identity after consumer execution
+        shell: bash
         run: |
-          test "$(cat "$EXTRACTED_TARGET/syncer.c/SOURCE_SHA")" = \
-            "$(python3 -c 'import json,os; print(json.load(open(os.environ["EXTRACTED_TARGET"] + "/release-set.json"))["syncerSourceSha"])')"
+          set -euo pipefail
+          expected="$(python3 -c 'import json,os; print(json.load(open(os.environ["EXTRACTED_TARGET"] + "/release-set.json"))["syncerSourceSha"])')"
+          test "$(cat "$EXTRACTED_TARGET/syncer.c/SOURCE_SHA")" = "$expected"
 
       - name: Upload the deterministic prototype artifact
         uses: actions/upload-artifact@v4
