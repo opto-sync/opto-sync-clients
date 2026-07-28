@@ -135,6 +135,7 @@ license = "MIT"
 repository = { type = "git", url = "https://github.com/opto-sync/opto-sync-clients" }
 
 [publish]
+include_readme = true
 registry = "https://zed.cloud"
 tag_format = "rust-v{version}"
 require_tag = true
