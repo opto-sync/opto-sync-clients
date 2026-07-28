@@ -35,9 +35,14 @@ before compilation when any identity differs.
 6. extracts that archive without Git metadata on Linux, macOS, and Windows;
 7. preserves the committed Cargo lock while running format, default SQLite tests,
    core-only tests, and Clippy;
-8. runs a staged example that requires `syncer.c 0.2.1`;
+8. runs the packed `src/bin/core_identity.rs` binary and requires `syncer.c 0.2.1`;
 9. creates a separate blank consumer crate that imports the extracted target; and
-10. removes build output and repeats the locked core-only build.
+10. removes build output and repeats the locked core-only build and identity binary.
+
+The identity probe is deliberately under `src/bin`, not the conventional
+`examples/` directory. Zed source packing omits conventional examples, so placing
+the proof there would let staging pass while silently removing the executable
+from the exact archive used by downstream consumers.
 
 ## Publication posture
 
