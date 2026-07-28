@@ -97,6 +97,29 @@ jobs:
           set -e
           exit "$status"
 
+      - name: Normalize Quint MBT metadata for implementation adapters
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          traces=(.formal-artifacts/opto-sync-*.itf.json)
+          if (( ${#traces[@]} == 0 )); then
+            printf 'no Quint ITF traces were generated\n' >&2
+            exit 1
+          fi
+          for trace in "${traces[@]}"; do
+            temporary="${trace}.normalized"
+            jq '
+              .states |= map(
+                . + {
+                  action: .["mbt::actionTaken"],
+                  nondetPicks: .["mbt::nondetPicks"]
+                }
+              )
+            ' "$trace" > "$temporary"
+            mv "$temporary" "$trace"
+          done
+
       - name: Install and build the TypeScript client
         working-directory: clients/ts
         shell: bash
