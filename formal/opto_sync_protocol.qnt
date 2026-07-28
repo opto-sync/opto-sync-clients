@@ -8,24 +8,29 @@
 module opto_sync_protocol {
   type ResetPhase = Idle | Replacing
 
-  type Response = {
-    mutation_id: int,
-    watermark: int,
-    checkpoint: int,
-    valid_for_in_flight: bool,
-  }
+  // Mutation identities are strictly positive. Zero is an explicit sentinel for
+  // "no request in flight" and for cleared response fields. Keeping these fields
+  // first-order makes the model self-contained and avoids verifier-specific
+  // Option helpers or partial unwrap operations.
+  pure val NO_ID = 0
+  pure val IDS = Set(1, 2, 3)
+  pure val MAX_ID = 3
 
   type State = {
     next_id: int,
     pending: Set[int],
-    in_flight: Option[int],
+    in_flight: int,
     ledger: Set[int],
     applied: Set[int],
     rejected: Set[int],
     effect_count: int -> int,
     server_watermark: int,
     server_checkpoint: int,
-    response: Option[Response],
+    response_present: bool,
+    response_mutation_id: int,
+    response_watermark: int,
+    response_checkpoint: int,
+    response_valid_for_in_flight: bool,
     acknowledged: Set[int],
     local_checkpoint: int,
     retention_floor: int,
@@ -37,23 +42,29 @@ module opto_sync_protocol {
     saw_reset_crash: bool,
   }
 
-  pure val IDS = Set(1, 2, 3)
-  pure val MAX_ID = 3
-
   var s: State
+
+  def is_oldest_pending(id) = and {
+    s.pending.contains(id),
+    s.pending.forall(other => id <= other),
+  }
 
   action init = {
     s' = {
       next_id: 1,
       pending: Set(),
-      in_flight: None,
+      in_flight: NO_ID,
       ledger: Set(),
       applied: Set(),
       rejected: Set(),
       effect_count: IDS.mapBy(_ => 0),
       server_watermark: 0,
       server_checkpoint: 0,
-      response: None,
+      response_present: false,
+      response_mutation_id: NO_ID,
+      response_watermark: 0,
+      response_checkpoint: 0,
+      response_valid_for_in_flight: false,
       acknowledged: Set(),
       local_checkpoint: 0,
       retention_floor: 0,
@@ -73,22 +84,23 @@ module opto_sync_protocol {
     s' = {
       ...s,
       next_id: s.next_id + 1,
-      pending: s.pending.setAdd(s.next_id),
+      pending: s.pending.union(Set(s.next_id)),
     },
   }
 
-  // The client may send the next new mutation, or retry one whose commit became
-  // ambiguous because its response was lost.
+  // The client sends only its oldest queued mutation. It may send the next new
+  // identity, or retry one whose commit became ambiguous because its response was
+  // lost. Later mutations cannot overtake an unacknowledged predecessor.
   action send(id) = all {
     s.reset_phase == Idle,
-    s.in_flight == None,
-    s.response == None,
-    s.pending.contains(id),
+    s.in_flight == NO_ID,
+    not(s.response_present),
+    is_oldest_pending(id),
     or {
       s.ledger.contains(id),
       id == s.server_watermark + 1,
     },
-    s' = { ...s, in_flight: Some(id) },
+    s' = { ...s, in_flight: id },
   }
 
   // A new successful mutation atomically advances the ledger, effect, watermark,
@@ -96,22 +108,22 @@ module opto_sync_protocol {
   // no-double-apply property is not true merely because Set removes duplicates.
   action apply_new(id) = all {
     s.reset_phase == Idle,
-    s.in_flight == Some(id),
+    s.in_flight == id,
+    not(s.response_present),
     id == s.server_watermark + 1,
     not(s.ledger.contains(id)),
     s' = {
       ...s,
-      ledger: s.ledger.setAdd(id),
-      applied: s.applied.setAdd(id),
+      ledger: s.ledger.union(Set(id)),
+      applied: s.applied.union(Set(id)),
       effect_count: s.effect_count.setBy(id, count => count + 1),
       server_watermark: id,
       server_checkpoint: s.server_checkpoint + 1,
-      response: Some({
-        mutation_id: id,
-        watermark: id,
-        checkpoint: s.server_checkpoint + 1,
-        valid_for_in_flight: true,
-      }),
+      response_present: true,
+      response_mutation_id: id,
+      response_watermark: id,
+      response_checkpoint: s.server_checkpoint + 1,
+      response_valid_for_in_flight: true,
     },
   }
 
@@ -120,21 +132,21 @@ module opto_sync_protocol {
   // blocking every later mutation forever.
   action reject_new(id) = all {
     s.reset_phase == Idle,
-    s.in_flight == Some(id),
+    s.in_flight == id,
+    not(s.response_present),
     id == s.server_watermark + 1,
     not(s.ledger.contains(id)),
     s' = {
       ...s,
-      ledger: s.ledger.setAdd(id),
-      rejected: s.rejected.setAdd(id),
+      ledger: s.ledger.union(Set(id)),
+      rejected: s.rejected.union(Set(id)),
       server_watermark: id,
       server_checkpoint: s.server_checkpoint + 1,
-      response: Some({
-        mutation_id: id,
-        watermark: id,
-        checkpoint: s.server_checkpoint + 1,
-        valid_for_in_flight: true,
-      }),
+      response_present: true,
+      response_mutation_id: id,
+      response_watermark: id,
+      response_checkpoint: s.server_checkpoint + 1,
+      response_valid_for_in_flight: true,
     },
   }
 
@@ -142,16 +154,16 @@ module opto_sync_protocol {
   // second time or allocating another checkpoint.
   action reply_duplicate(id) = all {
     s.reset_phase == Idle,
-    s.in_flight == Some(id),
+    s.in_flight == id,
+    not(s.response_present),
     s.ledger.contains(id),
     s' = {
       ...s,
-      response: Some({
-        mutation_id: id,
-        watermark: id,
-        checkpoint: s.server_checkpoint,
-        valid_for_in_flight: true,
-      }),
+      response_present: true,
+      response_mutation_id: id,
+      response_watermark: id,
+      response_checkpoint: s.server_checkpoint,
+      response_valid_for_in_flight: true,
       saw_duplicate_reply: true,
     },
   }
@@ -160,68 +172,86 @@ module opto_sync_protocol {
   // because it does not name the exact immutable request currently in flight.
   action inject_mismatched_response(id) = all {
     s.reset_phase == Idle,
-    s.in_flight != None,
-    id != s.in_flight.unwrap(),
+    s.in_flight != NO_ID,
+    not(s.response_present),
+    id != s.in_flight,
     IDS.contains(id),
     s' = {
       ...s,
-      response: Some({
-        mutation_id: id,
-        watermark: id,
-        checkpoint: s.server_checkpoint,
-        valid_for_in_flight: false,
-      }),
+      response_present: true,
+      response_mutation_id: id,
+      response_watermark: id,
+      response_checkpoint: s.server_checkpoint,
+      response_valid_for_in_flight: false,
     },
   }
 
   // A response can disappear after the server transaction commits. The queued
   // mutation remains pending, so the only safe recovery is an identical retry.
-  action lose_committed_response = all {
+  action lose_committed_response(id) = all {
     s.reset_phase == Idle,
-    s.response != None,
-    s.in_flight != None,
-    s.ledger.contains(s.in_flight.unwrap()),
+    s.in_flight == id,
+    s.response_present,
+    s.response_valid_for_in_flight,
+    s.response_mutation_id == id,
+    s.ledger.contains(id),
     s' = {
       ...s,
-      in_flight: None,
-      response: None,
+      in_flight: NO_ID,
+      response_present: false,
+      response_mutation_id: NO_ID,
+      response_watermark: 0,
+      response_checkpoint: 0,
+      response_valid_for_in_flight: false,
       saw_lost_response: true,
     },
   }
 
   // A request can also fail before the server commits anything.
-  action lose_uncommitted_request = all {
+  action lose_uncommitted_request(id) = all {
     s.reset_phase == Idle,
-    s.in_flight != None,
-    s.response == None,
-    not(s.ledger.contains(s.in_flight.unwrap())),
-    s' = { ...s, in_flight: None },
+    s.in_flight == id,
+    not(s.response_present),
+    not(s.ledger.contains(id)),
+    s' = { ...s, in_flight: NO_ID },
   }
 
   action discard_malformed_response = all {
     s.reset_phase == Idle,
-    s.response != None,
-    not(s.response.unwrap().valid_for_in_flight),
-    s' = { ...s, in_flight: None, response: None },
+    s.response_present,
+    not(s.response_valid_for_in_flight),
+    s' = {
+      ...s,
+      in_flight: NO_ID,
+      response_present: false,
+      response_mutation_id: NO_ID,
+      response_watermark: 0,
+      response_checkpoint: 0,
+      response_valid_for_in_flight: false,
+    },
   }
 
   // Acknowledgement is intentionally tied to both the in-flight request and the
   // response. A bare watermark cannot remove mutations that were never sent.
   action acknowledge(id) = all {
     s.reset_phase == Idle,
-    s.in_flight == Some(id),
-    s.response != None,
-    s.response.unwrap().valid_for_in_flight,
-    s.response.unwrap().mutation_id == id,
-    s.response.unwrap().watermark == id,
+    s.in_flight == id,
+    s.response_present,
+    s.response_valid_for_in_flight,
+    s.response_mutation_id == id,
+    s.response_watermark == id,
     s.ledger.contains(id),
     s.pending.contains(id),
     s' = {
       ...s,
       pending: s.pending.filter(other => other != id),
-      acknowledged: s.acknowledged.setAdd(id),
-      in_flight: None,
-      response: None,
+      acknowledged: s.acknowledged.union(Set(id)),
+      in_flight: NO_ID,
+      response_present: false,
+      response_mutation_id: NO_ID,
+      response_watermark: 0,
+      response_checkpoint: 0,
+      response_valid_for_in_flight: false,
     },
   }
 
@@ -283,8 +313,8 @@ module opto_sync_protocol {
       reject_new(id),
       reply_duplicate(id),
       inject_mismatched_response(id),
-      lose_committed_response,
-      lose_uncommitted_request,
+      lose_committed_response(id),
+      lose_uncommitted_request(id),
       discard_malformed_response,
       acknowledge(id),
       pull,
@@ -301,9 +331,27 @@ module opto_sync_protocol {
     s.next_id <= MAX_ID + 1,
     s.server_watermark >= 0,
     s.server_watermark <= MAX_ID,
+    s.in_flight >= NO_ID,
+    s.in_flight <= MAX_ID,
     s.pending.forall(id => IDS.contains(id) and id < s.next_id),
     s.acknowledged.forall(id => IDS.contains(id) and id < s.next_id),
   }
+
+  // Every allocated identity is in exactly one client-side lifecycle bucket.
+  val client_queue_is_a_partition = IDS.forall(id => or {
+    and {
+      id < s.next_id,
+      or {
+        and { s.pending.contains(id), not(s.acknowledged.contains(id)) },
+        and { s.acknowledged.contains(id), not(s.pending.contains(id)) },
+      },
+    },
+    and {
+      id >= s.next_id,
+      not(s.pending.contains(id)),
+      not(s.acknowledged.contains(id)),
+    },
+  })
 
   // The durable ledger is a contiguous prefix; gaps can never become committed.
   val ledger_is_contiguous =
@@ -330,6 +378,7 @@ module opto_sync_protocol {
 
   val checkpoints_are_ordered = and {
     s.server_checkpoint == s.ledger.size(),
+    s.server_checkpoint == s.server_watermark,
     s.local_checkpoint >= 0,
     s.local_checkpoint <= s.server_checkpoint,
     s.retention_floor >= 0,
@@ -344,27 +393,47 @@ module opto_sync_protocol {
       s.local_checkpoint == s.reset_checkpoint_before,
     }
 
-  val in_flight_is_queued = match s.in_flight {
-    | None => true
-    | Some(id) => s.pending.contains(id) and or {
-        s.ledger.contains(id),
-        id == s.server_watermark + 1,
-      }
+  val in_flight_is_queued = or {
+    s.in_flight == NO_ID,
+    and {
+      IDS.contains(s.in_flight),
+      s.pending.contains(s.in_flight),
+      or {
+        s.ledger.contains(s.in_flight),
+        s.in_flight == s.server_watermark + 1,
+      },
+    },
   }
 
-  val response_is_bounded = match s.response {
-    | None => true
-    | Some(r) => and {
-        IDS.contains(r.mutation_id),
-        r.watermark >= 1,
-        r.watermark <= MAX_ID,
-        r.checkpoint >= 0,
-        r.checkpoint <= s.server_checkpoint,
-      }
+  val response_is_bounded = or {
+    and {
+      not(s.response_present),
+      s.response_mutation_id == NO_ID,
+      s.response_watermark == 0,
+      s.response_checkpoint == 0,
+      not(s.response_valid_for_in_flight),
+    },
+    and {
+      s.response_present,
+      IDS.contains(s.response_mutation_id),
+      s.response_watermark >= 1,
+      s.response_watermark <= MAX_ID,
+      s.response_checkpoint >= 0,
+      s.response_checkpoint <= s.server_checkpoint,
+      or {
+        not(s.response_valid_for_in_flight),
+        and {
+          s.in_flight == s.response_mutation_id,
+          s.response_watermark == s.response_mutation_id,
+          s.ledger.contains(s.response_mutation_id),
+        },
+      },
+    },
   }
 
   val protocol_safety = and {
     identity_bounds,
+    client_queue_is_a_partition,
     ledger_is_contiguous,
     outcomes_partition_ledger,
     effects_are_exactly_once,
