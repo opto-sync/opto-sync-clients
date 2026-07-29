@@ -59,8 +59,9 @@ vacuous.
 ## Run locally
 
 The canonical entry point is `fmctl`. Local runs require Node.js 22, Java 17 or
-newer, and Rust 1.88.0; the manifest pins the exact Quint package, Rust evaluator
-seed, trace count, and execution limits used by CI.
+newer, Rust 1.88.0, and Dart 3.12.1 for the Dart adapter; the manifest pins the
+exact Quint package, Rust evaluator seed, trace count, and execution limits used
+by CI.
 
 ```bash
 cargo build --locked --release --manifest-path tools/fmctl/Cargo.toml
@@ -73,6 +74,7 @@ $FMCTL verify
 $FMCTL trace --output '.formal-artifacts/opto-sync-{seq}.itf.json'
 
 (cd clients/ts && npm ci && npm run build)
+(cd clients/dart && dart pub get)
 
 traces=()
 for trace in .formal-artifacts/opto-sync-*.itf.json; do
@@ -80,6 +82,7 @@ for trace in .formal-artifacts/opto-sync-*.itf.json; do
 done
 $FMCTL replay --adapter rust "${traces[@]}"
 $FMCTL replay --adapter typescript "${traces[@]}"
+$FMCTL replay --adapter dart "${traces[@]}"
 ```
 
 `fmctl plan <operation>` or `--dry-run` prints the exact argv, working directory,
@@ -167,6 +170,40 @@ index, action, and first divergent field. Like the Rust adapter, the TypeScript
 adapter independently fails unless the complete trace suite covers all 17 model
 actions.
 
+## Dart/Drift implementation conformance
+
+`clients/dart/tool/formal_itf_replay.dart` is the non-published Dart adapter for
+DEN-586. It consumes the same `fmctl.adapter.v1` request as the Rust and
+TypeScript runners and maps all 17 actions to the public `OptoSyncClient` and
+`OptoSyncDatabase` APIs. It is a tool entry point rather than a `lib/` source, so
+it is not exported to package consumers.
+
+Every trace receives an isolated file-backed SQLite database. The adapter closes
+and reopens Drift after queue insertion, ambiguous request or response loss,
+acknowledgement, pull checkpoint changes, reset start, reset crash, and reset
+completion. These reopen boundaries make persistence claims observable instead
+of accidentally relying on one live connection.
+
+The projection checks durable next, pending, confirmed, and allocated mutation
+identities; immutable request retries; response identity and validity; pull
+checkpoint; and reset phase after every model state. Malformed acknowledgements
+execute the production validator and compare canonical before/after SQLite row
+snapshots. Reset-crash actions execute `installSnapshot` with a failing
+replacement callback and require both queue and metadata to remain unchanged.
+ITF integers stay as Dart `BigInt` values until encoded as canonical protocol
+decimal strings.
+
+```bash
+(cd clients/dart && dart pub get)
+(cd clients/dart && dart run tool/formal_itf_replay.dart \
+  ../../.formal-artifacts/opto-sync-*.itf.json)
+```
+
+The hosted gate formats and analyzes this tool, then replays the same 16 traces
+and 41 states per trace used by the other runtimes. A protocol-mode mismatch
+returns the trace path, state index, action, expected value, and observed value
+through the strict adapter response schema.
+
 ## Cross-language implementation checks
 
 Every adapter consumes the same raw ITF corpus and projection vocabulary.
@@ -175,7 +212,7 @@ Every adapter consumes the same raw ITF corpus and projection vocabulary.
 |---|---|---|
 | Rust | `formal/rust-itf-replay` against `ProtocolQueue` | Active |
 | TypeScript | `formal/typescript-itf-replay.mjs` against public `OptoSyncClient` + Dexie | Active |
-| Dart | VM/Drift driver using the same command/state JSON schema | Planned |
+| Dart | `clients/dart/tool/formal_itf_replay.dart` against public `OptoSyncClient` + Drift/SQLite | Active |
 | Go | Generic trace-runner SDK; opto-sync can add a client when one exists | Planned |
 | Gleam | BEAM runner for implemented protocol codec/state transitions | Planned |
 
@@ -219,12 +256,13 @@ The next opto-sync models should cover, in order:
 1. immutable `(clientId, mutationId) -> content` and batch gap/reuse rejection;
 2. pull pagination, filtered global checkpoints, and commit ordering;
 3. HLC monotonicity, LWW/FWW policies, tombstone resurrection, and pending rebase;
-4. IndexedDB/Drift/SQLite transaction and restart boundaries;
-5. multi-client convergence and TypeScript/Dart/Gleam trace replay.
+4. interrupted IndexedDB/Drift/SQLite schema migration, restart, and legacy queue
+   identity adoption;
+5. multi-client convergence plus Go and Gleam trace replay.
 
 `fm.toml` is the active schema-v1 manifest for the incubating Rust orchestrator.
 GitHub Actions builds and tests `fmctl`, runs every Quint phase through it, checks
-its JSON-RPC interface, and replays the same validated ITF corpus through both
+its JSON-RPC interface, and replays the same validated ITF corpus through all three
 active adapters. Extraction into the shared DEN-565/DEN-580 workspace remains a
 separate lifecycle step; this repository keeps the complete gate reproducible
 until that shared release is available.
