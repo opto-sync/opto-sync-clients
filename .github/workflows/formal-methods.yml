@@ -15,9 +15,9 @@ permissions:
 
 jobs:
   opto-sync-protocol:
-    name: fmctl + Quint protocol model and Rust/TypeScript conformance
+    name: fmctl + Quint protocol model and Rust/TypeScript/Dart conformance
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 50
     env:
       NO_COLOR: '1'
       RUST_BACKTRACE: '1'
@@ -44,6 +44,16 @@ jobs:
         with:
           toolchain: '1.88.0'
           components: clippy, rustfmt
+
+      - name: Install pinned Dart SDK
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: '3.12.1'
+
+      - name: Install SQLite runtime for Drift
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libsqlite3-0
 
       - name: Format-check fmctl
         run: cargo fmt --manifest-path tools/fmctl/Cargo.toml -- --check
@@ -153,6 +163,21 @@ jobs:
           set -e
           exit "$status"
 
+      - name: Validate the Dart Drift replay adapter
+        working-directory: clients/dart
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          {
+            dart pub get
+            dart format --output=none --set-exit-if-changed tool/formal_itf_replay.dart tool/formal_itf_replay
+            dart analyze
+          } 2>&1 | tee ../../.formal-artifacts/dart-build.log
+          status=${PIPESTATUS[0]}
+          set -e
+          exit "$status"
+
       - name: Replay generated traces against the Rust protocol queue through fmctl
         shell: bash
         run: |
@@ -180,6 +205,20 @@ jobs:
             --adapter typescript \
             "${traces[@]}" 2>&1 \
             | tee .formal-artifacts/typescript-itf-replay.log
+
+      - name: Replay generated traces against Dart Drift/SQLite state through fmctl
+        shell: bash
+        run: |
+          set -euo pipefail
+          traces=()
+          for trace in .formal-artifacts/opto-sync-*.itf.json; do
+            test -f "$trace"
+            traces+=(--trace "$trace")
+          done
+          tools/fmctl/target/release/fmctl replay \
+            --adapter dart \
+            "${traces[@]}" 2>&1 \
+            | tee .formal-artifacts/dart-itf-replay.log
 
       - name: Upload verifier, trace, lockfile, and normalized fmctl artifacts
         if: always()
