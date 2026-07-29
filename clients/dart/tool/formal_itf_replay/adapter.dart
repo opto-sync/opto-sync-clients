@@ -148,7 +148,7 @@ Future<_Adapter> _applyAction(
     case 'compact':
       break;
 
-    case 'enqueue':
+    case 'enqueue': {
       final expectedId = _stateBigInt(state, 'next_id') - BigInt.one;
       _ensure(
         expectedId > BigInt.zero,
@@ -181,8 +181,9 @@ Future<_Adapter> _applyAction(
       );
       await current.reopen();
       break;
+    }
 
-    case 'send':
+    case 'send': {
       _ensure(
         current.request == null,
         'request already in flight',
@@ -217,9 +218,10 @@ Future<_Adapter> _applyAction(
       }
       current.request = request;
       break;
+    }
 
     case 'apply_new':
-    case 'reject_new':
+    case 'reject_new': {
       _ensure(
         current.response == null,
         'response already present',
@@ -239,8 +241,9 @@ Future<_Adapter> _applyAction(
       );
       current.responseValid = true;
       break;
+    }
 
-    case 'reply_duplicate':
+    case 'reply_duplicate': {
       _ensure(
         current.response == null,
         'response already present',
@@ -274,8 +277,9 @@ Future<_Adapter> _applyAction(
       );
       current.responseValid = true;
       break;
+    }
 
-    case 'inject_mismatched_response':
+    case 'inject_mismatched_response': {
       _ensure(
         current.response == null,
         'response already present',
@@ -318,16 +322,18 @@ Future<_Adapter> _applyAction(
       current.response = response;
       current.responseValid = false;
       break;
+    }
 
     case 'lose_committed_response':
-    case 'lose_uncommitted_request':
+    case 'lose_uncommitted_request': {
       current.request = null;
       current.response = null;
       current.responseValid = false;
       await current.reopen();
       break;
+    }
 
-    case 'discard_malformed_response':
+    case 'discard_malformed_response': {
       _ensure(
         current.response != null && !current.responseValid,
         'discard_malformed_response requires a rejected response',
@@ -338,8 +344,9 @@ Future<_Adapter> _applyAction(
       current.response = null;
       current.responseValid = false;
       break;
+    }
 
-    case 'acknowledge':
+    case 'acknowledge': {
       _ensure(
         current.responseValid,
         'cannot acknowledge an invalid response',
@@ -376,15 +383,17 @@ Future<_Adapter> _applyAction(
       current.responseValid = false;
       await current.reopen();
       break;
+    }
 
-    case 'pull':
+    case 'pull': {
       await current.client.setPullCheckpoint(
         _stateBigInt(state, 'local_checkpoint').toString(),
       );
       await current.reopen();
       break;
+    }
 
-    case 'begin_reset':
+    case 'begin_reset': {
       _ensure(
         !current.replacingSnapshot,
         'snapshot replacement already active',
@@ -394,8 +403,9 @@ Future<_Adapter> _applyAction(
       current.replacingSnapshot = true;
       await current.reopen();
       break;
+    }
 
-    case 'crash_during_reset':
+    case 'crash_during_reset': {
       _ensure(
         current.replacingSnapshot,
         'crash_during_reset without an active replacement',
@@ -447,8 +457,9 @@ Future<_Adapter> _applyAction(
       current.replacingSnapshot = false;
       await current.reopen();
       break;
+    }
 
-    case 'finish_reset':
+    case 'finish_reset': {
       _ensure(
         current.replacingSnapshot,
         'finish_reset without an active replacement',
@@ -481,6 +492,7 @@ Future<_Adapter> _applyAction(
       current.replacingSnapshot = false;
       await current.reopen();
       break;
+    }
 
     default:
       _fail(
