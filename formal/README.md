@@ -206,6 +206,12 @@ A green model checker proves the model and selected bounds, not the entire produ
 The implementation adapter and crash/network tests are what prevent the model from
 becoming an accurate description of code nobody actually runs.
 
+The Rust protocol client also runs Kani over the production predicates for
+batch limits, signed-bigint mutation allocation, and acknowledgement
+watermarks. The pinned `syncer.c` repository owns complementary CBMC proofs for
+its production C reconciliation comparator and Kani proofs for the Rust FFI
+boundary; those are intentionally separate from this queue lifecycle model.
+
 ## Deliberate limits of this first model
 
 This slice uses one client, one logical stream, one-mutation requests, and three

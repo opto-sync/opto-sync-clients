@@ -20,6 +20,21 @@ const fn default_max_queued_payload_bytes() -> usize {
     DEFAULT_MAX_QUEUED_PAYLOAD_BYTES
 }
 
+#[must_use]
+pub const fn valid_push_limit(limit: usize) -> bool {
+    limit >= 1 && limit <= 100
+}
+
+#[must_use]
+pub const fn can_allocate_mutation_id(next_mutation_id: u64) -> bool {
+    next_mutation_id >= 1 && next_mutation_id <= MAX_I64
+}
+
+#[must_use]
+pub const fn watermark_is_valid(watermark: u64, next_mutation_id: u64) -> bool {
+    watermark < next_mutation_id
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProtocolError {
     EmptyClientId,
@@ -411,7 +426,7 @@ impl ProtocolQueue {
         if self.pending().count() >= self.max_pending_mutations {
             return Err(ProtocolError::QueueFull);
         }
-        if self.next_mutation_id > MAX_I64 {
+        if !can_allocate_mutation_id(self.next_mutation_id) {
             return Err(ProtocolError::MutationIdExhausted);
         }
         let id = self.next_mutation_id.to_string();
@@ -445,7 +460,7 @@ impl ProtocolQueue {
     }
 
     pub fn push_request(&self, limit: usize) -> Result<PushRequest, ProtocolError> {
-        if !(1..=100).contains(&limit) {
+        if !valid_push_limit(limit) {
             return Err(ProtocolError::InvalidLimit);
         }
         Ok(PushRequest {
@@ -509,7 +524,7 @@ impl ProtocolQueue {
             return Err(ProtocolError::InvalidAcknowledgement);
         }
         let watermark = parse_decimal(&response.last_mutation_id)?;
-        if watermark >= self.next_mutation_id {
+        if !watermark_is_valid(watermark, self.next_mutation_id) {
             return Err(ProtocolError::WatermarkAhead);
         }
         let mut changed = 0;
@@ -687,6 +702,37 @@ fn parse_decimal(value: &str) -> Result<u64, ProtocolError> {
         return Err(ProtocolError::InvalidDecimal);
     }
     value.parse().map_err(|_| ProtocolError::InvalidDecimal)
+}
+
+#[cfg(kani)]
+mod verification {
+    use super::*;
+
+    #[kani::proof]
+    fn push_limit_matches_protocol_v1_batch_bound() {
+        let limit = kani::any::<usize>();
+        assert_eq!(valid_push_limit(limit), limit >= 1 && limit <= 100);
+    }
+
+    #[kani::proof]
+    fn allocatable_identity_always_has_a_safe_successor() {
+        let next_mutation_id = kani::any::<u64>();
+        if can_allocate_mutation_id(next_mutation_id) {
+            let successor = next_mutation_id.checked_add(1);
+            assert!(successor.is_some());
+            assert!(successor.unwrap() <= MAX_I64 + 1);
+        }
+    }
+
+    #[kani::proof]
+    fn server_watermark_cannot_confirm_unallocated_identity() {
+        let watermark = kani::any::<u64>();
+        let next_mutation_id = kani::any::<u64>();
+        assert_eq!(
+            watermark_is_valid(watermark, next_mutation_id),
+            watermark < next_mutation_id
+        );
+    }
 }
 
 #[cfg(test)]
