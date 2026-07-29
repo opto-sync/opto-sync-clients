@@ -61,6 +61,8 @@ vacuous.
 The canonical entry point is `fmctl`. Local runs require Node.js 22, Java 17 or
 newer, and Rust 1.88.0; the manifest pins the exact Quint package, Rust evaluator
 seed, trace count, and execution limits used by CI.
+`nix develop` supplies that exact Rust version, and implementation adapters
+inherit the pinned shell rather than selecting an ambient rustup toolchain.
 
 ```bash
 cargo build --locked --release --manifest-path tools/fmctl/Cargo.toml
