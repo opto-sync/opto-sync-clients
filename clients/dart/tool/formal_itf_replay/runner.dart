@@ -1,4 +1,4 @@
-part of formal_itf_replay;
+part of '../formal_itf_replay.dart';
 
 final class _TraceSummary {
   const _TraceSummary({required this.states, required this.actions});
@@ -116,7 +116,7 @@ Future<String> _clientVersion() async {
       actual: pubspec,
     );
   }
-  return match!.group(1)!;
+  return match.group(1)!;
 }
 
 Future<Map<String, Object?>> _replayPaths(

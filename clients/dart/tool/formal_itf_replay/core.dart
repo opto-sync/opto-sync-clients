@@ -1,4 +1,4 @@
-part of formal_itf_replay;
+part of '../formal_itf_replay.dart';
 
 final class _FormalReplayError implements Exception {
   const _FormalReplayError(

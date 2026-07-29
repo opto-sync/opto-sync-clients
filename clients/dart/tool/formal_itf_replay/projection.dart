@@ -1,4 +1,4 @@
-part of formal_itf_replay;
+part of '../formal_itf_replay.dart';
 
 Future<void> _assertProjection(
   _Adapter adapter,

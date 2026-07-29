@@ -1,4 +1,4 @@
-part of formal_itf_replay;
+part of '../formal_itf_replay.dart';
 
 final class _PassthroughSyncer implements ISyncer {
   const _PassthroughSyncer();
@@ -80,9 +80,13 @@ Future<Map<String, dynamic>> _responseFromState(
     'mutationId': mutationId,
     'status': status,
     'checkpoint': checkpoint,
-    if (originalStatus != null) 'originalStatus': originalStatus,
-    if (hasAppliedEffect) 'revision': mutationId,
   };
+  if (originalStatus != null) {
+    result['originalStatus'] = originalStatus;
+  }
+  if (hasAppliedEffect) {
+    result['revision'] = mutationId;
+  }
   return <String, dynamic>{
     'protocolVersion': 1,
     'clientId': clientId,
