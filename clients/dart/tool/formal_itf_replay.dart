@@ -7,6 +7,11 @@ import 'package:drift/drift.dart' show OrderingTerm;
 import 'package:drift/native.dart';
 import 'package:opto_sync_client/opto_sync_client.dart';
 
+part 'formal_itf_replay/core.dart';
+part 'formal_itf_replay/adapter.dart';
+part 'formal_itf_replay/projection.dart';
+part 'formal_itf_replay/runner.dart';
+
 const _protocol = 'fmctl.adapter.v1';
 const _actionField = 'mbt::actionTaken';
 const _nondeterministicPicksField = 'mbt::nondetPicks';
@@ -29,11 +34,6 @@ const _requiredActions = <String>[
   'crash_during_reset',
   'finish_reset',
 ];
-
-part 'formal_itf_replay/core.dart';
-part 'formal_itf_replay/adapter.dart';
-part 'formal_itf_replay/projection.dart';
-part 'formal_itf_replay/runner.dart';
 
 Future<void> main(List<String> arguments) async {
   try {
