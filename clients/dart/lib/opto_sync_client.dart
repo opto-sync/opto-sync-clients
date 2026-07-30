@@ -106,25 +106,88 @@ class OptoSyncDatabase extends _$OptoSyncDatabase {
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) => m.createAll(),
     onUpgrade: (m, from, to) async {
-      if (from < 2) {
-        // Create ONLY the new table. Recreating the schema (or bumping the
-        // version without a migration, which makes drift throw and tempts
-        // integrators into deleting the file) would drop `local_mutations`
-        // and silently discard the user's un-synced work — exactly the work
-        // an offline-first queue exists to protect.
-        await m.createTable(meta);
-      }
-      if (from < 3) {
-        await m.addColumn(localMutations, localMutations.clientId);
-        await m.addColumn(localMutations, localMutations.mutationId);
-        await m.addColumn(localMutations, localMutations.operation);
-        await m.addColumn(localMutations, localMutations.baseRevision);
-        await m.addColumn(localMutations, localMutations.resurrect);
-        await m.addColumn(localMutations, localMutations.attempts);
-        await m.addColumn(localMutations, localMutations.lastError);
-      }
+      // Drift does not implicitly make a custom onUpgrade callback atomic.
+      // Keep every DDL and adoption write inside one explicit SQLite
+      // transaction so an interrupted migration cannot expose new columns
+      // with only some legacy rows identified.
+      await transaction(() async {
+        if (from < 2) {
+          // Create ONLY the new table. Recreating the schema (or bumping the
+          // version without a migration, which makes drift throw and tempts
+          // integrators into deleting the file) would drop `local_mutations`
+          // and silently discard the user's un-synced work — exactly the work
+          // an offline-first queue exists to protect.
+          await m.createTable(meta);
+        }
+        if (from < 3) {
+          await m.addColumn(localMutations, localMutations.clientId);
+          await m.addColumn(localMutations, localMutations.mutationId);
+          await m.addColumn(localMutations, localMutations.operation);
+          await m.addColumn(localMutations, localMutations.baseRevision);
+          await m.addColumn(localMutations, localMutations.resurrect);
+          await m.addColumn(localMutations, localMutations.attempts);
+          await m.addColumn(localMutations, localMutations.lastError);
+          await _adoptLegacyProtocolIdentity();
+
+          // Drift normally updates user_version only after onUpgrade returns,
+          // outside this transaction. Persist it here as well so a process
+          // loss after this commit cannot leave v3 columns and identities
+          // labeled as v1/v2, which would replay non-idempotent ALTERs on the
+          // next open. Drift's later write of the same value is harmless.
+          await customStatement('PRAGMA user_version = $to');
+        }
+      });
     },
   );
+
+  /// Adopt v1/v2 pending rows into protocol v1 without changing queue order.
+  ///
+  /// Only pending rows become sendable. Historical synced/failed rows remain
+  /// intact for diagnostics and deliberately keep null protocol identity, so
+  /// they cannot create request-visible sequence gaps or become sendable by
+  /// accident. The enclosing explicit SQLite transaction makes the new
+  /// columns, durable client identity, row identities, and sequence watermark
+  /// commit together or roll back together.
+  Future<void> _adoptLegacyProtocolIdentity() async {
+    final existingIdentity = await customSelect(
+      'SELECT value FROM meta WHERE key = ? LIMIT 1',
+      variables: [Variable.withString(metaDeviceIdKey)],
+    ).getSingleOrNull();
+    final persisted = existingIdentity?.read<String>('value').trim();
+    final clientIdentity = persisted == null || persisted.isEmpty
+        ? randomNodeId()
+        : persisted;
+
+    await customStatement(
+      'INSERT INTO meta ("key", "value") VALUES (?, ?) '
+      'ON CONFLICT("key") DO UPDATE SET "value" = excluded."value"',
+      [metaDeviceIdKey, clientIdentity],
+    );
+
+    final pendingRows = await customSelect(
+      'SELECT id FROM local_mutations '
+      'WHERE sync_status = ? ORDER BY id ASC',
+      variables: [Variable.withInt(SyncStatus.pending)],
+    ).get();
+    for (var index = 0; index < pendingRows.length; index++) {
+      final rowId = pendingRows[index].read<int>('id');
+      await customStatement(
+        'UPDATE local_mutations '
+        'SET client_id = ?, mutation_id = ? '
+        'WHERE id = ? AND sync_status = ?',
+        [clientIdentity, '${index + 1}', rowId, SyncStatus.pending],
+      );
+    }
+
+    // The next post-upgrade write must allocate exactly one past the adopted
+    // pending sequence. Pre-v3 releases never issued protocol mutation ids, so
+    // any unofficial legacy value is replaced by this canonical watermark.
+    await customStatement(
+      'INSERT INTO meta ("key", "value") VALUES (?, ?) '
+      'ON CONFLICT("key") DO UPDATE SET "value" = excluded."value"',
+      [metaMutationSequenceKey, '${pendingRows.length}'],
+    );
+  }
 }
 
 /// Abstract syncer to avoid hard coupling to the FFI layer.

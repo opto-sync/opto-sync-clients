@@ -115,8 +115,17 @@ Durability is tested against a real file-backed database: queued payloads **and*
 status transitions survive closing and reopening the connection.
 
 The schema is at version 3 (v2 added clock metadata; v3 added protocol
-identity). The declared migration adds columns in place, so a database written
-by v1 keeps every queued mutation — a covered test.
+identity). The declared migration adds columns in place and transactionally
+adopts legacy pending rows into one contiguous protocol sequence. It preserves
+an existing v2 device identity or creates one durable identity, leaves legacy
+synced/failed rows as non-sendable diagnostics, and advances `mutation.seq` so
+the next write cannot reuse an adopted ID.
+
+Once v3 identity metadata has committed, downgrading the same database to a
+v1/v2 client is unsupported: older code cannot preserve the protocol ledger
+contract for newly queued work. Roll back the application binary only with a
+pre-upgrade database snapshot; otherwise remain on v3 and repair through the
+documented export/reimport path rather than deleting the offline queue.
 
 `ProtocolSyncLoop` supplies transport-neutral background orchestration:
 pull-before-push/pull-after ordering, immutable batches, exact acknowledgement,

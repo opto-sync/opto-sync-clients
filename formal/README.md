@@ -263,8 +263,9 @@ The next opto-sync models should cover, in order:
 1. immutable `(clientId, mutationId) -> content` and batch gap/reuse rejection;
 2. pull pagination, filtered global checkpoints, and commit ordering;
 3. HLC monotonicity, LWW/FWW policies, tombstone resurrection, and pending rebase;
-4. interrupted IndexedDB/Drift/SQLite schema migration, restart, and legacy queue
-   identity adoption;
+4. additional historical IndexedDB migration fixtures (Drift/SQLite v1/v2
+   identity adoption, interruption, reopen, and rollback are enforced by the
+   Dart production migration tests);
 5. multi-client convergence plus Go and Gleam trace replay.
 
 `fm.toml` is the active schema-v1 manifest for the incubating Rust orchestrator.
