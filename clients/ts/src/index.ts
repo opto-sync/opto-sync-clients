@@ -19,3 +19,8 @@ export * from './client.js';
 export * from './clock.js';
 export * from './protocol.js';
 export * from './sync-loop.js';
+export * from './transport/ws.js';
+export * from './cross-tab.js';
+export * from './register-sw.js';
+export * from './rx/streams.js';
+export * from './rx/write.js';
