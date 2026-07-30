@@ -67,7 +67,6 @@ export {
   hasMergeEngine,
   getMergeEngine,
   resetMergeEngine,
-  engineVersion,
   mergeEngineKind,
 } from './engine.js';
 export type { MergeEngine, MergeEngineKind } from './engine.js';
