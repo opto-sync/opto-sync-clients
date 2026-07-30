@@ -60,6 +60,7 @@ test('remote-confirmed waits for server before touching local state', async () =
     ...state,
   });
   assert.deepEqual(state.calls, ['remote:draft', 'authoritative:draft-server']);
+  assert.equal(result.strategy, SYNC_OPTIMISM.remoteConfirmed);
   assert.equal(result.status, 'confirmed');
 });
 
@@ -72,6 +73,7 @@ test('local-durable returns after queue commit and only hints the network', asyn
     ...state,
   });
   assert.deepEqual(state.calls, ['local:offline', 'hint', 'wake']);
+  assert.equal(result.strategy, SYNC_OPTIMISM.localDurable);
   assert.equal(result.status, 'queued');
   assert.equal(result.localResult, 41);
 });
@@ -90,6 +92,7 @@ test('local-then-remote exposes optimistic state but awaits one protocol cycle',
     'wake',
     'sync',
   ]);
+  assert.equal(result.strategy, SYNC_OPTIMISM.localThenRemote);
   assert.equal(result.status, 'confirmed');
   assert.deepEqual(result.syncResult, { acknowledgedMutations: 1 });
 });
