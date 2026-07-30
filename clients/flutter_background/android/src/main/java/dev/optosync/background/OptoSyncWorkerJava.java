@@ -56,7 +56,7 @@ public final class OptoSyncWorkerJava extends ListenableWorker {
             Context context,
             long callbackHandle,
             long dispatcherHandle,
-            CallbackToFutureAdapter.Completer<Result> future) {
+            CallbackToFutureAdapter.Completer<Result> completer) {
         final Handler main = new Handler(Looper.getMainLooper());
         main.post(() -> {
             final FlutterLoader loader = new FlutterLoader();
