@@ -34,20 +34,38 @@ final class BackgroundSyncRunner<R> {
 
   final BackgroundSyncCycle<R> _syncOnce;
   final Duration budget;
-  Future<R>? _inFlight;
+  Future<R>? _operation;
+  Future<R>? _visibleResult;
 
   Future<R> runOnce() {
-    final running = _inFlight;
-    if (running != null) return running;
-    final next = _syncOnce(budget).timeout(
+    final visible = _visibleResult;
+    if (visible != null) return visible;
+
+    final operation = _syncOnce(budget);
+    final bounded = operation.timeout(
       budget,
       onTimeout: () => throw TimeoutException(
         'opto-sync background cycle exceeded $budget',
         budget,
       ),
     );
-    _inFlight = next.whenComplete(() => _inFlight = null);
-    return _inFlight!;
+    _operation = operation;
+    _visibleResult = bounded;
+
+    // Future.timeout cannot cancel arbitrary Dart work. Keep the timed-out
+    // result installed until the underlying callback actually settles so a
+    // second OS/foreground wake cannot overlap a non-cooperative first cycle.
+    operation.then<void>(
+      (_) => _clearIfCurrent(operation),
+      onError: (_error, _stackTrace) => _clearIfCurrent(operation),
+    );
+    return bounded;
+  }
+
+  void _clearIfCurrent(Future<R> operation) {
+    if (!identical(_operation, operation)) return;
+    _operation = null;
+    _visibleResult = null;
   }
 }
 
@@ -67,19 +85,26 @@ final class BackgroundSyncOutcome<R> {
   final StackTrace? stackTrace;
 }
 
-/// RxDart wake coalescer. `exhaustMap` ensures only one worker cycle owns the
-/// durable queue; later wakes are unnecessary because the cycle reports whether
-/// pending work remains and the OS/foreground loop will schedule another run.
+/// Coalesce wake bursts and serialize durable queue ownership.
+///
+/// `concatMap` preserves one coalesced trailing wake that arrives while a cycle
+/// is running. Dropping it would strand a mutation committed just after the
+/// active cycle inspected its queue. The runner still guarantees single-flight.
 ValueStream<BackgroundSyncOutcome<R>> createBackgroundSyncOutcomes<R>({
   required Iterable<Stream<BackgroundWakeReason>> wakeStreams,
   required BackgroundSyncRunner<R> runner,
+  Duration coalesce = const Duration(milliseconds: 25),
 }) {
   final streams = wakeStreams.toList(growable: false);
   if (streams.isEmpty) {
     throw ArgumentError.value(wakeStreams, 'wakeStreams', 'must not be empty');
   }
+  if (coalesce.isNegative) {
+    throw ArgumentError.value(coalesce, 'coalesce', 'must not be negative');
+  }
   return MergeStream<BackgroundWakeReason>(streams)
-      .exhaustMap(
+      .debounceTime(coalesce)
+      .concatMap(
         (wake) => Stream<BackgroundSyncOutcome<R>>.fromFuture(
           runner.runOnce().then(
                 (result) => BackgroundSyncOutcome<R>(
