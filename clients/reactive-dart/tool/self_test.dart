@@ -159,6 +159,9 @@ Future<void> _reactiveRecordTest() async {
     sessionId: 'session-b',
   );
   sessions.add(AuthenticatedSyncSession(rotated));
+  // RxDart replaces the switchMap inner subscription asynchronously. Yield one
+  // turn so this test cannot drop the first event from the new session source.
+  await Future<void>.delayed(Duration.zero);
   remote.add(
     _event(
       source: SyncSource.http,
