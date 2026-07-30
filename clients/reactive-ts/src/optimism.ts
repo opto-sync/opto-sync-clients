@@ -1,7 +1,6 @@
+import type { SyncOptimism, SyncSession } from './contracts.ts';
 import {
   SYNC_OPTIMISM,
-  SyncOptimism,
-  SyncSession,
   requireAuthenticated,
   storagePartitionKey,
 } from './contracts.ts';
