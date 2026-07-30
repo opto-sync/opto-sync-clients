@@ -22,3 +22,6 @@ getrandom = "0.3"
 # certified by the clean-room matrix. Keep the last graph proven on Linux,
 # macOS, and Windows until the project's declared MSRV is raised deliberately.
 rusqlite = { version = "=0.39.0", features = ["bundled"], optional = true }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }

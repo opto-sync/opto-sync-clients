@@ -358,6 +358,34 @@ fn finalize_plan(
     copy_environment_variable(&mut sanitized_environment, "LANG");
     copy_environment_variable(&mut sanitized_environment, "LC_ALL");
     copy_environment_variable(&mut sanitized_environment, "CI");
+    // Nix compiler wrappers depend on these explicit flags after fmctl clears
+    // the ambient environment. They contain store paths and compiler options,
+    // not credentials, and are required for native Rust adapters on Darwin.
+    for name in [
+        "CC",
+        "CXX",
+        "SDKROOT",
+        "MACOSX_DEPLOYMENT_TARGET",
+        "PKG_CONFIG_PATH",
+        "LIBRARY_PATH",
+        "NIX_CC",
+        "NIX_BINTOOLS",
+        "NIX_APPLE_SDK_VERSION",
+        "NIX_CFLAGS_COMPILE",
+        "NIX_LDFLAGS",
+        "NIX_DONT_SET_RPATH",
+        "NIX_ENFORCE_NO_NATIVE",
+        "NIX_IGNORE_LD_THROUGH_GCC",
+    ] {
+        copy_environment_variable(&mut sanitized_environment, name);
+    }
+    for prefix in [
+        "NIX_CC_WRAPPER_TARGET_",
+        "NIX_BINTOOLS_WRAPPER_TARGET_",
+        "NIX_PKG_CONFIG_WRAPPER_TARGET_",
+    ] {
+        copy_environment_variables_with_prefix(&mut sanitized_environment, prefix);
+    }
     if let Some(rustup_home) = env::var_os("RUSTUP_HOME").or_else(|| {
         env::var_os("HOME").map(|home| PathBuf::from(home).join(".rustup").into_os_string())
     }) {
@@ -425,6 +453,20 @@ fn finalize_plan(
 fn copy_environment_variable(environment: &mut BTreeMap<String, String>, name: &str) {
     if let Some(value) = env::var_os(name) {
         environment.insert(name.to_owned(), value.to_string_lossy().into_owned());
+    }
+}
+
+fn copy_environment_variables_with_prefix(
+    environment: &mut BTreeMap<String, String>,
+    prefix: &str,
+) {
+    for (name, value) in env::vars_os() {
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if name.starts_with(prefix) {
+            environment.insert(name.to_owned(), value.to_string_lossy().into_owned());
+        }
     }
 }
 

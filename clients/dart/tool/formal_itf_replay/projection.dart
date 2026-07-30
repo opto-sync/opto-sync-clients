@@ -5,9 +5,10 @@ Future<void> _assertProjection(
   _DecodedState state,
   String context,
 ) async {
-  final sequenceRow = await (adapter.db.select(adapter.db.meta)
-        ..where((table) => table.key.equals(metaMutationSequenceKey)))
-      .getSingleOrNull();
+  final sequenceRow =
+      await (adapter.db.select(adapter.db.meta)
+            ..where((table) => table.key.equals(metaMutationSequenceKey)))
+          .getSingleOrNull();
   final sequence = sequenceRow?.value ?? '0';
   _ensure(
     RegExp(r'^(?:0|[1-9]\d*)$').hasMatch(sequence),
@@ -24,10 +25,7 @@ Future<void> _assertProjection(
     actual: actualNextId.toString(),
   );
 
-  final expectedCheckpoint = _stateBigInt(
-    state,
-    'local_checkpoint',
-  ).toString();
+  final expectedCheckpoint = _stateBigInt(state, 'local_checkpoint').toString();
   final actualCheckpoint = await adapter.client.pullCheckpoint();
   _ensure(
     actualCheckpoint == expectedCheckpoint,
@@ -37,9 +35,9 @@ Future<void> _assertProjection(
   );
 
   final pendingRows = await adapter.client.pendingMutations();
-  final allRows = await (adapter.db.select(adapter.db.localMutations)
-        ..orderBy([(table) => OrderingTerm.asc(table.id)]))
-      .get();
+  final allRows = await (adapter.db.select(
+    adapter.db.localMutations,
+  )..orderBy([(table) => OrderingTerm.asc(table.id)])).get();
   final actualPending = pendingRows.map((row) {
     _ensure(
       row.mutationId != null,
@@ -121,7 +119,10 @@ Future<void> _assertProjection(
     actual: adapter.response != null,
   );
   if (adapter.response != null) {
-    final results = _array(adapter.response!['results'], 'adapter response results');
+    final results = _array(
+      adapter.response!['results'],
+      'adapter response results',
+    );
     _ensure(
       results.isNotEmpty,
       '$context: adapter response has no mutation result',

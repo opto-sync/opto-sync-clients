@@ -13,6 +13,11 @@ one exact core revision, so a client commit, local checkout, CI run, and Zed art
 all use the same merge engine instead of whichever `syncer.c/main` happens to be
 current.
 
+`nix develop` provides the Rust, Node, Java, and native dependencies used by
+the formal workflow. Quint/TLC plus implementation-trace replay prove the
+protocol lifecycle; Kani proves Rust queue arithmetic, while the pinned
+`syncer.c` submodule owns CBMC and Rust-FFI proofs for reconciliation.
+
 ## Layout
 
 ```text

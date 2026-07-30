@@ -1,11 +1,7 @@
 part of '../formal_itf_replay.dart';
 
 final class _FormalReplayError implements Exception {
-  const _FormalReplayError(
-    this.message, {
-    this.expected,
-    this.actual,
-  });
+  const _FormalReplayError(this.message, {this.expected, this.actual});
 
   final String message;
   final Object? expected;
@@ -50,15 +46,8 @@ final class _TraceReplayError implements Exception {
   }
 }
 
-Never _fail(
-  String message, {
-  Object? expected,
-  Object? actual,
-}) => throw _FormalReplayError(
-  message,
-  expected: expected,
-  actual: actual,
-);
+Never _fail(String message, {Object? expected, Object? actual}) =>
+    throw _FormalReplayError(message, expected: expected, actual: actual);
 
 void _ensure(
   bool condition,
@@ -73,11 +62,7 @@ void _ensure(
 
 Map<String, dynamic> _object(Object? value, String context) {
   if (value is! Map) {
-    _fail(
-      '$context must be a JSON object',
-      expected: 'object',
-      actual: value,
-    );
+    _fail('$context must be a JSON object', expected: 'object', actual: value);
   }
   final result = <String, dynamic>{};
   for (final entry in value.entries) {
@@ -95,11 +80,7 @@ Map<String, dynamic> _object(Object? value, String context) {
 
 List<dynamic> _array(Object? value, String context) {
   if (value is! List) {
-    _fail(
-      '$context must be a JSON array',
-      expected: 'array',
-      actual: value,
-    );
+    _fail('$context must be a JSON array', expected: 'array', actual: value);
   }
   return value;
 }
@@ -160,11 +141,7 @@ _DecodedState _decodeState(Object? rawState) {
     _field(raw, _nondeterministicPicksField),
     'ITF nondeterministic picks',
   );
-  return _DecodedState(
-    raw: raw,
-    action: action,
-    nondeterministicPicks: picks,
-  );
+  return _DecodedState(raw: raw, action: action, nondeterministicPicks: picks);
 }
 
 BigInt _stateBigInt(_DecodedState state, String name) =>
@@ -235,7 +212,9 @@ BigInt _requestMutationId(Map<String, dynamic>? request) {
 
 List<String> _sortedIds(Iterable<String> values) {
   final result = values.toList();
-  result.sort((left, right) => BigInt.parse(left).compareTo(BigInt.parse(right)));
+  result.sort(
+    (left, right) => BigInt.parse(left).compareTo(BigInt.parse(right)),
+  );
   return result;
 }
 

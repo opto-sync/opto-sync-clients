@@ -69,9 +69,7 @@ Future<_TraceSummary> _replay(String tracePath) async {
         throw _TraceReplayError(
           trace: tracePath,
           step: index,
-          action: index < states.length
-              ? _safeAction(states[index])
-              : null,
+          action: index < states.length ? _safeAction(states[index]) : null,
           message: error.message,
           expected: error.expected,
           actual: error.actual,

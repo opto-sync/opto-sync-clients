@@ -16,34 +16,22 @@ permissions:
 jobs:
   opto-sync-protocol:
     name: fmctl + Quint protocol model and Rust/TypeScript/Dart conformance
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 50
     env:
       NO_COLOR: '1'
       RUST_BACKTRACE: '1'
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           submodules: recursive
 
-      - name: Install Node.js
-        uses: actions/setup-node@v4
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
         with:
-          node-version: '22'
-
-      - name: Install Java for TLC and Apalache
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Install pinned Rust toolchain
-        uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0 # 1.88.0
-        with:
-          toolchain: '1.88.0'
-          components: clippy, rustfmt
+          nix_path: nixpkgs=channel:nixos-unstable
 
       - name: Install pinned Dart SDK
         uses: dart-lang/setup-dart@v1
@@ -56,11 +44,13 @@ jobs:
           sudo apt-get install -y --no-install-recommends libsqlite3-0
 
       - name: Format-check fmctl
-        run: cargo fmt --manifest-path tools/fmctl/Cargo.toml -- --check
+        run: >-
+          nix develop --command cargo fmt
+          --manifest-path tools/fmctl/Cargo.toml -- --check
 
       - name: Lint fmctl
         run: |
-          cargo clippy \
+          nix develop --command cargo clippy \
             --locked \
             --manifest-path tools/fmctl/Cargo.toml \
             --all-targets \
@@ -69,7 +59,7 @@ jobs:
 
       - name: Test fmctl
         run: |
-          cargo test \
+          nix develop --command cargo test \
             --locked \
             --manifest-path tools/fmctl/Cargo.toml \
             --all-targets \
@@ -77,7 +67,7 @@ jobs:
 
       - name: Build fmctl
         run: |
-          cargo build \
+          nix develop --command cargo build \
             --locked \
             --release \
             --manifest-path tools/fmctl/Cargo.toml
@@ -85,26 +75,26 @@ jobs:
       - name: Validate the formal-methods manifest
         run: |
           mkdir -p .formal-artifacts/fmctl
-          tools/fmctl/target/release/fmctl --format json validate \
+          nix develop --command tools/fmctl/target/release/fmctl --format json validate \
             | tee .formal-artifacts/fmctl/validate.json
 
       - name: Validate the configured toolchain through fmctl
         run: |
-          tools/fmctl/target/release/fmctl --format json doctor \
+          nix develop --command tools/fmctl/target/release/fmctl --format json doctor \
             | tee .formal-artifacts/fmctl/doctor.json
 
       - name: Typecheck through fmctl
-        run: tools/fmctl/target/release/fmctl check
+        run: nix develop --command tools/fmctl/target/release/fmctl check
 
       - name: Simulate safety and reach failure-recovery witnesses through fmctl
-        run: tools/fmctl/target/release/fmctl simulate
+        run: nix develop --command tools/fmctl/target/release/fmctl simulate
 
       - name: Exhaustively model-check the finite protocol state space through fmctl
-        run: tools/fmctl/target/release/fmctl verify
+        run: nix develop --command tools/fmctl/target/release/fmctl verify
 
       - name: Generate the deterministic model-based testing corpus through fmctl
         run: |
-          tools/fmctl/target/release/fmctl trace \
+          nix develop --command tools/fmctl/target/release/fmctl trace \
             --output '.formal-artifacts/opto-sync-{seq}.itf.json'
 
       - name: Exercise the JSON-RPC server over stdio
@@ -114,9 +104,9 @@ jobs:
             '{"jsonrpc":"2.0","id":1,"method":"fm.capabilities"}' \
             '{"jsonrpc":"2.0","id":2,"method":"fm.plan","params":{"operation":"verify"}}' \
             '{"jsonrpc":"2.0","id":3,"method":"fm.shutdown"}' \
-            | tools/fmctl/target/release/fmctl serve \
+            | nix develop --command tools/fmctl/target/release/fmctl serve \
             | tee .formal-artifacts/fmctl/rpc.jsonl
-          python3 - <<'PY'
+          nix develop --command python3 - <<'PY'
           import json
           from pathlib import Path
 
@@ -135,15 +125,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo fmt \
+          nix develop --command cargo fmt \
             --manifest-path formal/rust-itf-replay/Cargo.toml \
             -- --check
-          cargo clippy \
+          nix develop --command cargo clippy \
             --locked \
             --manifest-path formal/rust-itf-replay/Cargo.toml \
             --all-targets \
             -- -D warnings
-          cargo test \
+          nix develop --command cargo test \
             --locked \
             --manifest-path formal/rust-itf-replay/Cargo.toml \
             --all-targets
@@ -155,9 +145,9 @@ jobs:
           set +e
           set -o pipefail
           {
-            npm ci
-            npm run build
-            node --check ../../formal/typescript-itf-replay.mjs
+            nix develop ../.. --command npm ci
+            nix develop ../.. --command npm run build
+            nix develop ../.. --command node --check ../../formal/typescript-itf-replay.mjs
           } 2>&1 | tee ../../.formal-artifacts/typescript-build.log
           status=${PIPESTATUS[0]}
           set -e
@@ -187,7 +177,7 @@ jobs:
             test -f "$trace"
             traces+=(--trace "$trace")
           done
-          tools/fmctl/target/release/fmctl replay \
+          nix develop --command tools/fmctl/target/release/fmctl replay \
             --adapter rust \
             "${traces[@]}" 2>&1 \
             | tee .formal-artifacts/rust-itf-replay.log
@@ -201,7 +191,7 @@ jobs:
             test -f "$trace"
             traces+=(--trace "$trace")
           done
-          tools/fmctl/target/release/fmctl replay \
+          nix develop --command tools/fmctl/target/release/fmctl replay \
             --adapter typescript \
             "${traces[@]}" 2>&1 \
             | tee .formal-artifacts/typescript-itf-replay.log
@@ -222,7 +212,7 @@ jobs:
 
       - name: Upload verifier, trace, lockfile, and normalized fmctl artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: opto-sync-formal-methods
           path: |
@@ -232,3 +222,22 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 14
+
+  rust-kani:
+    name: Kani Rust protocol arithmetic proofs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout clients and pinned C core
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - name: Install pinned Kani verifier
+        run: |
+          cargo install --locked kani-verifier --version 0.67.0
+          cargo kani setup
+      - name: Prove queue allocation, batch, and watermark bounds
+        working-directory: clients/rust
+        run: cargo kani --no-default-features

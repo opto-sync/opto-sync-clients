@@ -68,9 +68,6 @@ strategy = "itf-json-driver"
 target = "formal/rust-itf-replay"
 working_directory = "."
 command = [
-  "rustup",
-  "run",
-  "1.88.0",
   "cargo",
   "run",
   "--quiet",

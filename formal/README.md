@@ -61,7 +61,8 @@ vacuous.
 The canonical entry point is `fmctl`. Local runs require Node.js 22, Java 17 or
 newer, Rust 1.88.0, and Dart 3.12.1 for the Dart adapter; the manifest pins the
 exact Quint package, Rust evaluator seed, trace count, and execution limits used
-by CI.
+by CI. `nix develop` supplies the exact Rust version, and implementation adapters
+inherit the pinned shell rather than selecting an ambient rustup toolchain.
 
 ```bash
 cargo build --locked --release --manifest-path tools/fmctl/Cargo.toml
@@ -242,6 +243,12 @@ No single tool should be stretched beyond its strengths:
 A green model checker proves the model and selected bounds, not the entire product.
 The implementation adapter and crash/network tests are what prevent the model from
 becoming an accurate description of code nobody actually runs.
+
+The Rust protocol client also runs Kani over the production predicates for
+batch limits, signed-bigint mutation allocation, and acknowledgement
+watermarks. The pinned `syncer.c` repository owns complementary CBMC proofs for
+its production C reconciliation comparator and Kani proofs for the Rust FFI
+boundary; those are intentionally separate from this queue lifecycle model.
 
 ## Deliberate limits of this first model
 
