@@ -3,6 +3,7 @@
 // composition root. It intentionally lives outside lib/ so the pure-Dart
 // package remains analyzable without a Flutter SDK.
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:opto_sync_reactive/opto_sync_reactive.dart';
 
 const _channelName = 'opto-sync/background';
