@@ -79,19 +79,19 @@ public final class OptoSyncWorkerJava extends ListenableWorker {
                         new MethodChannel.Result() {
                             @Override
                             public void success(Object value) {
-                                future.set(Boolean.TRUE.equals(value)
+                                finish(completer, Boolean.TRUE.equals(value)
                                         ? Result.success()
                                         : Result.retry());
                             }
 
                             @Override
                             public void error(@NonNull String code, String message, Object details) {
-                                future.set(Result.retry());
+                                finish(completer, Result.retry());
                             }
 
                             @Override
                             public void notImplemented() {
-                                future.set(Result.retry());
+                                finish(completer, Result.retry());
                             }
                         });
             });
@@ -99,19 +99,21 @@ public final class OptoSyncWorkerJava extends ListenableWorker {
             final FlutterCallbackInformation dispatcher =
                     FlutterCallbackInformation.lookupCallbackInformation(dispatcherHandle);
             if (dispatcher == null) {
-                future.set(Result.failure());
+                finish(completer, Result.failure());
                 return;
             }
             engine.getDartExecutor().executeDartCallback(new DartExecutor.DartCallback(
                     context.getAssets(), loader.findAppBundlePath(), dispatcher));
 
-            main.postDelayed(() -> {
-                if (!future.isDone()) future.set(Result.retry());
-            }, DRAIN_TIMEOUT_MILLIS);
+            // Completer.set is idempotent: a late timeout after success is a no-op.
+            main.postDelayed(() -> finish(completer, Result.retry()), DRAIN_TIMEOUT_MILLIS);
         });
+    }
 
-        future.addListener(this::tearDown, main::post);
-        return future;
+    /** Completes the work exactly once and destroys the engine (main thread). */
+    private void finish(CallbackToFutureAdapter.Completer<Result> completer, Result result) {
+        completer.set(result);
+        tearDown();
     }
 
     @Override
