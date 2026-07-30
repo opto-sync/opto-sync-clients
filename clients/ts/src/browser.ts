@@ -46,6 +46,7 @@ export * as transports from './transport/ws.js';
 export * as crossTab from './cross-tab.js';
 export * as backgroundSync from './register-sw.js';
 export * as rx from './rx/index.js';
+export * as schema from './schema/ingest.js';
 
 /* Curated top-level names — one explicit re-export each, never `export *`. */
 export {
