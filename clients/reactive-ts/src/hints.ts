@@ -3,7 +3,7 @@ import {
   Subject,
   auditTime,
   catchError,
-  exhaustMap,
+  concatMap,
   from,
   map,
   merge,
@@ -40,11 +40,10 @@ export async function runWithBrowserSyncLock<T>(
   name: string,
   work: () => Promise<T>,
 ): Promise<T | null> {
-  const manager = (
+  const manager =
     typeof navigator === 'undefined'
       ? undefined
-      : (navigator as unknown as { locks?: LockManagerLike }).locks
-  );
+      : (navigator as unknown as { locks?: LockManagerLike }).locks;
   if (!manager) return work();
   return manager.request(
     name,
@@ -55,8 +54,10 @@ export async function runWithBrowserSyncLock<T>(
 
 /**
  * Coalesce noisy WebSocket/Supabase/BroadcastChannel hints and serialize cycles.
- * `exhaustMap` intentionally ignores another wake while the current cycle owns
- * the queue; the loop itself observes remaining work before it returns.
+ *
+ * `concatMap` is deliberate: hints arriving while a cycle runs become at most
+ * one coalesced trailing cycle instead of being lost. This closes the race where
+ * a mutation commits just after the active cycle inspected its durable queue.
  */
 export function createSyncWakePipeline<R>(
   options: SyncWakePipelineOptions<R>,
@@ -72,7 +73,7 @@ export function createSyncWakePipeline<R>(
 
   return merge(...options.hints).pipe(
     auditTime(coalesceMs),
-    exhaustMap((trigger) =>
+    concatMap((trigger) =>
       from(runWithBrowserSyncLock(lockName, options.syncNow)).pipe(
         map((result) => ({
           ok: true,
@@ -89,7 +90,10 @@ export function createSyncWakePipeline<R>(
 export interface BroadcastChannelLike {
   postMessage(value: unknown): void;
   close(): void;
-  addEventListener(type: 'message', listener: (event: { data: unknown }) => void): void;
+  addEventListener(
+    type: 'message',
+    listener: (event: { data: unknown }) => void,
+  ): void;
   removeEventListener(
     type: 'message',
     listener: (event: { data: unknown }) => void,
@@ -102,14 +106,43 @@ export interface BroadcastHintBus {
   close(): void;
 }
 
-function isHint(value: unknown): value is SyncHint {
-  if (!value || typeof value !== 'object') return false;
-  const hint = value as Partial<SyncHint>;
-  return (
-    typeof hint.reason === 'string' &&
-    typeof hint.source === 'string' &&
-    typeof hint.sessionPartition === 'string'
-  );
+const WAKE_REASONS = new Set<SyncHint['reason']>([
+  'local-mutation',
+  'remote-change',
+  'connectivity',
+  'background-wake',
+  'manual',
+]);
+
+function boundedString(value: unknown, max: number): string | undefined {
+  return typeof value === 'string' && value.length > 0
+    ? value.slice(0, max)
+    : undefined;
+}
+
+/** Strip unexpected structured-clone fields and make the bus the source. */
+function sanitizeBroadcastHint(value: unknown): SyncHint | null {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Partial<SyncHint>;
+  const reason = WAKE_REASONS.has(raw.reason as SyncHint['reason'])
+    ? (raw.reason as SyncHint['reason'])
+    : undefined;
+  const sessionPartition = boundedString(raw.sessionPartition, 512);
+  if (!reason || !sessionPartition) return null;
+  return {
+    reason,
+    source: 'broadcast',
+    sessionPartition,
+    ...(boundedString(raw.table, 256)
+      ? { table: boundedString(raw.table, 256) }
+      : {}),
+    ...(boundedString(raw.recordId, 512)
+      ? { recordId: boundedString(raw.recordId, 512) }
+      : {}),
+    ...(boundedString(raw.checkpoint, 512)
+      ? { checkpoint: boundedString(raw.checkpoint, 512) }
+      : {}),
+  };
 }
 
 /** Broadcast durable queue wakes across tabs/windows without broadcasting data. */
@@ -118,18 +151,26 @@ export function createBroadcastHintBus(
   factory: (name: string) => BroadcastChannelLike = (channelName) =>
     new BroadcastChannel(channelName) as unknown as BroadcastChannelLike,
 ): BroadcastHintBus {
+  if (!name || name.length > 256) {
+    throw new RangeError('BroadcastChannel name must be 1 through 256 characters');
+  }
   const channel = factory(name);
   const subject = new Subject<SyncHint>();
   const listener = (event: { data: unknown }) => {
-    if (isHint(event.data)) subject.next(event.data);
+    const hint = sanitizeBroadcastHint(event.data);
+    if (hint) subject.next(hint);
   };
   channel.addEventListener('message', listener);
   return {
     hints$: subject.asObservable(),
     publish(hint) {
-      channel.postMessage(hint);
+      const sanitized = sanitizeBroadcastHint(hint);
+      if (!sanitized) {
+        throw new TypeError('invalid opto-sync BroadcastChannel hint');
+      }
+      channel.postMessage(sanitized);
       // BroadcastChannel never loops a message back to its sending object.
-      subject.next({ ...hint, source: 'broadcast' });
+      subject.next(sanitized);
     },
     close() {
       channel.removeEventListener('message', listener);
