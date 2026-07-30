@@ -111,8 +111,22 @@ issue = "DEN-583"
 
 [adapters.dart]
 strategy = "itf-json-driver"
-target = "clients/dart"
-status = "planned"
+target = "clients/dart/tool/formal_itf_replay.dart"
+working_directory = "clients/dart"
+command = ["dart", "run", "tool/formal_itf_replay.dart"]
+implementation = "clients/dart OptoSyncClient + Drift + file-backed SQLite"
+observable_state = [
+  "nextMutationId",
+  "pendingMutationIds",
+  "confirmedMutationIds",
+  "allocatedMutationIds",
+  "inFlightRequest",
+  "response",
+  "checkpoint",
+  "snapshotReplacementPhase",
+]
+status = "active"
+issue = "DEN-586"
 
 [adapters.go]
 strategy = "itf-json-driver"
