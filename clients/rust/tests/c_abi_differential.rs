@@ -103,13 +103,31 @@ fn assert_parity(
 fn rust_wrapper_is_byte_identical_to_direct_c_for_shared_edge_corpus() {
     let corpus = [
         (r#"{}"#, r#"{}"#),
-        (r#"{"a":1,"nested":{"left":true}}"#, r#"{"b":2,"nested":{"right":true}}"#),
-        (r#"{"updatedAt":"9","value":"old"}"#, r#"{"updatedAt":"10","value":"new"}"#),
-        (r#"{"createdAt":1,"value":"first"}"#, r#"{"createdAt":2,"value":"second"}"#),
-        (r#"{"items":[{"id":1,"value":"a"},{"id":2,"keep":true}]}"#, r#"{"items":[{"id":"2","value":"b"},{"id":3,"value":"c"}]}"#),
-        (r#"{"meta":{"updatedAt":"999999999999999999"},"emoji":"🦀"}"#, r#"{"meta":{"updatedAt":"1000000000000000000"},"emoji":"🚀"}"#),
+        (
+            r#"{"a":1,"nested":{"left":true}}"#,
+            r#"{"b":2,"nested":{"right":true}}"#,
+        ),
+        (
+            r#"{"updatedAt":"9","value":"old"}"#,
+            r#"{"updatedAt":"10","value":"new"}"#,
+        ),
+        (
+            r#"{"createdAt":1,"value":"first"}"#,
+            r#"{"createdAt":2,"value":"second"}"#,
+        ),
+        (
+            r#"{"items":[{"id":1,"value":"a"},{"id":2,"keep":true}]}"#,
+            r#"{"items":[{"id":"2","value":"b"},{"id":3,"value":"c"}]}"#,
+        ),
+        (
+            r#"{"meta":{"updatedAt":"999999999999999999"},"emoji":"🦀"}"#,
+            r#"{"meta":{"updatedAt":"1000000000000000000"},"emoji":"🚀"}"#,
+        ),
         (r#"{"items":[1,2,2,3]}"#, r#"{"items":[2,3,4]}"#),
-        (r#"{"rows":[{"uuid":"u-1","id":1,"left":true}]}"#, r#"{"rows":[{"uuid":"u-1","id":999,"right":true}]}"#),
+        (
+            r#"{"rows":[{"uuid":"u-1","id":1,"left":true}]}"#,
+            r#"{"rows":[{"uuid":"u-1","id":999,"right":true}]}"#,
+        ),
     ];
     let strategies = [
         ArrayMergeStrategy::Replace,
