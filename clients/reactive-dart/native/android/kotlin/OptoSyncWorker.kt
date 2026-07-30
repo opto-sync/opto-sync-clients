@@ -11,10 +11,15 @@ import androidx.work.WorkerParameters
 import io.flutter.FlutterInjector
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.dart.DartExecutor
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 
 /**
@@ -29,6 +34,8 @@ class OptoSyncWorker(
     override suspend fun doWork(): Result = try {
         val ok = withTimeout(BUDGET_MILLIS) { runFlutterCycle() }
         if (ok) Result.success() else retryOrFail()
+    } catch (cancelled: CancellationException) {
+        throw cancelled
     } catch (_: Throwable) {
         retryOrFail()
     }
@@ -37,44 +44,66 @@ class OptoSyncWorker(
         if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.failure()
 
     private suspend fun runFlutterCycle(): Boolean =
-        suspendCancellableCoroutine { continuation ->
-            val loader = FlutterInjector.instance().flutterLoader()
-            loader.startInitialization(applicationContext)
-            loader.ensureInitializationComplete(applicationContext, null)
-            val engine = FlutterEngine(applicationContext)
-            val entrypoint = DartExecutor.DartEntrypoint(
-                loader.findAppBundlePath(),
-                "optoSyncBackgroundMain",
-            )
-            engine.dartExecutor.executeDartEntrypoint(entrypoint)
-            val channel = MethodChannel(
-                engine.dartExecutor.binaryMessenger,
-                CHANNEL_NAME,
-            )
-            continuation.invokeOnCancellation {
-                channel.invokeMethod("cancel", null)
-                engine.destroy()
+        withContext(Dispatchers.Main.immediate) {
+            suspendCancellableCoroutine { continuation ->
+                val loader = FlutterInjector.instance().flutterLoader()
+                loader.startInitialization(applicationContext)
+                loader.ensureInitializationComplete(applicationContext, null)
+                val engine = FlutterEngine(applicationContext)
+                val channel = MethodChannel(
+                    engine.dartExecutor.binaryMessenger,
+                    CHANNEL_NAME,
+                )
+                val finished = AtomicBoolean(false)
+                val started = AtomicBoolean(false)
+
+                fun finish(success: Boolean) {
+                    if (!finished.compareAndSet(false, true)) return
+                    channel.setMethodCallHandler(null)
+                    engine.destroy()
+                    if (continuation.isActive) continuation.resume(success)
+                }
+
+                fun startCycleAfterReady() {
+                    if (!started.compareAndSet(false, true) || finished.get()) return
+                    channel.invokeMethod(
+                        "runOnce",
+                        mapOf("budgetMilliseconds" to BUDGET_MILLIS),
+                        object : MethodChannel.Result {
+                            override fun success(result: Any?) = finish(true)
+
+                            override fun error(
+                                code: String,
+                                message: String?,
+                                details: Any?,
+                            ) = finish(false)
+
+                            override fun notImplemented() = finish(false)
+                        },
+                    )
+                }
+
+                channel.setMethodCallHandler { call: MethodCall, result: MethodChannel.Result ->
+                    if (call.method != "ready") {
+                        result.notImplemented()
+                    } else {
+                        result.success(null)
+                        startCycleAfterReady()
+                    }
+                }
+                continuation.invokeOnCancellation {
+                    if (!finished.compareAndSet(false, true)) return@invokeOnCancellation
+                    channel.invokeMethod("cancel", null)
+                    channel.setMethodCallHandler(null)
+                    engine.destroy()
+                }
+
+                val entrypoint = DartExecutor.DartEntrypoint(
+                    loader.findAppBundlePath(),
+                    "optoSyncBackgroundMain",
+                )
+                engine.dartExecutor.executeDartEntrypoint(entrypoint)
             }
-            channel.invokeMethod(
-                "runOnce",
-                mapOf("budgetMilliseconds" to BUDGET_MILLIS),
-                object : MethodChannel.Result {
-                    override fun success(result: Any?) {
-                        engine.destroy()
-                        if (continuation.isActive) continuation.resume(true)
-                    }
-
-                    override fun error(code: String, message: String?, details: Any?) {
-                        engine.destroy()
-                        if (continuation.isActive) continuation.resume(false)
-                    }
-
-                    override fun notImplemented() {
-                        engine.destroy()
-                        if (continuation.isActive) continuation.resume(false)
-                    }
-                },
-            )
         }
 
     companion object {
