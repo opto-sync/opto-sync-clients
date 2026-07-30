@@ -79,7 +79,7 @@ void main() {
     client = OptoSyncClient(
       db: db,
       syncer: syncer,
-      overlaySyncer: syncer.overlay(),
+      overlaySyncer: syncer.overlay(libraryPath: locateCoreLibrary()),
     );
   });
 
