@@ -82,12 +82,12 @@ ValueStream<BackgroundSyncOutcome<R>> createBackgroundSyncOutcomes<R>({
       .exhaustMap(
         (wake) => Stream<BackgroundSyncOutcome<R>>.fromFuture(
           runner.runOnce().then(
-            (result) => BackgroundSyncOutcome<R>(
-              wake: wake,
-              ok: true,
-              result: result,
-            ),
-          ),
+                (result) => BackgroundSyncOutcome<R>(
+                  wake: wake,
+                  ok: true,
+                  result: result,
+                ),
+              ),
         ).onErrorReturnWith(
           (error, stackTrace) => BackgroundSyncOutcome<R>(
             wake: wake,
