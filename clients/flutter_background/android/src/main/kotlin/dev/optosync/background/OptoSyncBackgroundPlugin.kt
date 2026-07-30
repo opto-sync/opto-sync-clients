@@ -55,13 +55,15 @@ class OptoSyncBackgroundPlugin : FlutterPlugin, MethodChannel.MethodCallHandler 
         when (call.method) {
             "initialize" -> {
                 val handle = call.argument<Number>("callbackHandle")?.toLong()
-                if (handle == null || handle == 0L) {
-                    result.error("BAD_ARGS", "callbackHandle is required", null)
+                val dispatcher = call.argument<Number>("dispatcherHandle")?.toLong()
+                if (handle == null || handle == 0L || dispatcher == null || dispatcher == 0L) {
+                    result.error("BAD_ARGS", "callbackHandle and dispatcherHandle are required", null)
                     return
                 }
                 context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                     .edit()
                     .putLong(KEY_CALLBACK_HANDLE, handle)
+                    .putLong(KEY_DISPATCHER_HANDLE, dispatcher)
                     .apply()
                 result.success(null)
             }
