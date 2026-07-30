@@ -49,10 +49,10 @@ class _FakeLoop implements rx.SyncKicker {
     cycles++;
     if (fail) throw const SyncTransportException('sync failed');
     if (acknowledge) {
-      final pending = await client.pendingMutations(limit: 1000);
-      for (final row in pending) {
-        await client.confirmSyncedUpTo(row.mutationId!, clientId: row.clientId);
-      }
+      // Pretend the server accepted everything queued so far.
+      await client.db
+          .update(client.db.localMutations)
+          .write(const LocalMutationsCompanion(syncStatus: Value(SyncStatus.synced)));
     }
     return const ProtocolSyncCycleResult(
       pushedMutations: 0,
