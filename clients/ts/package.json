@@ -36,6 +36,12 @@
       "require": "./dist/reconcile.js",
       "default": "./dist/reconcile.js"
     },
+    "./service-worker": {
+      "types": "./dist/service-worker.d.ts",
+      "import": "./dist/esm/service-worker.js",
+      "require": "./dist/service-worker.js",
+      "default": "./dist/esm/service-worker.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
