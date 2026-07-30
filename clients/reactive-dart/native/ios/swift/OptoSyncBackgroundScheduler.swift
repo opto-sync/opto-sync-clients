@@ -51,6 +51,10 @@ public final class OptoSyncBackgroundScheduler {
 
   private func handle(_ task: BGProcessingTask) {
     let engine = engineFactory()
+    let channel = FlutterMethodChannel(
+      name: Self.methodChannelName,
+      binaryMessenger: engine.binaryMessenger
+    )
     var completed = false
     let complete: (Bool) -> Void = { success in
       guard !completed else { return }
@@ -60,26 +64,14 @@ public final class OptoSyncBackgroundScheduler {
     }
 
     task.expirationHandler = {
-      guard engine.dartExecutor.isExecutingDart else {
-        complete(false)
-        return
-      }
-      FlutterMethodChannel(
-        name: Self.methodChannelName,
-        binaryMessenger: engine.binaryMessenger
-      ).invokeMethod("cancel", arguments: nil)
+      channel.invokeMethod("cancel", arguments: nil)
       complete(false)
     }
 
-    let entrypoint = "optoSyncBackgroundMain"
-    guard engine.run(withEntrypoint: entrypoint) else {
+    guard engine.run(withEntrypoint: "optoSyncBackgroundMain") else {
       complete(false)
       return
     }
-    let channel = FlutterMethodChannel(
-      name: Self.methodChannelName,
-      binaryMessenger: engine.binaryMessenger
-    )
     channel.invokeMethod(
       "runOnce",
       arguments: ["budgetMilliseconds": budgetMilliseconds]
