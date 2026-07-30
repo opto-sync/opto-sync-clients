@@ -29,11 +29,13 @@ class OptoSyncBackgroundPlugin : FlutterPlugin, MethodChannel.MethodCallHandler 
         const val KEY_CALLBACK_HANDLE = "callbackHandle"
         const val KEY_DISPATCHER_HANDLE = "dispatcherHandle"
 
-        internal fun storedCallbackHandle(context: Context): Long =
+        @JvmStatic
+        fun storedCallbackHandle(context: Context): Long =
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getLong(KEY_CALLBACK_HANDLE, 0L)
 
-        internal fun storedDispatcherHandle(context: Context): Long =
+        @JvmStatic
+        fun storedDispatcherHandle(context: Context): Long =
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getLong(KEY_DISPATCHER_HANDLE, 0L)
     }
