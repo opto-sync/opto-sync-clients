@@ -38,16 +38,26 @@ let requestSequence = 0;
  * reliably own a permanent raw socket while suspended.
  */
 export class TcpJsonLineProtocolTransport implements ProtocolTransport {
+  private readonly options: TcpJsonLineProtocolOptions;
   private readonly timeoutMs: number;
   private readonly connect: typeof createConnection;
 
-  constructor(private readonly options: TcpJsonLineProtocolOptions) {
+  constructor(options: TcpJsonLineProtocolOptions) {
+    this.options = options;
     if (!options.host) throw new Error('TCP host is required');
-    if (!Number.isInteger(options.port) || options.port < 1 || options.port > 65535) {
+    if (
+      !Number.isInteger(options.port) ||
+      options.port < 1 ||
+      options.port > 65535
+    ) {
       throw new RangeError('TCP port must be from 1 through 65535');
     }
     this.timeoutMs = options.timeoutMs ?? 10_000;
-    if (!Number.isFinite(this.timeoutMs) || this.timeoutMs < 100 || this.timeoutMs > 120_000) {
+    if (
+      !Number.isFinite(this.timeoutMs) ||
+      this.timeoutMs < 100 ||
+      this.timeoutMs > 120_000
+    ) {
       throw new RangeError('TCP timeoutMs must be from 100 through 120000');
     }
     this.connect = options.connect ?? createConnection;
@@ -91,7 +101,10 @@ export class TcpJsonLineProtocolTransport implements ProtocolTransport {
     return new Promise<T>((resolve, reject) => {
       let settled = false;
       let buffer = '';
-      const socket = this.connect({ host: this.options.host, port: this.options.port });
+      const socket = this.connect({
+        host: this.options.host,
+        port: this.options.port,
+      });
       const finish = (error?: unknown, result?: T) => {
         if (settled) return;
         settled = true;
@@ -101,7 +114,8 @@ export class TcpJsonLineProtocolTransport implements ProtocolTransport {
         if (error !== undefined) reject(error);
         else resolve(result as T);
       };
-      const onAbort = () => finish(signal.reason ?? new DOMException('aborted', 'AbortError'));
+      const onAbort = () =>
+        finish(signal.reason ?? new DOMException('aborted', 'AbortError'));
       const timer = setTimeout(
         () => finish(new Error(`opto-sync TCP ${method} timed out`)),
         this.timeoutMs,
@@ -110,7 +124,9 @@ export class TcpJsonLineProtocolTransport implements ProtocolTransport {
       if (signal.aborted) return onAbort();
 
       socket.setEncoding('utf8');
-      socket.on('connect', () => socket.write(`${JSON.stringify(envelope)}\n`));
+      socket.on('connect', () =>
+        socket.write(`${JSON.stringify(envelope)}\n`),
+      );
       socket.on('data', (chunk) => {
         buffer += chunk;
         if (buffer.length > 2 * 1024 * 1024) {
@@ -130,14 +146,20 @@ export class TcpJsonLineProtocolTransport implements ProtocolTransport {
         if (response.id !== id) {
           finish(new Error('opto-sync TCP response id mismatch'));
         } else if (!response.ok) {
-          finish(new Error((response.error ?? 'opto-sync TCP request failed').slice(0, 300)));
+          finish(
+            new Error(
+              (response.error ?? 'opto-sync TCP request failed').slice(0, 300),
+            ),
+          );
         } else {
           finish(undefined, response.result as T);
         }
       });
       socket.on('error', (error) => finish(error));
       socket.on('end', () => {
-        if (!settled) finish(new Error('opto-sync TCP closed before one response line'));
+        if (!settled) {
+          finish(new Error('opto-sync TCP closed before one response line'));
+        }
       });
     });
   }
