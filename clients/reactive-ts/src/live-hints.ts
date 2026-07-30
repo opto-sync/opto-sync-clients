@@ -8,33 +8,52 @@ import {
 } from 'rxjs';
 
 import {
-  SyncHint,
-  SyncSession,
-  SyncSessionIdentity,
   requireAuthenticated,
   transportSessionKey,
 } from './contracts.ts';
+import type {
+  SyncHint,
+  SyncSession,
+  SyncSessionIdentity,
+} from './contracts.ts';
 
 export interface WebSocketLike {
-  addEventListener(type: 'open' | 'message' | 'error' | 'close', listener: (event: any) => void): void;
-  removeEventListener(type: 'open' | 'message' | 'error' | 'close', listener: (event: any) => void): void;
+  addEventListener(
+    type: 'open' | 'message' | 'error' | 'close',
+    listener: (event: any) => void,
+  ): void;
+  removeEventListener(
+    type: 'open' | 'message' | 'error' | 'close',
+    listener: (event: any) => void,
+  ): void;
   close(code?: number, reason?: string): void;
 }
+
+/**
+ * Untrusted live transports may suggest only routing/checkpoint metadata.
+ * Source, reason, and session ownership are always supplied by opto-sync.
+ */
+export type DecodedSyncHint = Partial<
+  Pick<SyncHint, 'table' | 'recordId' | 'checkpoint'>
+>;
 
 export interface WebSocketHintOptions {
   session$: Observable<SyncSession>;
   url(identity: SyncSessionIdentity): string;
   protocols?: string | readonly string[];
-  create?: (url: string, protocols?: string | readonly string[]) => WebSocketLike;
-  decode?: (message: unknown, identity: SyncSessionIdentity) => SyncHint | null;
+  create?: (
+    url: string,
+    protocols?: string | readonly string[],
+  ) => WebSocketLike;
+  decode?: (
+    message: unknown,
+    identity: SyncSessionIdentity,
+  ) => DecodedSyncHint | null;
   retryBaseMs?: number;
   retryMaxMs?: number;
 }
 
-function defaultDecode(
-  message: unknown,
-  identity: SyncSessionIdentity,
-): SyncHint | null {
+function defaultDecode(message: unknown): DecodedSyncHint | null {
   let value: unknown = message;
   if (typeof message === 'string') {
     try {
@@ -46,12 +65,13 @@ function defaultDecode(
   if (!value || typeof value !== 'object') return null;
   const event = value as Record<string, unknown>;
   return {
-    reason: 'remote-change',
-    source: 'websocket',
-    sessionPartition: transportSessionKey(identity),
     ...(typeof event.table === 'string' ? { table: event.table } : {}),
-    ...(typeof event.recordId === 'string' ? { recordId: event.recordId } : {}),
-    ...(typeof event.checkpoint === 'string' ? { checkpoint: event.checkpoint } : {}),
+    ...(typeof event.recordId === 'string'
+      ? { recordId: event.recordId }
+      : {}),
+    ...(typeof event.checkpoint === 'string'
+      ? { checkpoint: event.checkpoint }
+      : {}),
   };
 }
 
@@ -61,29 +81,54 @@ export function createWebSocketHints$(
 ): Observable<SyncHint> {
   const create =
     options.create ??
-    ((url, protocols) => new WebSocket(url, protocols as string | string[] | undefined));
+    ((url, protocols) =>
+      new WebSocket(url, protocols as string | string[] | undefined));
   const decode = options.decode ?? defaultDecode;
   const retryBase = options.retryBaseMs ?? 500;
   const retryMax = options.retryMaxMs ?? 30_000;
+  if (!Number.isFinite(retryBase) || retryBase < 0) {
+    throw new RangeError('retryBaseMs must be a non-negative finite number');
+  }
+  if (!Number.isFinite(retryMax) || retryMax < retryBase) {
+    throw new RangeError('retryMaxMs must be finite and >= retryBaseMs');
+  }
 
   return options.session$.pipe(
     switchMap((session) => {
       const identity = requireAuthenticated(session);
       const url = options.url(identity);
       const parsed = new URL(url);
-      if (parsed.protocol !== 'wss:' && parsed.hostname !== '127.0.0.1' && parsed.hostname !== 'localhost') {
-        throw new Error('opto-sync WebSocket hints require wss outside loopback');
+      if (
+        parsed.protocol !== 'wss:' &&
+        parsed.hostname !== '127.0.0.1' &&
+        parsed.hostname !== 'localhost'
+      ) {
+        throw new Error(
+          'opto-sync WebSocket hints require wss outside loopback',
+        );
       }
+      const sessionPartition = transportSessionKey(identity);
       return new Observable<SyncHint>((subscriber) => {
         const socket = create(url, options.protocols);
         const onMessage = (event: { data?: unknown }) => {
-          const hint = decode(event.data, identity);
-          if (hint) subscriber.next(hint);
+          const decoded = decode(event.data, identity);
+          if (!decoded) return;
+          subscriber.next({
+            ...decoded,
+            reason: 'remote-change',
+            source: 'websocket',
+            sessionPartition,
+          });
         };
-        const onError = () => subscriber.error(new Error('opto-sync WebSocket hint error'));
+        const onError = () =>
+          subscriber.error(new Error('opto-sync WebSocket hint error'));
         const onClose = (event: { code?: number; reason?: string }) => {
           subscriber.error(
-            new Error(`opto-sync WebSocket closed (${event.code ?? 0}): ${event.reason ?? ''}`),
+            new Error(
+              `opto-sync WebSocket closed (${event.code ?? 0}): ${
+                event.reason ?? ''
+              }`,
+            ),
           );
         };
         socket.addEventListener('message', onMessage);
@@ -98,7 +143,12 @@ export function createWebSocketHints$(
       }).pipe(
         retry({
           delay: (_error, count) =>
-            timer(Math.min(retryMax, retryBase * 2 ** Math.min(count - 1, 10))),
+            timer(
+              Math.min(
+                retryMax,
+                retryBase * 2 ** Math.min(count - 1, 10),
+              ),
+            ),
         }),
       );
     }),
@@ -117,7 +167,9 @@ export interface SupabaseRealtimeChannelLike {
     filter: Record<string, unknown>,
     callback: (payload: unknown) => void,
   ): SupabaseRealtimeChannelLike;
-  subscribe(callback?: (status: string, error?: unknown) => void): SupabaseRealtimeChannelLike;
+  subscribe(
+    callback?: (status: string, error?: unknown) => void,
+  ): SupabaseRealtimeChannelLike;
   unsubscribe(): Promise<unknown> | unknown;
 }
 
@@ -126,7 +178,10 @@ export interface SupabaseHintOptions {
   channel(identity: SyncSessionIdentity): SupabaseRealtimeChannelLike;
   event?: 'postgres_changes' | 'broadcast';
   filter: Record<string, unknown>;
-  decode?: (payload: unknown, identity: SyncSessionIdentity) => Partial<SyncHint>;
+  decode?: (
+    payload: unknown,
+    identity: SyncSessionIdentity,
+  ) => DecodedSyncHint;
 }
 
 /**
@@ -139,21 +194,24 @@ export function createSupabaseHints$(
   return options.session$.pipe(
     switchMap((session) => {
       const identity = requireAuthenticated(session);
+      const sessionPartition = transportSessionKey(identity);
       return new Observable<SyncHint>((subscriber) => {
         const channel = options.channel(identity);
         channel
           .on(options.event ?? 'postgres_changes', options.filter, (payload) => {
             const decoded = options.decode?.(payload, identity) ?? {};
             subscriber.next({
+              ...decoded,
               reason: 'remote-change',
               source: 'supabase',
-              sessionPartition: transportSessionKey(identity),
-              ...decoded,
+              sessionPartition,
             });
           })
           .subscribe((status, error) => {
             if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-              subscriber.error(error ?? new Error(`Supabase Realtime ${status}`));
+              subscriber.error(
+                error ?? new Error(`Supabase Realtime ${status}`),
+              );
             }
           });
         return () => void channel.unsubscribe();
