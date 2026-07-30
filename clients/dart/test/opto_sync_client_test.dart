@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:drift/drift.dart' show OrderingTerm, Value;
 import 'package:drift/native.dart';
 import 'package:opto_sync_client/opto_sync_client.dart';
-import 'package:sqlite3/sqlite3.dart' show sqlite3;
+import 'package:sqlite3/sqlite3.dart' show Database, sqlite3;
 import 'package:test/test.dart';
 
 /// Locate the syncer.c core shared library robustly, independent of where the
@@ -37,6 +37,67 @@ String locateCoreLibrary() {
     'Could not locate syncer.c/core/build/<libsyncer> above ${starts.join(' or ')}. '
     'Build the core or set SYNCER_LIB_PATH.',
   );
+}
+
+void _createLegacyQueue(
+  Database raw, {
+  required int version,
+  String? deviceId,
+}) {
+  raw.execute('''
+    CREATE TABLE local_mutations (
+      id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+      table_name TEXT NOT NULL,
+      record_id TEXT NOT NULL,
+      json_payload TEXT NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),
+      sync_status INTEGER NOT NULL DEFAULT 0
+    );
+  ''');
+  raw.execute('''
+    INSERT INTO local_mutations
+      (id, table_name, record_id, json_payload, created_at, sync_status)
+    VALUES
+      (4, 'todos', 'pending-a', '{"title":"queued first"}', 1700000001, 0),
+      (8, 'todos', 'synced-history', '{"title":"already synced"}', 1700000002, 1),
+      (12, 'todos', 'failed-history', '{"title":"failed legacy"}', 1700000003, 2),
+      (20, 'todos', 'pending-b', '{"title":"queued second"}', 1700000004, 0);
+  ''');
+  if (version >= 2) {
+    raw.execute('''
+      CREATE TABLE meta (
+        "key" TEXT NOT NULL PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    ''');
+    if (deviceId != null) {
+      raw.execute('INSERT INTO meta ("key", value) VALUES (?, ?)', [
+        metaDeviceIdKey,
+        deviceId,
+      ]);
+    }
+  }
+  raw.execute('PRAGMA user_version = $version;');
+}
+
+List<List<Object?>> _legacyQueueSnapshot(Database raw) {
+  return raw
+      .select('''
+        SELECT id, table_name, record_id, json_payload, created_at, sync_status
+        FROM local_mutations
+        ORDER BY id ASC
+      ''')
+      .map(
+        (row) => <Object?>[
+          row['id'],
+          row['table_name'],
+          row['record_id'],
+          row['json_payload'],
+          (row['created_at'] as int) * 1000,
+          row['sync_status'],
+        ],
+      )
+      .toList(growable: false);
 }
 
 void main() {
@@ -863,72 +924,201 @@ void main() {
   /* Schema migration                                                       */
   /* ---------------------------------------------------------------------- */
 
-  test('the v1 -> v3 migration preserves queued mutations', () async {
-    // Adding metadata and protocol identity must never cost un-synced work.
-    // Silently dropping the queue is the failure mode this guards.
-    final dir = await Directory.systemTemp.createTemp('opto_sync_migration');
-    final file = File('${dir.path}/queue.sqlite');
-    try {
-      final raw = sqlite3.open(file.path);
-      raw.execute('''
-        CREATE TABLE local_mutations (
-          id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-          table_name TEXT NOT NULL,
-          record_id TEXT NOT NULL,
-          json_payload TEXT NOT NULL,
-          created_at INTEGER NOT NULL DEFAULT (CAST(strftime('%s', 'now') AS INTEGER)),
-          sync_status INTEGER NOT NULL DEFAULT 0
+  test(
+    'v1/v2 -> v3 adopts pending protocol identity without changing legacy rows',
+    () async {
+      await db.close();
+      final cases = <({int version, String? deviceId})>[
+        (version: 1, deviceId: null),
+        (version: 2, deviceId: null),
+        (version: 2, deviceId: 'legacyV2Device'),
+      ];
+
+      for (final fixtureCase in cases) {
+        final dir = await Directory.systemTemp.createTemp(
+          'opto_sync_v${fixtureCase.version}_migration',
         );
+        final file = File('${dir.path}/queue.sqlite');
+        try {
+          final raw = sqlite3.open(file.path);
+          _createLegacyQueue(
+            raw,
+            version: fixtureCase.version,
+            deviceId: fixtureCase.deviceId,
+          );
+          final before = _legacyQueueSnapshot(raw);
+          raw.close();
+
+          var upgradedDb = OptoSyncDatabase(NativeDatabase(file));
+          var upgraded = OptoSyncClient(
+            db: upgradedDb,
+            syncer: syncer,
+            stampUpdatedAt: false,
+          );
+          final rows = await (upgradedDb.select(
+            upgradedDb.localMutations,
+          )..orderBy([(t) => OrderingTerm.asc(t.id)])).get();
+
+          expect(
+            rows
+                .map(
+                  (row) => <Object?>[
+                    row.id,
+                    row.targetTable,
+                    row.recordId,
+                    row.jsonPayload,
+                    row.createdAt.millisecondsSinceEpoch,
+                    row.syncStatus,
+                  ],
+                )
+                .toList(),
+            before,
+            reason:
+                'migration must not delete, reorder, or rewrite legacy rows',
+          );
+
+          final pending = rows
+              .where((row) => row.syncStatus == SyncStatus.pending)
+              .toList();
+          final historical = rows
+              .where((row) => row.syncStatus != SyncStatus.pending)
+              .toList();
+          expect(pending.map((row) => row.id), [4, 20]);
+          expect(pending.map((row) => row.mutationId), ['1', '2']);
+          expect(pending.map((row) => row.clientId).toSet(), hasLength(1));
+          expect(pending.first.clientId, isNotEmpty);
+          expect(
+            historical.every(
+              (row) => row.clientId == null && row.mutationId == null,
+            ),
+            isTrue,
+            reason: 'synced/failed history must not become sendable',
+          );
+          if (fixtureCase.deviceId != null) {
+            expect(pending.first.clientId, fixtureCase.deviceId);
+          }
+
+          final requestBeforeClose = await upgraded.protocolPushRequest();
+          expect(
+            (requestBeforeClose['mutations'] as List)
+                .map((mutation) => (mutation as Map)['mutationId'])
+                .toList(),
+            ['1', '2'],
+          );
+          expect(requestBeforeClose['clientId'], pending.first.clientId);
+          await upgradedDb.close();
+
+          // An ambiguous response loss and process restart must resend the
+          // exact immutable request rather than minting replacement ids.
+          upgradedDb = OptoSyncDatabase(NativeDatabase(file));
+          upgraded = OptoSyncClient(
+            db: upgradedDb,
+            syncer: syncer,
+            stampUpdatedAt: false,
+          );
+          final requestAfterReopen = await upgraded.protocolPushRequest();
+          expect(
+            jsonEncode(requestAfterReopen),
+            jsonEncode(requestBeforeClose),
+          );
+
+          await upgraded.queueMutation('todos', 'after-upgrade', {
+            'title': 'new work',
+          });
+          final newRow = await (upgradedDb.select(
+            upgradedDb.localMutations,
+          )..where((t) => t.recordId.equals('after-upgrade'))).getSingle();
+          expect(newRow.mutationId, '3');
+          final sequence = await (upgradedDb.select(
+            upgradedDb.meta,
+          )..where((t) => t.key.equals(metaMutationSequenceKey))).getSingle();
+          expect(sequence.value, '3');
+          await upgradedDb.close();
+        } finally {
+          await dir.delete(recursive: true);
+        }
+      }
+    },
+  );
+
+  test(
+    'interrupted v2 adoption rolls back schema, rows, and metadata',
+    () async {
+      await db.close();
+      final dir = await Directory.systemTemp.createTemp(
+        'opto_sync_interrupted_migration',
+      );
+      final source = File('${dir.path}/source-v2.sqlite');
+      final interrupted = File('${dir.path}/interrupted-v2.sqlite');
+      try {
+        final sourceDb = sqlite3.open(source.path);
+        _createLegacyQueue(sourceDb, version: 2);
+        final before = _legacyQueueSnapshot(sourceDb);
+        sourceDb.close();
+        await source.copy(interrupted.path);
+
+        final injected = sqlite3.open(interrupted.path);
+        injected.execute('''
+        CREATE TRIGGER fail_protocol_adoption
+        BEFORE UPDATE ON local_mutations
+        WHEN OLD.id = 20
+        BEGIN
+          SELECT RAISE(ABORT, 'injected protocol adoption failure');
+        END;
       ''');
-      raw.execute('''
-        INSERT INTO local_mutations
-          (table_name, record_id, json_payload, sync_status)
-        VALUES
-          ('todos', 'todo-v1', '{"title":"queued before upgrade"}', 0),
-          ('todos', 'todo-v1b', '{"title":"also queued"}', 0);
-      ''');
-      raw.execute('PRAGMA user_version = 1;');
-      expect(
-        raw.select("SELECT name FROM sqlite_master WHERE name='meta'"),
-        isEmpty,
-      );
-      raw.close();
+        injected.close();
 
-      // Reopen at v3 — drift runs both upgrade stages.
-      final upgradedDb = OptoSyncDatabase(NativeDatabase(file));
-      addTearDown(upgradedDb.close);
-      final rows = await upgradedDb.select(upgradedDb.localMutations).get();
+        final failedDb = OptoSyncDatabase(NativeDatabase(interrupted));
+        await expectLater(
+          failedDb.select(failedDb.localMutations).get(),
+          throwsA(anything),
+        );
+        await failedDb.close();
 
-      expect(
-        rows,
-        hasLength(2),
-        reason: 'queued mutations must survive the migration',
-      );
-      expect(
-        rows.map((r) => r.recordId),
-        containsAll(<String>['todo-v1', 'todo-v1b']),
-      );
-      expect(
-        rows.every((r) => r.syncStatus == SyncStatus.pending),
-        isTrue,
-        reason: 'and must still be pending, not silently marked synced',
-      );
-      expect(rows.first.jsonPayload, contains('queued before upgrade'));
+        final afterFailure = sqlite3.open(interrupted.path);
+        expect(
+          afterFailure.select('PRAGMA user_version').single['user_version'],
+          2,
+        );
+        expect(
+          afterFailure
+              .select('PRAGMA table_info(local_mutations)')
+              .map((row) => row['name']),
+          isNot(contains('client_id')),
+          reason: 'added columns must roll back with failed identity adoption',
+        );
+        expect(_legacyQueueSnapshot(afterFailure), before);
+        expect(
+          afterFailure.select(
+            "SELECT value FROM meta WHERE key IN "
+            "('$metaDeviceIdKey', '$metaMutationSequenceKey')",
+          ),
+          isEmpty,
+          reason: 'no partial client identity or sequence may become visible',
+        );
+        afterFailure.execute('DROP TRIGGER fail_protocol_adoption');
+        afterFailure.close();
 
-      // The new table is usable, and the clock works on the upgraded database.
-      final upgraded = OptoSyncClient(db: upgradedDb, syncer: syncer);
-      expect(await upgraded.clientId(), isNotEmpty);
-      await upgraded.queueMutation('todos', 'todo-v2', {
-        'title': 'after upgrade',
-      });
-      final after = await (upgradedDb.select(
-        upgradedDb.localMutations,
-      )..where((t) => t.recordId.equals('todo-v2'))).getSingle();
-      expect(jsonDecode(after.jsonPayload)['updatedAt'], isA<String>());
-    } finally {
-      await dir.delete(recursive: true);
-    }
-  });
+        final recoveredDb = OptoSyncDatabase(NativeDatabase(interrupted));
+        final recovered = OptoSyncClient(
+          db: recoveredDb,
+          syncer: syncer,
+          stampUpdatedAt: false,
+        );
+        final recoveredRequest = await recovered.protocolPushRequest();
+        expect(
+          (recoveredRequest['mutations'] as List)
+              .map((mutation) => (mutation as Map)['mutationId'])
+              .toList(),
+          ['1', '2'],
+        );
+        expect(recoveredRequest['clientId'], isNotEmpty);
+        await recoveredDb.close();
+      } finally {
+        await dir.delete(recursive: true);
+      }
+    },
+  );
 
   test('protocol request, acknowledgement, and checkpoint match v1', () async {
     await client.queueMutation(

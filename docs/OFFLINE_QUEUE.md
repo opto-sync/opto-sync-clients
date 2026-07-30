@@ -110,7 +110,18 @@ original `table_name` SQL column with `.named()`. The generated data class is
 
 The Drift database is at schema version 3. Its v1/v2 migrations add protocol
 columns without rebuilding `local_mutations`, so an upgrade does not discard
-offline work. `OptoSyncClient` exposes `queueMutation`, `queueDelete`,
+offline work. During that same transaction, pending legacy rows receive one
+durable client identity and contiguous decimal mutation IDs in original row
+order; `mutation.seq` advances to the final adopted ID. Synced and failed
+legacy rows retain their payload/status history but no sendable identity.
+Migration interruption rolls back the schema and adoption together.
+
+A v3 database must not be reopened by a v1/v2 binary after new work has been
+queued: those binaries do not understand the protocol sequence and may create
+unidentified rows. Restore a pre-upgrade snapshot for a full binary/database
+rollback, or keep the v3 database and repair/export it with a v3-capable tool.
+
+`OptoSyncClient` exposes `queueMutation`, `queueDelete`,
 `queueMutationAtomic`, `queueDeleteAtomic`,
 `pendingMutations`, `protocolPushRequest`, `acknowledgePush(response, request)`,
 `pullCheckpoint`, and `setPullCheckpoint`. The public `db` remains available
