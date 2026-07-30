@@ -13,8 +13,9 @@ REQUIRED = {
         "@pragma('vm:entry-point')",
         "WidgetsFlutterBinding.ensureInitialized()",
         "MethodChannel(_channelName)",
-        "runOnce",
-        "cancel",
+        "runner.runOnce()",
+        "runner.cancel(",
+        "invokeMethod<void>('ready')",
     ),
     "native/ios/swift/OptoSyncBackgroundScheduler.swift": (
         "BGTaskScheduler.shared.register",
@@ -22,7 +23,9 @@ REQUIRED = {
         "requiresNetworkConnectivity = true",
         "expirationHandler",
         "optoSyncBackgroundMain",
+        "call.method == \"ready\"",
         "runOnce",
+        "NSLock()",
         "setTaskCompleted",
     ),
     "native/ios/objective-c/OptoSyncBackgroundScheduler.h": (
@@ -36,25 +39,35 @@ REQUIRED = {
         "requiresNetworkConnectivity = YES",
         "expirationHandler",
         "runWithEntrypoint:@\"optoSyncBackgroundMain\"",
+        "isEqualToString:@\"ready\"",
+        "@synchronized (task)",
         "setTaskCompletedWithSuccess",
     ),
     "native/android/kotlin/OptoSyncWorker.kt": (
         "CoroutineWorker",
         "withTimeout",
+        "Dispatchers.Main.immediate",
+        "CancellationException",
         "enqueueUniqueWork",
         "ExistingWorkPolicy.KEEP",
         "NetworkType.CONNECTED",
         "optoSyncBackgroundMain",
+        'call.method != "ready"',
+        "AtomicBoolean",
         "runOnce",
         "cancel",
     ),
     "native/android/java/OptoSyncWorker.java": (
         "ListenableWorker",
         "CallbackToFutureAdapter",
+        "Handler(Looper.getMainLooper())",
+        "postDelayed",
         "enqueueUniqueWork",
         "ExistingWorkPolicy.KEEP",
         "NetworkType.CONNECTED",
         "optoSyncBackgroundMain",
+        '"ready".equals(call.method)',
+        "AtomicBoolean",
         "runOnce",
         "onStopped",
         "cancel",
@@ -98,6 +111,8 @@ def main() -> int:
         fail("both Android adapters must distinguish retryable worker failure")
     if "MAX_ATTEMPTS" not in kotlin or "MAX_ATTEMPTS" not in java:
         fail("Android retry loops must be bounded")
+    if "throw cancelled" not in kotlin:
+        fail("Kotlin cancellation must propagate rather than become retryable failure")
 
     swift = (ROOT / "native/ios/swift/OptoSyncBackgroundScheduler.swift").read_text(
         encoding="utf-8"
@@ -110,9 +125,12 @@ def main() -> int:
             fail(f"{language} adapter must declare its power constraint")
         if "destroyContext" not in text:
             fail(f"{language} adapter must tear down the bounded Flutter engine")
+        if "setMethodCallHandler" not in text:
+            fail(f"{language} adapter must wait for the Dart readiness handshake")
 
     print(
-        "mobile background adapters passed: Flutter entrypoint, Swift/Objective-C "
+        "mobile background adapters passed: readiness handshake, cooperative "
+        "cancellation, bounded completion, Flutter entrypoint, Swift/Objective-C "
         "BGTaskScheduler, Kotlin/Java WorkManager"
     )
     return 0
