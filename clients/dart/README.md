@@ -30,6 +30,9 @@ name (`libsyncer.dylib` / `libsyncer.so` / `syncer.dll`) in a given directory.
 ## Use
 
 ```dart
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:drift/native.dart';
 import 'package:opto_sync_client/opto_sync_client.dart';
 
@@ -43,6 +46,16 @@ final client = OptoSyncClient(
 // `updatedAt` is stamped from the client's hybrid logical clock unless you
 // supply one; `createdAt` is never stamped.
 await client.queueMutation('todos', 'todo-1', {'title': 'buy milk'});
+
+// If the app row is in the same SQLite database, commit it with the queue:
+await client.queueMutationAtomic('todos', 'todo-2', {'title': 'atomic'}, (
+  payload,
+) async {
+  await db.customStatement(
+    'INSERT OR REPLACE INTO todos(id, data) VALUES (?, ?)',
+    ['todo-2', jsonEncode(payload)],
+  );
+});
 
 // When pulling server state, let the clock see the timestamps you received so
 // the next local write is ordered after them.
@@ -78,27 +91,69 @@ string.
 
 ## Queue
 
-`OptoSyncDatabase.localMutations` is a Drift table (`targetTable`, `recordId`,
-`jsonPayload`, `createdAt`, `syncStatus`). Query it with Drift directly; this
-client exposes no `pendingMutations()` helper (the TypeScript client does — an
-asymmetry noted in [OFFLINE_QUEUE.md](../../docs/OFFLINE_QUEUE.md)).
+`OptoSyncDatabase.localMutations` is a Drift table containing the target,
+payload, status, stable `clientId`, decimal-string `mutationId`, operation,
+base revision, and resurrection intent. `pendingMutations()`,
+`protocolPushRequest()`, `acknowledgePush(response, request)`, `queueDelete()`,
+and the pull checkpoint helpers implement the transport-neutral protocol v1
+state machine.
+`queueMutationAtomic()` and `queueDeleteAtomic()` run an application callback
+on the same Drift connection and transaction as sequence allocation and queue
+insertion, so a SQLite row and its optimistic intent cannot diverge.
+`installSnapshot()` invokes an application-provided authoritative replacement
+before advancing the snapshot checkpoint and leaves pending optimistic work
+untouched; that callback must be atomic in the application's own store.
+
+The queue defaults to at most 10,000 pending mutations and 255 KiB of UTF-8
+JSON per payload. Configure `maxPendingMutations` and
+`maxQueuedPayloadBytes` on `OptoSyncClient`. Refused writes throw
+`QueueQuotaException` with `QUEUE_FULL` or `PAYLOAD_TOO_LARGE` before consuming
+a mutation ID. `pruneConfirmed(retain: ...)` deletes only oldest acknowledged
+history and never pending work.
 
 Durability is tested against a real file-backed database: queued payloads **and**
 status transitions survive closing and reopening the connection.
 
-The schema is at version 2 (v2 added the `meta` table for clock state). The
-upgrade is a declared drift migration that creates only the new table, so a
-database written by v1 keeps every queued mutation — a covered test.
+The schema is at version 3 (v2 added clock metadata; v3 added protocol
+identity). The declared migration adds columns in place and transactionally
+adopts legacy pending rows into one contiguous protocol sequence. It preserves
+an existing v2 device identity or creates one durable identity, leaves legacy
+synced/failed rows as non-sendable diagnostics, and advances `mutation.seq` so
+the next write cannot reuse an adopted ID.
 
-There is **no built-in background flusher** — `queueMutation` calls an empty
-`_triggerBackgroundSync()` hook. Transport and scheduling are yours; see
-`opto-sync-e2e/test/clients/dart/` for a worked flush loop.
+Once v3 identity metadata has committed, downgrading the same database to a
+v1/v2 client is unsupported: older code cannot preserve the protocol ledger
+contract for newly queued work. Roll back the application binary only with a
+pre-upgrade database snapshot; otherwise remain on v3 and repair through the
+documented export/reimport path rather than deleting the offline queue.
+
+`ProtocolSyncLoop` supplies transport-neutral background orchestration:
+pull-before-push/pull-after ordering, immutable batches, exact acknowledgement,
+retention reset, single-flight execution, bounded paging, cancellation, and
+full-jitter retry. The application still supplies `ProtocolTransport` for URLs,
+authentication, token refresh, and HTTP status mapping:
+
+```dart
+final loop = ProtocolSyncLoop(client, transport, callbacks);
+client.setBackgroundSyncTrigger(loop.hint);
+loop.start();
+```
+
+Platform connectivity and lifecycle events should call `loop.hint()`.
+Default callbacks must apply pull pages idempotently and replace snapshots
+atomically when their store cannot transact with queue metadata.
+
+When authoritative rows share the Drift connection, implement
+`AtomicProtocolSyncCallbacks` and use `commitPullPageAtomic()` /
+`installSnapshotAtomic()`. The loop verifies that each callback persisted the
+checkpoint it was given; missing checkpoint commits fail permanently instead of
+silently replaying a non-idempotent application effect.
 
 ## Tests
 
 ```sh
 dart pub get
-dart test          # needs the core shared library (see Install)
+dart test          # 52 tests; needs the core shared library (see Install)
 ```
 
 ## Docs

@@ -177,6 +177,49 @@ test(
         del.onsuccess = del.onerror = del.onblocked = () => resolve();
       });
 
+      /* ---- application row + queue are one native IDB transaction ---- */
+      const atomicClient = new OptoSyncClient({
+        databaseName: 'opto-browser-atomic',
+        stampUpdatedAt: false,
+      });
+      atomicClient.db.version(4).stores({ authoritativeRecords: '&key' });
+      const authoritativeRecords = atomicClient.db.table('authoritativeRecords');
+      await atomicClient.queueMutationAtomic(
+        'docs',
+        'atomic-1',
+        { value: 1 },
+        [authoritativeRecords],
+        payload => authoritativeRecords.put({ key: 'docs/atomic-1', payload }),
+      );
+      let atomicFailure = '';
+      try {
+        await atomicClient.queueMutationAtomic(
+          'docs',
+          'rollback',
+          { value: 2 },
+          [authoritativeRecords],
+          async payload => {
+            await authoritativeRecords.put({ key: 'docs/rollback', payload });
+            throw new Error('native IndexedDB rollback');
+          },
+        );
+      } catch (error) {
+        atomicFailure = String(error);
+      }
+      const atomicState = {
+        committed: await authoritativeRecords.get('docs/atomic-1'),
+        rolledBack: await authoritativeRecords.get('docs/rollback'),
+        mutationIds: (await atomicClient.protocolPushRequest()).mutations.map(
+          mutation => mutation.mutationId,
+        ),
+        failure: atomicFailure,
+      };
+      atomicClient.db.close();
+      await new Promise((resolve) => {
+        const del = indexedDB.deleteDatabase('opto-browser-atomic');
+        del.onsuccess = del.onerror = del.onblocked = () => resolve();
+      });
+
       return {
         readyBeforeInit,
         threwBeforeInit,
@@ -193,6 +236,7 @@ test(
         rawRecord: rawRecords.find((r) => r.recordId === 'todo-2') ?? null,
         reconciled,
         roundTrip,
+        atomicState,
       };
     }, RECONCILE_SCENARIOS);
 
@@ -234,6 +278,21 @@ test(
     assert.strictEqual(result.rawRecordCount, 2, 'both records readable via the bare IDB API');
     assert.strictEqual(result.rawRecord.tableName, 'todos');
     assert.strictEqual(result.rawRecord.syncStatus, 0);
+    assert.deepStrictEqual(result.atomicState.committed, {
+      key: 'docs/atomic-1',
+      payload: { value: 1 },
+    });
+    assert.strictEqual(
+      result.atomicState.rolledBack,
+      undefined,
+      'failed native IndexedDB callback must roll back its application row',
+    );
+    assert.deepStrictEqual(
+      result.atomicState.mutationIds,
+      ['1'],
+      'failed native IndexedDB callback must not leave a queue row or id gap',
+    );
+    assert.match(result.atomicState.failure, /native IndexedDB rollback/);
 
     /* --- wasm-in-Chromium results are identical to native-in-Node --- */
     const divergences = [];

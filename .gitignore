@@ -4,6 +4,16 @@
 **/target/
 **/.dart_tool/
 **/build/
+**/_build/
+**/deps/
+
+# Formal-methods runtime output
+.formal-artifacts/
+_apalache-out/
+
+# Zed deterministic package output
+.zed/
+.zed-pack/
 
 # OS / IDE
 .DS_Store

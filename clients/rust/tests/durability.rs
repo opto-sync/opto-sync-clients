@@ -44,7 +44,11 @@ impl FileStore {
                 rows.insert(id, (status, payload));
             }
         }
-        Self { path, next_id: max_id + 1, rows }
+        Self {
+            path,
+            next_id: max_id + 1,
+            rows,
+        }
     }
 
     /// Flush synchronously: an fsync-less queue would lose exactly the writes
@@ -108,7 +112,10 @@ impl MutationStore for FileStore {
 /// some sandboxes and would make the test non-deterministic anyway).
 fn temp_queue_path(tag: &str) -> PathBuf {
     let mut p = std::env::temp_dir();
-    p.push(format!("opto_sync_durability_{}_{tag}.tsv", std::process::id()));
+    p.push(format!(
+        "opto_sync_durability_{}_{tag}.tsv",
+        std::process::id()
+    ));
     let _ = fs::remove_file(&p);
     p
 }
@@ -141,7 +148,9 @@ fn queued_mutations_and_statuses_survive_a_reload() {
             pending.iter().all(|m| m.status == MutationStatus::Pending),
             "recovered writes are still pending, not silently marked synced"
         );
-        assert!(pending.iter().any(|m| m.payload.contains("survive a restart")));
+        assert!(pending
+            .iter()
+            .any(|m| m.payload.contains("survive a restart")));
 
         let mut client = OptoSyncClient::new(store);
         assert!(client.store_mut().mark_synced(kept_id));
@@ -152,7 +161,11 @@ fn queued_mutations_and_statuses_survive_a_reload() {
     {
         let store = FileStore::open(&path);
         let pending = store.pending();
-        assert_eq!(pending.len(), 1, "the synced mutation must not come back as pending");
+        assert_eq!(
+            pending.len(),
+            1,
+            "the synced mutation must not come back as pending"
+        );
         assert!(pending[0].payload.contains("also survive"));
     }
 
@@ -175,9 +188,14 @@ fn reconcile_still_works_against_a_recovered_queue() {
     let store = FileStore::open(&path);
     let recovered = store.pending().remove(0).payload;
     let client = OptoSyncClient::new(store);
-    let merged = client.reconcile_incoming(local, &recovered).expect("merge must succeed");
+    let merged = client
+        .reconcile_incoming(local, &recovered)
+        .expect("merge must succeed");
 
-    assert!(merged.contains("local"), "stale replayed write must be rejected: {merged}");
+    assert!(
+        merged.contains("local"),
+        "stale replayed write must be rejected: {merged}"
+    );
     assert!(!merged.contains("stale"));
 
     fs::remove_file(&path).ok();

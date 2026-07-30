@@ -79,6 +79,89 @@ class $LocalMutationsTable extends LocalMutations
     requiredDuringInsert: false,
     defaultValue: const Constant(0),
   );
+  static const VerificationMeta _clientIdMeta = const VerificationMeta(
+    'clientId',
+  );
+  @override
+  late final GeneratedColumn<String> clientId = GeneratedColumn<String>(
+    'client_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _mutationIdMeta = const VerificationMeta(
+    'mutationId',
+  );
+  @override
+  late final GeneratedColumn<String> mutationId = GeneratedColumn<String>(
+    'mutation_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _operationMeta = const VerificationMeta(
+    'operation',
+  );
+  @override
+  late final GeneratedColumn<String> operation = GeneratedColumn<String>(
+    'operation',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('upsert'),
+  );
+  static const VerificationMeta _baseRevisionMeta = const VerificationMeta(
+    'baseRevision',
+  );
+  @override
+  late final GeneratedColumn<String> baseRevision = GeneratedColumn<String>(
+    'base_revision',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _resurrectMeta = const VerificationMeta(
+    'resurrect',
+  );
+  @override
+  late final GeneratedColumn<bool> resurrect = GeneratedColumn<bool>(
+    'resurrect',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("resurrect" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
+  static const VerificationMeta _attemptsMeta = const VerificationMeta(
+    'attempts',
+  );
+  @override
+  late final GeneratedColumn<int> attempts = GeneratedColumn<int>(
+    'attempts',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+  static const VerificationMeta _lastErrorMeta = const VerificationMeta(
+    'lastError',
+  );
+  @override
+  late final GeneratedColumn<String> lastError = GeneratedColumn<String>(
+    'last_error',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     id,
@@ -87,6 +170,13 @@ class $LocalMutationsTable extends LocalMutations
     jsonPayload,
     createdAt,
     syncStatus,
+    clientId,
+    mutationId,
+    operation,
+    baseRevision,
+    resurrect,
+    attempts,
+    lastError,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -145,6 +235,51 @@ class $LocalMutationsTable extends LocalMutations
         syncStatus.isAcceptableOrUnknown(data['sync_status']!, _syncStatusMeta),
       );
     }
+    if (data.containsKey('client_id')) {
+      context.handle(
+        _clientIdMeta,
+        clientId.isAcceptableOrUnknown(data['client_id']!, _clientIdMeta),
+      );
+    }
+    if (data.containsKey('mutation_id')) {
+      context.handle(
+        _mutationIdMeta,
+        mutationId.isAcceptableOrUnknown(data['mutation_id']!, _mutationIdMeta),
+      );
+    }
+    if (data.containsKey('operation')) {
+      context.handle(
+        _operationMeta,
+        operation.isAcceptableOrUnknown(data['operation']!, _operationMeta),
+      );
+    }
+    if (data.containsKey('base_revision')) {
+      context.handle(
+        _baseRevisionMeta,
+        baseRevision.isAcceptableOrUnknown(
+          data['base_revision']!,
+          _baseRevisionMeta,
+        ),
+      );
+    }
+    if (data.containsKey('resurrect')) {
+      context.handle(
+        _resurrectMeta,
+        resurrect.isAcceptableOrUnknown(data['resurrect']!, _resurrectMeta),
+      );
+    }
+    if (data.containsKey('attempts')) {
+      context.handle(
+        _attemptsMeta,
+        attempts.isAcceptableOrUnknown(data['attempts']!, _attemptsMeta),
+      );
+    }
+    if (data.containsKey('last_error')) {
+      context.handle(
+        _lastErrorMeta,
+        lastError.isAcceptableOrUnknown(data['last_error']!, _lastErrorMeta),
+      );
+    }
     return context;
   }
 
@@ -178,6 +313,34 @@ class $LocalMutationsTable extends LocalMutations
         DriftSqlType.int,
         data['${effectivePrefix}sync_status'],
       )!,
+      clientId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}client_id'],
+      ),
+      mutationId: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}mutation_id'],
+      ),
+      operation: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}operation'],
+      )!,
+      baseRevision: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}base_revision'],
+      ),
+      resurrect: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}resurrect'],
+      )!,
+      attempts: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}attempts'],
+      )!,
+      lastError: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}last_error'],
+      ),
     );
   }
 
@@ -196,6 +359,13 @@ class Mutation extends DataClass implements Insertable<Mutation> {
 
   /// 0 = pending, 1 = synced, 2 = failed.
   final int syncStatus;
+  final String? clientId;
+  final String? mutationId;
+  final String operation;
+  final String? baseRevision;
+  final bool resurrect;
+  final int attempts;
+  final String? lastError;
   const Mutation({
     required this.id,
     required this.targetTable,
@@ -203,6 +373,13 @@ class Mutation extends DataClass implements Insertable<Mutation> {
     required this.jsonPayload,
     required this.createdAt,
     required this.syncStatus,
+    this.clientId,
+    this.mutationId,
+    required this.operation,
+    this.baseRevision,
+    required this.resurrect,
+    required this.attempts,
+    this.lastError,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -213,6 +390,21 @@ class Mutation extends DataClass implements Insertable<Mutation> {
     map['json_payload'] = Variable<String>(jsonPayload);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['sync_status'] = Variable<int>(syncStatus);
+    if (!nullToAbsent || clientId != null) {
+      map['client_id'] = Variable<String>(clientId);
+    }
+    if (!nullToAbsent || mutationId != null) {
+      map['mutation_id'] = Variable<String>(mutationId);
+    }
+    map['operation'] = Variable<String>(operation);
+    if (!nullToAbsent || baseRevision != null) {
+      map['base_revision'] = Variable<String>(baseRevision);
+    }
+    map['resurrect'] = Variable<bool>(resurrect);
+    map['attempts'] = Variable<int>(attempts);
+    if (!nullToAbsent || lastError != null) {
+      map['last_error'] = Variable<String>(lastError);
+    }
     return map;
   }
 
@@ -224,6 +416,21 @@ class Mutation extends DataClass implements Insertable<Mutation> {
       jsonPayload: Value(jsonPayload),
       createdAt: Value(createdAt),
       syncStatus: Value(syncStatus),
+      clientId: clientId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(clientId),
+      mutationId: mutationId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(mutationId),
+      operation: Value(operation),
+      baseRevision: baseRevision == null && nullToAbsent
+          ? const Value.absent()
+          : Value(baseRevision),
+      resurrect: Value(resurrect),
+      attempts: Value(attempts),
+      lastError: lastError == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastError),
     );
   }
 
@@ -239,6 +446,13 @@ class Mutation extends DataClass implements Insertable<Mutation> {
       jsonPayload: serializer.fromJson<String>(json['jsonPayload']),
       createdAt: serializer.fromJson<DateTime>(json['createdAt']),
       syncStatus: serializer.fromJson<int>(json['syncStatus']),
+      clientId: serializer.fromJson<String?>(json['clientId']),
+      mutationId: serializer.fromJson<String?>(json['mutationId']),
+      operation: serializer.fromJson<String>(json['operation']),
+      baseRevision: serializer.fromJson<String?>(json['baseRevision']),
+      resurrect: serializer.fromJson<bool>(json['resurrect']),
+      attempts: serializer.fromJson<int>(json['attempts']),
+      lastError: serializer.fromJson<String?>(json['lastError']),
     );
   }
   @override
@@ -251,6 +465,13 @@ class Mutation extends DataClass implements Insertable<Mutation> {
       'jsonPayload': serializer.toJson<String>(jsonPayload),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'syncStatus': serializer.toJson<int>(syncStatus),
+      'clientId': serializer.toJson<String?>(clientId),
+      'mutationId': serializer.toJson<String?>(mutationId),
+      'operation': serializer.toJson<String>(operation),
+      'baseRevision': serializer.toJson<String?>(baseRevision),
+      'resurrect': serializer.toJson<bool>(resurrect),
+      'attempts': serializer.toJson<int>(attempts),
+      'lastError': serializer.toJson<String?>(lastError),
     };
   }
 
@@ -261,6 +482,13 @@ class Mutation extends DataClass implements Insertable<Mutation> {
     String? jsonPayload,
     DateTime? createdAt,
     int? syncStatus,
+    Value<String?> clientId = const Value.absent(),
+    Value<String?> mutationId = const Value.absent(),
+    String? operation,
+    Value<String?> baseRevision = const Value.absent(),
+    bool? resurrect,
+    int? attempts,
+    Value<String?> lastError = const Value.absent(),
   }) => Mutation(
     id: id ?? this.id,
     targetTable: targetTable ?? this.targetTable,
@@ -268,6 +496,13 @@ class Mutation extends DataClass implements Insertable<Mutation> {
     jsonPayload: jsonPayload ?? this.jsonPayload,
     createdAt: createdAt ?? this.createdAt,
     syncStatus: syncStatus ?? this.syncStatus,
+    clientId: clientId.present ? clientId.value : this.clientId,
+    mutationId: mutationId.present ? mutationId.value : this.mutationId,
+    operation: operation ?? this.operation,
+    baseRevision: baseRevision.present ? baseRevision.value : this.baseRevision,
+    resurrect: resurrect ?? this.resurrect,
+    attempts: attempts ?? this.attempts,
+    lastError: lastError.present ? lastError.value : this.lastError,
   );
   Mutation copyWithCompanion(LocalMutationsCompanion data) {
     return Mutation(
@@ -283,6 +518,17 @@ class Mutation extends DataClass implements Insertable<Mutation> {
       syncStatus: data.syncStatus.present
           ? data.syncStatus.value
           : this.syncStatus,
+      clientId: data.clientId.present ? data.clientId.value : this.clientId,
+      mutationId: data.mutationId.present
+          ? data.mutationId.value
+          : this.mutationId,
+      operation: data.operation.present ? data.operation.value : this.operation,
+      baseRevision: data.baseRevision.present
+          ? data.baseRevision.value
+          : this.baseRevision,
+      resurrect: data.resurrect.present ? data.resurrect.value : this.resurrect,
+      attempts: data.attempts.present ? data.attempts.value : this.attempts,
+      lastError: data.lastError.present ? data.lastError.value : this.lastError,
     );
   }
 
@@ -294,7 +540,14 @@ class Mutation extends DataClass implements Insertable<Mutation> {
           ..write('recordId: $recordId, ')
           ..write('jsonPayload: $jsonPayload, ')
           ..write('createdAt: $createdAt, ')
-          ..write('syncStatus: $syncStatus')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('clientId: $clientId, ')
+          ..write('mutationId: $mutationId, ')
+          ..write('operation: $operation, ')
+          ..write('baseRevision: $baseRevision, ')
+          ..write('resurrect: $resurrect, ')
+          ..write('attempts: $attempts, ')
+          ..write('lastError: $lastError')
           ..write(')'))
         .toString();
   }
@@ -307,6 +560,13 @@ class Mutation extends DataClass implements Insertable<Mutation> {
     jsonPayload,
     createdAt,
     syncStatus,
+    clientId,
+    mutationId,
+    operation,
+    baseRevision,
+    resurrect,
+    attempts,
+    lastError,
   );
   @override
   bool operator ==(Object other) =>
@@ -317,7 +577,14 @@ class Mutation extends DataClass implements Insertable<Mutation> {
           other.recordId == this.recordId &&
           other.jsonPayload == this.jsonPayload &&
           other.createdAt == this.createdAt &&
-          other.syncStatus == this.syncStatus);
+          other.syncStatus == this.syncStatus &&
+          other.clientId == this.clientId &&
+          other.mutationId == this.mutationId &&
+          other.operation == this.operation &&
+          other.baseRevision == this.baseRevision &&
+          other.resurrect == this.resurrect &&
+          other.attempts == this.attempts &&
+          other.lastError == this.lastError);
 }
 
 class LocalMutationsCompanion extends UpdateCompanion<Mutation> {
@@ -327,6 +594,13 @@ class LocalMutationsCompanion extends UpdateCompanion<Mutation> {
   final Value<String> jsonPayload;
   final Value<DateTime> createdAt;
   final Value<int> syncStatus;
+  final Value<String?> clientId;
+  final Value<String?> mutationId;
+  final Value<String> operation;
+  final Value<String?> baseRevision;
+  final Value<bool> resurrect;
+  final Value<int> attempts;
+  final Value<String?> lastError;
   const LocalMutationsCompanion({
     this.id = const Value.absent(),
     this.targetTable = const Value.absent(),
@@ -334,6 +608,13 @@ class LocalMutationsCompanion extends UpdateCompanion<Mutation> {
     this.jsonPayload = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.syncStatus = const Value.absent(),
+    this.clientId = const Value.absent(),
+    this.mutationId = const Value.absent(),
+    this.operation = const Value.absent(),
+    this.baseRevision = const Value.absent(),
+    this.resurrect = const Value.absent(),
+    this.attempts = const Value.absent(),
+    this.lastError = const Value.absent(),
   });
   LocalMutationsCompanion.insert({
     this.id = const Value.absent(),
@@ -342,6 +623,13 @@ class LocalMutationsCompanion extends UpdateCompanion<Mutation> {
     required String jsonPayload,
     this.createdAt = const Value.absent(),
     this.syncStatus = const Value.absent(),
+    this.clientId = const Value.absent(),
+    this.mutationId = const Value.absent(),
+    this.operation = const Value.absent(),
+    this.baseRevision = const Value.absent(),
+    this.resurrect = const Value.absent(),
+    this.attempts = const Value.absent(),
+    this.lastError = const Value.absent(),
   }) : targetTable = Value(targetTable),
        recordId = Value(recordId),
        jsonPayload = Value(jsonPayload);
@@ -352,6 +640,13 @@ class LocalMutationsCompanion extends UpdateCompanion<Mutation> {
     Expression<String>? jsonPayload,
     Expression<DateTime>? createdAt,
     Expression<int>? syncStatus,
+    Expression<String>? clientId,
+    Expression<String>? mutationId,
+    Expression<String>? operation,
+    Expression<String>? baseRevision,
+    Expression<bool>? resurrect,
+    Expression<int>? attempts,
+    Expression<String>? lastError,
   }) {
     return RawValuesInsertable({
       if (id != null) 'id': id,
@@ -360,6 +655,13 @@ class LocalMutationsCompanion extends UpdateCompanion<Mutation> {
       if (jsonPayload != null) 'json_payload': jsonPayload,
       if (createdAt != null) 'created_at': createdAt,
       if (syncStatus != null) 'sync_status': syncStatus,
+      if (clientId != null) 'client_id': clientId,
+      if (mutationId != null) 'mutation_id': mutationId,
+      if (operation != null) 'operation': operation,
+      if (baseRevision != null) 'base_revision': baseRevision,
+      if (resurrect != null) 'resurrect': resurrect,
+      if (attempts != null) 'attempts': attempts,
+      if (lastError != null) 'last_error': lastError,
     });
   }
 
@@ -370,6 +672,13 @@ class LocalMutationsCompanion extends UpdateCompanion<Mutation> {
     Value<String>? jsonPayload,
     Value<DateTime>? createdAt,
     Value<int>? syncStatus,
+    Value<String?>? clientId,
+    Value<String?>? mutationId,
+    Value<String>? operation,
+    Value<String?>? baseRevision,
+    Value<bool>? resurrect,
+    Value<int>? attempts,
+    Value<String?>? lastError,
   }) {
     return LocalMutationsCompanion(
       id: id ?? this.id,
@@ -378,6 +687,13 @@ class LocalMutationsCompanion extends UpdateCompanion<Mutation> {
       jsonPayload: jsonPayload ?? this.jsonPayload,
       createdAt: createdAt ?? this.createdAt,
       syncStatus: syncStatus ?? this.syncStatus,
+      clientId: clientId ?? this.clientId,
+      mutationId: mutationId ?? this.mutationId,
+      operation: operation ?? this.operation,
+      baseRevision: baseRevision ?? this.baseRevision,
+      resurrect: resurrect ?? this.resurrect,
+      attempts: attempts ?? this.attempts,
+      lastError: lastError ?? this.lastError,
     );
   }
 
@@ -402,6 +718,27 @@ class LocalMutationsCompanion extends UpdateCompanion<Mutation> {
     if (syncStatus.present) {
       map['sync_status'] = Variable<int>(syncStatus.value);
     }
+    if (clientId.present) {
+      map['client_id'] = Variable<String>(clientId.value);
+    }
+    if (mutationId.present) {
+      map['mutation_id'] = Variable<String>(mutationId.value);
+    }
+    if (operation.present) {
+      map['operation'] = Variable<String>(operation.value);
+    }
+    if (baseRevision.present) {
+      map['base_revision'] = Variable<String>(baseRevision.value);
+    }
+    if (resurrect.present) {
+      map['resurrect'] = Variable<bool>(resurrect.value);
+    }
+    if (attempts.present) {
+      map['attempts'] = Variable<int>(attempts.value);
+    }
+    if (lastError.present) {
+      map['last_error'] = Variable<String>(lastError.value);
+    }
     return map;
   }
 
@@ -413,7 +750,14 @@ class LocalMutationsCompanion extends UpdateCompanion<Mutation> {
           ..write('recordId: $recordId, ')
           ..write('jsonPayload: $jsonPayload, ')
           ..write('createdAt: $createdAt, ')
-          ..write('syncStatus: $syncStatus')
+          ..write('syncStatus: $syncStatus, ')
+          ..write('clientId: $clientId, ')
+          ..write('mutationId: $mutationId, ')
+          ..write('operation: $operation, ')
+          ..write('baseRevision: $baseRevision, ')
+          ..write('resurrect: $resurrect, ')
+          ..write('attempts: $attempts, ')
+          ..write('lastError: $lastError')
           ..write(')'))
         .toString();
   }
@@ -646,6 +990,13 @@ typedef $$LocalMutationsTableCreateCompanionBuilder =
       required String jsonPayload,
       Value<DateTime> createdAt,
       Value<int> syncStatus,
+      Value<String?> clientId,
+      Value<String?> mutationId,
+      Value<String> operation,
+      Value<String?> baseRevision,
+      Value<bool> resurrect,
+      Value<int> attempts,
+      Value<String?> lastError,
     });
 typedef $$LocalMutationsTableUpdateCompanionBuilder =
     LocalMutationsCompanion Function({
@@ -655,6 +1006,13 @@ typedef $$LocalMutationsTableUpdateCompanionBuilder =
       Value<String> jsonPayload,
       Value<DateTime> createdAt,
       Value<int> syncStatus,
+      Value<String?> clientId,
+      Value<String?> mutationId,
+      Value<String> operation,
+      Value<String?> baseRevision,
+      Value<bool> resurrect,
+      Value<int> attempts,
+      Value<String?> lastError,
     });
 
 class $$LocalMutationsTableFilterComposer
@@ -693,6 +1051,41 @@ class $$LocalMutationsTableFilterComposer
 
   ColumnFilters<int> get syncStatus => $composableBuilder(
     column: $table.syncStatus,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get clientId => $composableBuilder(
+    column: $table.clientId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get mutationId => $composableBuilder(
+    column: $table.mutationId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get operation => $composableBuilder(
+    column: $table.operation,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get baseRevision => $composableBuilder(
+    column: $table.baseRevision,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get resurrect => $composableBuilder(
+    column: $table.resurrect,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get attempts => $composableBuilder(
+    column: $table.attempts,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get lastError => $composableBuilder(
+    column: $table.lastError,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -735,6 +1128,41 @@ class $$LocalMutationsTableOrderingComposer
     column: $table.syncStatus,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<String> get clientId => $composableBuilder(
+    column: $table.clientId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get mutationId => $composableBuilder(
+    column: $table.mutationId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get operation => $composableBuilder(
+    column: $table.operation,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get baseRevision => $composableBuilder(
+    column: $table.baseRevision,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<bool> get resurrect => $composableBuilder(
+    column: $table.resurrect,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get attempts => $composableBuilder(
+    column: $table.attempts,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get lastError => $composableBuilder(
+    column: $table.lastError,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$LocalMutationsTableAnnotationComposer
@@ -769,6 +1197,31 @@ class $$LocalMutationsTableAnnotationComposer
     column: $table.syncStatus,
     builder: (column) => column,
   );
+
+  GeneratedColumn<String> get clientId =>
+      $composableBuilder(column: $table.clientId, builder: (column) => column);
+
+  GeneratedColumn<String> get mutationId => $composableBuilder(
+    column: $table.mutationId,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get operation =>
+      $composableBuilder(column: $table.operation, builder: (column) => column);
+
+  GeneratedColumn<String> get baseRevision => $composableBuilder(
+    column: $table.baseRevision,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<bool> get resurrect =>
+      $composableBuilder(column: $table.resurrect, builder: (column) => column);
+
+  GeneratedColumn<int> get attempts =>
+      $composableBuilder(column: $table.attempts, builder: (column) => column);
+
+  GeneratedColumn<String> get lastError =>
+      $composableBuilder(column: $table.lastError, builder: (column) => column);
 }
 
 class $$LocalMutationsTableTableManager
@@ -810,6 +1263,13 @@ class $$LocalMutationsTableTableManager
                 Value<String> jsonPayload = const Value.absent(),
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<int> syncStatus = const Value.absent(),
+                Value<String?> clientId = const Value.absent(),
+                Value<String?> mutationId = const Value.absent(),
+                Value<String> operation = const Value.absent(),
+                Value<String?> baseRevision = const Value.absent(),
+                Value<bool> resurrect = const Value.absent(),
+                Value<int> attempts = const Value.absent(),
+                Value<String?> lastError = const Value.absent(),
               }) => LocalMutationsCompanion(
                 id: id,
                 targetTable: targetTable,
@@ -817,6 +1277,13 @@ class $$LocalMutationsTableTableManager
                 jsonPayload: jsonPayload,
                 createdAt: createdAt,
                 syncStatus: syncStatus,
+                clientId: clientId,
+                mutationId: mutationId,
+                operation: operation,
+                baseRevision: baseRevision,
+                resurrect: resurrect,
+                attempts: attempts,
+                lastError: lastError,
               ),
           createCompanionCallback:
               ({
@@ -826,6 +1293,13 @@ class $$LocalMutationsTableTableManager
                 required String jsonPayload,
                 Value<DateTime> createdAt = const Value.absent(),
                 Value<int> syncStatus = const Value.absent(),
+                Value<String?> clientId = const Value.absent(),
+                Value<String?> mutationId = const Value.absent(),
+                Value<String> operation = const Value.absent(),
+                Value<String?> baseRevision = const Value.absent(),
+                Value<bool> resurrect = const Value.absent(),
+                Value<int> attempts = const Value.absent(),
+                Value<String?> lastError = const Value.absent(),
               }) => LocalMutationsCompanion.insert(
                 id: id,
                 targetTable: targetTable,
@@ -833,6 +1307,13 @@ class $$LocalMutationsTableTableManager
                 jsonPayload: jsonPayload,
                 createdAt: createdAt,
                 syncStatus: syncStatus,
+                clientId: clientId,
+                mutationId: mutationId,
+                operation: operation,
+                baseRevision: baseRevision,
+                resurrect: resurrect,
+                attempts: attempts,
+                lastError: lastError,
               ),
           withReferenceMapper: (p0) => p0
               .map((e) => (e.readTable(table), BaseReferences(db, table, e)))

@@ -1,0 +1,234 @@
+name: TypeScript target prototype
+
+on:
+  pull_request:
+    paths:
+      - 'clients/ts/**'
+      - 'syncer.c'
+      - 'targets/layouts.v1.json'
+      - 'scripts/check-typescript-target.py'
+      - 'scripts/stage-typescript-target.py'
+      - 'docs/TYPESCRIPT_ZED_TARGET.md'
+      - '.github/workflows/typescript-target-prototype.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'clients/ts/**'
+      - 'syncer.c'
+      - 'targets/layouts.v1.json'
+      - 'scripts/check-typescript-target.py'
+      - 'scripts/stage-typescript-target.py'
+      - 'docs/TYPESCRIPT_ZED_TARGET.md'
+      - '.github/workflows/typescript-target-prototype.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: typescript-target-prototype-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ZED_CLI_SHA: c636fb8f6b08695c6b4fe94e2481f4d57270b2d7
+  ZED_INTERFACES_SHA: 415e871b1fb3dd97744c134351408a3224805dfb
+
+jobs:
+  clean-room:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout clients and the exact core gitlink
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Validate the approved target-layout contract
+        working-directory: source
+        run: python3 scripts/check-target-layouts.py
+
+      - name: Stage the self-contained TypeScript source target
+        working-directory: source
+        run: python3 scripts/stage-typescript-target.py "$RUNNER_TEMP/typescript-target"
+
+      - name: Checkout pinned Zed CLI
+        uses: actions/checkout@v4
+        with:
+          repository: zed-pkg/zed-cli
+          ref: ${{ env.ZED_CLI_SHA }}
+          path: zed-cli
+          persist-credentials: false
+
+      - name: Checkout pinned Zed interfaces
+        uses: actions/checkout@v4
+        with:
+          repository: zed-pkg/zed-interfaces
+          ref: ${{ env.ZED_INTERFACES_SHA }}
+          path: zed-interfaces
+          persist-credentials: false
+
+      - name: Build pinned Zed CLI
+        run: cargo build --locked --release --manifest-path zed-cli/Cargo.toml --bin zed
+
+      - name: Pack twice and prove byte-for-byte determinism
+        shell: bash
+        run: |
+          set -euo pipefail
+          zed="$GITHUB_WORKSPACE/zed-cli/target/release/zed"
+          stage="$RUNNER_TEMP/typescript-target"
+          first="$RUNNER_TEMP/typescript-pack-one"
+          second="$RUNNER_TEMP/typescript-pack-two"
+          mkdir -p "$first" "$second"
+          (cd "$stage" && "$zed" pack --out "$first")
+          (cd "$stage" && "$zed" pack --out "$second")
+          test "$(find "$first" -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 1
+          test "$(find "$second" -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 1
+          archive="$(find "$first" -maxdepth 1 -type f -name '*.tar.gz' -printf '%f\n')"
+          test -f "$second/$archive"
+          sha256sum "$first/$archive" "$second/$archive"
+          cmp "$first/$archive" "$second/$archive"
+          echo "TYPESCRIPT_TARGET_ARCHIVE=$archive" >> "$GITHUB_ENV"
+
+      - name: Audit the packed language boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/typescript-pack-one/$TYPESCRIPT_TARGET_ARCHIVE"
+          listing="$RUNNER_TEMP/typescript-target-files.txt"
+          tar -tzf "$archive" | sort > "$listing"
+          required=(
+            'pkg/.zpkg.toml'
+            'pkg/LICENSE'
+            'pkg/README.md'
+            'pkg/release-set.json'
+            'pkg/scripts/check-typescript-target.py'
+            'pkg/clients/ts/package.json'
+            'pkg/clients/ts/package-lock.json'
+            'pkg/clients/ts/smoke/native-reconcile.cjs'
+            'pkg/clients/ts/smoke/indexeddb-queue.cjs'
+            'pkg/clients/ts/smoke/browser-indexeddb.mjs'
+            'pkg/clients/ts/smoke/helpers/bundle.mjs'
+            'pkg/clients/ts/smoke/helpers/corpus.mjs'
+            'pkg/syncer.c/SOURCE_SHA'
+            'pkg/syncer.c/core/include/syncer.h'
+            'pkg/syncer.c/core/src/syncer.c'
+            'pkg/syncer.c/bindings/typescript/package.json'
+            'pkg/syncer.c/bindings/wasm/package.json'
+            'pkg/syncer.c/bindings/wasm/dist/syncer-core.single.mjs'
+          )
+          for path in "${required[@]}"; do
+            grep -Fqx "$path" "$listing" || {
+              echo "::error title=missing TypeScript target file::$path"
+              exit 1
+            }
+          done
+          if grep -Fqx 'pkg/.zpkg.lock' "$listing"; then
+            echo '::error title=source lock leaked into TypeScript target::.zpkg.lock must not ship'
+            exit 1
+          fi
+          if grep -Eq '^pkg/clients/(dart|rust|gleam)(/|$)' "$listing"; then
+            echo '::error title=other language leaked into TypeScript target::Only clients/ts may ship'
+            grep -E '^pkg/clients/(dart|rust|gleam)(/|$)' "$listing"
+            exit 1
+          fi
+          if grep -Eq '^pkg/clients/ts/test(/|$)|\.test\.(js|mjs|cjs)$' "$listing"; then
+            echo '::error title=test artifact naming leaked into TypeScript target::Use explicit smoke consumers'
+            exit 1
+          fi
+          if grep -Eq '(^|/)(\.git|\.github|\.zed)(/|$)|/(node_modules|target|build|_build|\.dart_tool|\.tmp)(/|$)' "$listing"; then
+            echo '::error title=generated or VCS state leaked into TypeScript target'
+            grep -E '(^|/)(\.git|\.github|\.zed)(/|$)|/(node_modules|target|build|_build|\.dart_tool|\.tmp)(/|$)' "$listing"
+            exit 1
+          fi
+
+      - name: Extract into a blank directory and validate without Git
+        shell: bash
+        run: |
+          set -euo pipefail
+          extracted="$RUNNER_TEMP/typescript-target-extracted"
+          mkdir -p "$extracted"
+          tar -xzf "$RUNNER_TEMP/typescript-pack-one/$TYPESCRIPT_TARGET_ARCHIVE" -C "$extracted"
+          test ! -e "$extracted/pkg/.git"
+          python3 "$extracted/pkg/scripts/check-typescript-target.py" "$extracted/pkg"
+          echo "EXTRACTED_TARGET=$extracted/pkg" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: source/clients/ts/package-lock.json
+
+      - name: Install from the extracted target
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/ts"
+          npm ci
+
+      - name: Verify extracted native and WASM bindings after install
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/ts"
+          test -f node_modules/@opto-sync/syncer/package.json
+          test -f node_modules/@opto-sync/syncer-wasm/package.json
+          test -f ../../syncer.c/bindings/typescript/build/Release/syncer.node
+          version="$(node -e "process.stdout.write(require('@opto-sync/syncer').version())")"
+          echo "native syncer.c version: $version"
+          test "$version" = '0.2.1'
+
+      - name: Compile the extracted CommonJS client
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/ts"
+          npx tsc --pretty false
+
+      - name: Compile the extracted ESM client and mark module scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/ts"
+          npx tsc -p tsconfig.esm.json --pretty false
+          node scripts/postbuild.mjs
+
+      - name: Run extracted native reconciliation smoke consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/ts"
+          node --test smoke/native-reconcile.cjs
+
+      - name: Run extracted IndexedDB mutation queue smoke consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/ts"
+          node --test smoke/indexeddb-queue.cjs
+
+      - name: Run the real Chromium WASM and IndexedDB smoke consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$EXTRACTED_TARGET/clients/ts"
+          npx playwright install --with-deps chromium
+          node --test smoke/browser-indexeddb.mjs
+
+      - name: Revalidate source identity after consumer execution
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$(python3 -c 'import json,os; print(json.load(open(os.environ["EXTRACTED_TARGET"] + "/release-set.json"))["syncerSourceSha"])')"
+          test "$(cat "$EXTRACTED_TARGET/syncer.c/SOURCE_SHA")" = "$expected"
+
+      - name: Upload the deterministic prototype artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opto-sync-typescript-zed-target
+          path: ${{ runner.temp }}/typescript-pack-one/${{ env.TYPESCRIPT_TARGET_ARCHIVE }}
+          if-no-files-found: error
+          retention-days: 7

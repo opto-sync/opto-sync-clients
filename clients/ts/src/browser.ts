@@ -38,6 +38,8 @@ import { OptoSyncClient, OptoSyncClientOptions } from './client.js';
 export * from './reconcile-core.js';
 export * from './client.js';
 export * from './clock.js';
+export * from './protocol.js';
+export * from './sync-loop.js';
 
 /** Options forwarded to the wasm engine's own initializer. */
 export interface InitOptoSyncOptions {

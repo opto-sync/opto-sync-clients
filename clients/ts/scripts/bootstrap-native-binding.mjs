@@ -49,30 +49,41 @@
  * It is self-healing: once the binding is bootstrapped, later `npm install`
  * runs succeed through npm's own path and this script is a no-op.
  *
- * Never fatal. Someone installing a published tarball has no sibling syncer.c
- * checkout, and a browser-only consumer does not need the native addon — both
- * cases exit 0 with a note.
+ * Never fatal. Someone installing a browser-only package may not have a native
+ * toolchain, and does not need the addon — that case exits 0 with a note. The
+ * Node entry point still fails explicitly if imported without its native addon;
+ * there is no silent substitution of a different merge engine.
  */
 import { existsSync, mkdirSync, lstatSync, rmSync, symlinkSync, readlinkSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, relative, resolve } from 'node:path';
+import { nativePlatformSupport } from './native-platform.mjs';
 
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const bindingDir = resolve(packageRoot, '..', '..', '..', 'syncer.c', 'bindings', 'typescript');
+// clients/ts -> repository (or extracted target) root -> syncer.c. The old
+// sibling-checkout layout used one extra `..`; retaining that path makes a
+// clean artifact silently skip the native binding and fail at TypeScript build.
+const bindingDir = resolve(packageRoot, '..', '..', 'syncer.c', 'bindings', 'typescript');
 const linkDir = join(packageRoot, 'node_modules', '@opto-sync');
 const linkPath = join(linkDir, 'syncer');
 
 const log = (msg) => console.log(`bootstrap-native-binding: ${msg}`);
+const platform = nativePlatformSupport();
+
+if (!platform.supported) {
+  log(`ERROR: ${platform.message}`);
+  process.exit(0);
+}
 
 if (!existsSync(join(bindingDir, 'package.json'))) {
-  log(`no local native binding at ${bindingDir} — skipping (the wasm engine needs no build)`);
+  log(`no bundled native binding at ${bindingDir} — skipping (the wasm engine needs no build)`);
   process.exit(0);
 }
 
 /* ---------------------------------------------------------------- */
-/*  1. the binding's own dependencies + native build, in place       */
+/*  1. the binding's own dependencies + native build                */
 /* ---------------------------------------------------------------- */
 
 const bindingRequire = createRequire(join(bindingDir, 'noop.js'));
@@ -135,7 +146,7 @@ function linkIsCorrect() {
 }
 
 if (linkIsCorrect()) {
-  log('node_modules/@opto-sync/syncer already points at the local binding');
+  log('node_modules/@opto-sync/syncer already points at the bundled native binding');
 } else {
   mkdirSync(linkDir, { recursive: true });
   rmSync(linkPath, { recursive: true, force: true });
@@ -144,7 +155,7 @@ if (linkIsCorrect()) {
   } else {
     symlinkSync(relative(linkDir, bindingDir), linkPath, 'dir');
   }
-  log('linked node_modules/@opto-sync/syncer -> the local native binding');
+  log('linked node_modules/@opto-sync/syncer -> the bundled native binding');
 }
 
 /* ---------------------------------------------------------------- */

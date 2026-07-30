@@ -37,10 +37,71 @@ import { createOptoSyncClient } from '@opto-sync/client';
 const client = await createOptoSyncClient({ databaseName: 'my-app' });
 ```
 
+When the application's authoritative IndexedDB rows live in the same Dexie
+database, use `queueMutationAtomic` / `queueDeleteAtomic`. Pass every table the
+callback touches; the application row, protocol sequence, and queue entry then
+commit or roll back in one IndexedDB transaction:
+
+```ts
+await client.queueMutationAtomic(
+  'todos',
+  'todo-1',
+  { title: 'buy milk' },
+  [client.db.table('todos')],
+  payload => client.db.table('todos').put({ id: 'todo-1', ...payload }),
+);
+```
+
 Bundlers resolve `@opto-sync/client` to the browser build automatically via the
 `browser` condition in `exports`. Nothing to configure: no `external`, no
 polyfills, no wasm asset to copy or serve (the engine's default build inlines
 it).
+
+### Background protocol synchronization
+
+The package includes a transport-neutral `ProtocolSyncLoop`. Your application
+still owns URLs, authentication/token refresh, HTTP error mapping, and the
+authoritative record store:
+
+```ts
+import {
+  OptoSyncClient,
+  ProtocolSyncLoop,
+  SyncTransportError,
+} from '@opto-sync/client';
+
+const client = new OptoSyncClient({ databaseName: 'my-app' });
+const loop = new ProtocolSyncLoop(client, {
+  push: (request, signal) => api.push(request, signal),
+  pull: (checkpoint, limit, signal) => api.pull(checkpoint, limit, signal),
+  snapshot: (signal, reset) => api.snapshot(signal, reset),
+}, {
+  // Must be idempotent: a crash before checkpoint persistence replays the page.
+  applyChanges: changes => records.applyProtocolChanges(changes),
+  // Must atomically replace the authoritative store.
+  replaceAuthoritative: snapshot => records.replaceAll(snapshot),
+});
+
+client.setBackgroundSyncTrigger(() => loop.hint());
+loop.start();
+```
+
+Each cycle pulls to the current checkpoint, uploads immutable queue batches,
+then pulls the server echo. Concurrent calls are single-flight. Retention
+resets install a snapshot before advancing the checkpoint; browser online and
+visibility events wake the loop; transient failures use bounded exponential
+full-jitter backoff and honor a `SyncTransportError` retry-after floor.
+Supabase Realtime or WebSocket events should call `loop.hint()` only—the
+checkpointed pull log remains the source of truth.
+
+Throw `new SyncTransportError(message, false)` for permanent failures such as a
+client/protocol configuration error so the background loop stops retrying.
+
+If records and protocol metadata share this Dexie database, callbacks may also
+implement `applyChangesAndCheckpoint` and
+`replaceAuthoritativeAndCheckpoint`. Build them with
+`client.commitPullPageAtomic(...)` and `client.installSnapshotAtomic(...)`;
+the loop verifies the callback actually persisted the advertised checkpoint.
 
 ### Node / server / tests
 
@@ -139,6 +200,7 @@ first writer owns this whole node, forever" really is the semantics you want.
 src/engine.ts          the seam: MergeEngine interface + registry + ArrayStrategy
 src/reconcile-core.ts  pure reconcile logic — no engine import, no storage
 src/client.ts          OptoSyncClient / Dexie queue — engine-agnostic
+src/sync-loop.ts       protocol v1 orchestration around an application transport
 src/reconcile.ts       Node entry: installs the native addon, re-exports the core
 src/index.ts           Node entry: reconcile + client
 src/browser.ts         browser entry: initOptoSync() installs wasm, re-exports
@@ -160,9 +222,20 @@ either can be replaced with a test double via `setMergeEngine()`.
 The package ships both CommonJS (`dist/`) and ES modules (`dist/esm/`), wired
 through `exports` with `browser` / `import` / `require` conditions.
 
-Browser bundle size, measured by `test/bundle.test.mjs`: **~99 KB minified +
+Browser bundle size, measured by `test/bundle.test.mjs`: **~105 KB minified +
 gzipped**, for Dexie, the client and the entire CRDT engine with the wasm
 inlined.
+
+### Durable queue bounds
+
+`OptoSyncClient` defaults to at most 10,000 pending mutations and 255 KiB of
+UTF-8 JSON per payload. Override these with `maxPendingMutations` and
+`maxQueuedPayloadBytes`. A refused write throws `QueueQuotaError` with
+`QUEUE_FULL` or `PAYLOAD_TOO_LARGE` before consuming its protocol mutation ID.
+
+Call `pruneConfirmed(retain)` to remove oldest acknowledged diagnostics;
+pending rows are never pruned. The detailed capacity and failure contract is in
+[OFFLINE_QUEUE.md](../../docs/OFFLINE_QUEUE.md).
 
 ---
 
@@ -171,17 +244,20 @@ inlined.
 ```sh
 npm install
 npm run build
-npm test          # 43 tests
+npm test          # 92 tests
 ```
 
 | File | What it covers |
 | --- | --- |
-| `test/reconcile.test.js` | the original native reconcile suite, unchanged |
-| `test/queue.test.js` | the original Dexie queue suite (fake-indexeddb), unchanged |
-| `test/engine-parity.test.mjs` | native vs wasm: byte-identical output over a 34-case corpus, 1000 randomized documents, and all 13 reconcile scenarios |
+| `test/reconcile.test.js` | native reconcile policy and strategy coverage |
+| `test/queue.test.js` | Dexie queue durability, atomic application-row/queue and pull/checkpoint transactions, bounds/pruning, and nested-clock observation |
+| `test/rebase.test.js` | optimistic rebase plus protocol identity, envelopes, acknowledgement, checkpoints, and failure-safe snapshot installation |
+| `test/clock.test.js` | HLC ordering, persistence, skew bounds, and multi-instance identity |
+| `test/engine-parity.test.mjs` | native vs wasm: byte-identical output over a 36-case corpus, 1000 randomized documents, and all 14 reconcile scenarios |
 | `test/bundle.test.mjs` | the browser entry bundles with a stock esbuild browser config; no Node builtins, no native addon, within a size budget |
 | `test/browser-e2e.test.mjs` | **real headless Chromium**: real IndexedDB, real WebAssembly, plus a real web worker |
 | `test/browser-fallback.test.mjs` | the browser entry under jsdom + fake-indexeddb, for CI without a browser download |
+| `test/sync-loop.test.mjs` | pull/push/pull ordering, reset installation, single-flight, and retry policy |
 
 `test/browser-e2e.test.mjs` skips (loudly, never silently) if Chromium cannot be
 launched; get it with `npx playwright install chromium`.

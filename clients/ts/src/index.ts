@@ -17,3 +17,5 @@
 export * from './reconcile.js';
 export * from './client.js';
 export * from './clock.js';
+export * from './protocol.js';
+export * from './sync-loop.js';

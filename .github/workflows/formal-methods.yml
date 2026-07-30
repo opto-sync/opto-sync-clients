@@ -1,0 +1,243 @@
+name: Formal methods
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  opto-sync-protocol:
+    name: fmctl + Quint protocol model and Rust/TypeScript/Dart conformance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      NO_COLOR: '1'
+      RUST_BACKTRACE: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Install pinned Dart SDK
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: '3.12.1'
+
+      - name: Install SQLite runtime for Drift
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libsqlite3-0
+
+      - name: Format-check fmctl
+        run: >-
+          nix develop --command cargo fmt
+          --manifest-path tools/fmctl/Cargo.toml -- --check
+
+      - name: Lint fmctl
+        run: |
+          nix develop --command cargo clippy \
+            --locked \
+            --manifest-path tools/fmctl/Cargo.toml \
+            --all-targets \
+            --all-features \
+            -- -D warnings
+
+      - name: Test fmctl
+        run: |
+          nix develop --command cargo test \
+            --locked \
+            --manifest-path tools/fmctl/Cargo.toml \
+            --all-targets \
+            --all-features
+
+      - name: Build fmctl
+        run: |
+          nix develop --command cargo build \
+            --locked \
+            --release \
+            --manifest-path tools/fmctl/Cargo.toml
+
+      - name: Validate the formal-methods manifest
+        run: |
+          mkdir -p .formal-artifacts/fmctl
+          nix develop --command tools/fmctl/target/release/fmctl --format json validate \
+            | tee .formal-artifacts/fmctl/validate.json
+
+      - name: Validate the configured toolchain through fmctl
+        run: |
+          nix develop --command tools/fmctl/target/release/fmctl --format json doctor \
+            | tee .formal-artifacts/fmctl/doctor.json
+
+      - name: Typecheck through fmctl
+        run: nix develop --command tools/fmctl/target/release/fmctl check
+
+      - name: Simulate safety and reach failure-recovery witnesses through fmctl
+        run: nix develop --command tools/fmctl/target/release/fmctl simulate
+
+      - name: Exhaustively model-check the finite protocol state space through fmctl
+        run: nix develop --command tools/fmctl/target/release/fmctl verify
+
+      - name: Generate the deterministic model-based testing corpus through fmctl
+        run: |
+          nix develop --command tools/fmctl/target/release/fmctl trace \
+            --output '.formal-artifacts/opto-sync-{seq}.itf.json'
+
+      - name: Exercise the JSON-RPC server over stdio
+        shell: bash
+        run: |
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"fm.capabilities"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"fm.plan","params":{"operation":"verify"}}' \
+            '{"jsonrpc":"2.0","id":3,"method":"fm.shutdown"}' \
+            | nix develop --command tools/fmctl/target/release/fmctl serve \
+            | tee .formal-artifacts/fmctl/rpc.jsonl
+          nix develop --command python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          responses = [
+              json.loads(line)
+              for line in Path('.formal-artifacts/fmctl/rpc.jsonl').read_text().splitlines()
+              if line.strip()
+          ]
+          assert [response['id'] for response in responses] == [1, 2, 3]
+          assert responses[0]['result']['adapter_protocol'] == 'fmctl.adapter.v1'
+          assert responses[1]['result']['plan']['operation'] == 'verify'
+          assert responses[2]['result']['shutdown'] is True
+          PY
+
+      - name: Validate the non-published Rust replay adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          nix develop --command cargo fmt \
+            --manifest-path formal/rust-itf-replay/Cargo.toml \
+            -- --check
+          nix develop --command cargo clippy \
+            --locked \
+            --manifest-path formal/rust-itf-replay/Cargo.toml \
+            --all-targets \
+            -- -D warnings
+          nix develop --command cargo test \
+            --locked \
+            --manifest-path formal/rust-itf-replay/Cargo.toml \
+            --all-targets
+
+      - name: Install and build the TypeScript client
+        working-directory: clients/ts
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          {
+            nix develop ../.. --command npm ci
+            nix develop ../.. --command npm run build
+            nix develop ../.. --command node --check ../../formal/typescript-itf-replay.mjs
+          } 2>&1 | tee ../../.formal-artifacts/typescript-build.log
+          status=${PIPESTATUS[0]}
+          set -e
+          exit "$status"
+
+      - name: Validate the Dart Drift replay adapter
+        working-directory: clients/dart
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          {
+            dart pub get
+            dart format --output=none --set-exit-if-changed tool/formal_itf_replay.dart tool/formal_itf_replay
+            dart analyze
+          } 2>&1 | tee ../../.formal-artifacts/dart-build.log
+          status=${PIPESTATUS[0]}
+          set -e
+          exit "$status"
+
+      - name: Replay generated traces against the Rust protocol queue through fmctl
+        shell: bash
+        run: |
+          set -euo pipefail
+          traces=()
+          for trace in .formal-artifacts/opto-sync-*.itf.json; do
+            test -f "$trace"
+            traces+=(--trace "$trace")
+          done
+          nix develop --command tools/fmctl/target/release/fmctl replay \
+            --adapter rust \
+            "${traces[@]}" 2>&1 \
+            | tee .formal-artifacts/rust-itf-replay.log
+
+      - name: Replay generated traces against TypeScript Dexie state through fmctl
+        shell: bash
+        run: |
+          set -euo pipefail
+          traces=()
+          for trace in .formal-artifacts/opto-sync-*.itf.json; do
+            test -f "$trace"
+            traces+=(--trace "$trace")
+          done
+          nix develop --command tools/fmctl/target/release/fmctl replay \
+            --adapter typescript \
+            "${traces[@]}" 2>&1 \
+            | tee .formal-artifacts/typescript-itf-replay.log
+
+      - name: Replay generated traces against Dart Drift/SQLite state through fmctl
+        shell: bash
+        run: |
+          set -euo pipefail
+          traces=()
+          for trace in .formal-artifacts/opto-sync-*.itf.json; do
+            test -f "$trace"
+            traces+=(--trace "$trace")
+          done
+          tools/fmctl/target/release/fmctl replay \
+            --adapter dart \
+            "${traces[@]}" 2>&1 \
+            | tee .formal-artifacts/dart-itf-replay.log
+
+      - name: Upload verifier, trace, lockfile, and normalized fmctl artifacts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: opto-sync-formal-methods
+          path: |
+            .formal-artifacts/
+            tools/fmctl/Cargo.lock
+            formal/rust-itf-replay/Cargo.lock
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+
+  rust-kani:
+    name: Kani Rust protocol arithmetic proofs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout clients and pinned C core
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - name: Install pinned Kani verifier
+        run: |
+          cargo install --locked kani-verifier --version 0.67.0
+          cargo kani setup
+      - name: Prove queue allocation, batch, and watermark bounds
+        working-directory: clients/rust
+        run: cargo kani --no-default-features

@@ -38,11 +38,16 @@ export interface ReconcileOptions {
   detectCircularRefs?: boolean;
   /** CRDT-like timestamp resolution. Default: true. */
   resolveByTimestamp?: boolean;
-  /** Comma-separated Last-Write-Wins keys. Default: "updatedAt,syncedAt". */
+  /**
+   * Comma-separated Last-Write-Wins selectors. Plain selectors are direct
+   * keys; `#/...` selectors are JSON Pointers relative to each merge node.
+   * Default: "updatedAt,syncedAt".
+   */
   lwwKeys?: string;
   /**
-   * Comma-separated First-Write-Wins keys. **No default** — deliberately not
-   * part of `DEFAULT_RECONCILE_OPTIONS`.
+   * Comma-separated First-Write-Wins selectors (direct keys or `#/...` JSON
+   * Pointers). **No default** — deliberately not part of
+   * `DEFAULT_RECONCILE_OPTIONS`.
    *
    * FWW is a NODE-LEVEL VETO, not field protection: if the incoming node's FWW
    * key is newer than the base's, the core rejects the **entire** incoming

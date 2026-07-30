@@ -1,7 +1,39 @@
-# Running `@opto-sync/client` in a browser
+# Running opto-sync clients in a browser
 
-Applies to the TypeScript client only. The Dart and Rust clients target device
-and server runtimes.
+TypeScript and Dart both use the same C core compiled to WebAssembly and persist
+their queues in the browser's real IndexedDB. Rust and Gleam target native
+runtimes.
+
+## Dart web: Drift SQLite on IndexedDB + syncer WASM
+
+Import `package:opto_sync_client/web.dart` in a web entry point. The ordinary
+`opto_sync_client.dart` entry uses conditional imports so `dart:ffi` is never
+pulled into a browser build.
+
+```dart
+final syncer = await WasmSyncer.load(
+  moduleUri: Uri.parse('/syncer-core.single.mjs'),
+);
+final opened = await openOptoSyncIndexedDb(
+  databaseName: 'my-app',
+  sqlite3Uri: Uri.parse('/sqlite3.wasm'),
+  driftWorkerUri: Uri.parse('/drift_worker.js'),
+);
+final client = OptoSyncClient(db: opened.database, syncer: syncer);
+```
+
+`openOptoSyncIndexedDb` probes Drift's browser backends and selects
+`sharedIndexedDb`, falling back only to `unsafeIndexedDb`. It explicitly
+refuses OPFS and in-memory storage because silently losing the queue would
+violate the API's durability claim.
+
+`clients/dart/tool/web_e2e.mjs` compiles the real Dart entry with `dart2js`,
+serves Drift's `sqlite3.wasm`/worker and the syncer WASM module, and drives it in
+real Chromium. The test asserts native `IDBFactory`, no Node environment,
+atomic optimistic-row/queue rollback with no sequence gap, atomic checkpoint
+updates, and close/reopen persistence.
+
+## TypeScript browser client
 
 ## Why a browser needs the WebAssembly engine
 
@@ -222,7 +254,7 @@ same), negative timestamps, digit-string nanosecond timestamps, integers past
 `engine-parity.test.mjs` also re-asserts that `DEFAULT_RECONCILE_OPTIONS` is
 identical on both tiers, and spot-checks that both engines are *right* rather
 than merely in agreement (stale write loses, local-only array element survives,
-`createdAt` FWW rejects a later claim).
+explicit `createdAt` FWW rejects a later claim).
 
 ## Real IndexedDB in headless Chromium
 

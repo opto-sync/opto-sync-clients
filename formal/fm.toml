@@ -1,0 +1,138 @@
+# Formal-methods manifest consumed by tools/fmctl.
+schema_version = 1
+project = "opto-sync-clients"
+model = "protocol-v1"
+language = "quint"
+spec = "formal/opto_sync_protocol.qnt"
+main = "opto_sync_protocol"
+init = "init"
+step = "step"
+invariants = ["protocol_safety"]
+witnesses = [
+  "ambiguous_commit_reached",
+  "duplicate_retry_reached",
+  "reset_crash_reached",
+]
+
+[toolchain]
+quint = "0.32.0"
+java = ">=17"
+node = "22"
+rust = "1.88.0"
+npx = "npx"
+
+[execution]
+timeout_seconds = 1200
+max_output_bytes = 8388608
+artifacts_dir = ".formal-artifacts"
+
+[simulation]
+backend = "typescript"
+max_samples = 10000
+max_steps = 40
+
+[verification]
+backend = "tlc"
+exhaustive_finite_model = true
+
+[traces]
+format = "itf"
+model_based_testing_metadata = true
+backend = "rust"
+seed = "0x4b27def6cf7f060b"
+count = 16
+max_steps = 40
+max_samples = 16
+required_actions = [
+  "init",
+  "idle",
+  "compact",
+  "enqueue",
+  "send",
+  "apply_new",
+  "reject_new",
+  "reply_duplicate",
+  "inject_mismatched_response",
+  "lose_committed_response",
+  "lose_uncommitted_request",
+  "discard_malformed_response",
+  "acknowledge",
+  "pull",
+  "begin_reset",
+  "crash_during_reset",
+  "finish_reset",
+]
+
+[adapters.rust]
+strategy = "itf-json-driver"
+target = "formal/rust-itf-replay"
+working_directory = "."
+command = [
+  "cargo",
+  "run",
+  "--quiet",
+  "--locked",
+  "--manifest-path",
+  "formal/rust-itf-replay/Cargo.toml",
+  "--bin",
+  "quint-itf-replay",
+  "--",
+]
+observable_state = [
+  "nextMutationId",
+  "pendingMutationIds",
+  "confirmedMutationIds",
+  "inFlightRequest",
+  "response",
+  "checkpoint",
+  "snapshotReplacementPhase",
+]
+status = "active"
+issue = "DEN-573"
+
+[adapters.typescript]
+strategy = "itf-json-driver"
+target = "formal/typescript-itf-replay.mjs"
+working_directory = "."
+command = ["node", "formal/typescript-itf-replay.mjs"]
+implementation = "clients/ts public OptoSyncClient package + Dexie + fake-indexeddb"
+observable_state = [
+  "nextMutationId",
+  "pendingMutationIds",
+  "confirmedMutationIds",
+  "allocatedMutationIds",
+  "inFlightRequest",
+  "response",
+  "checkpoint",
+  "snapshotReplacementPhase",
+]
+status = "active"
+issue = "DEN-583"
+
+[adapters.dart]
+strategy = "itf-json-driver"
+target = "clients/dart/tool/formal_itf_replay.dart"
+working_directory = "clients/dart"
+command = ["dart", "run", "tool/formal_itf_replay.dart"]
+implementation = "clients/dart OptoSyncClient + Drift + file-backed SQLite"
+observable_state = [
+  "nextMutationId",
+  "pendingMutationIds",
+  "confirmedMutationIds",
+  "allocatedMutationIds",
+  "inFlightRequest",
+  "response",
+  "checkpoint",
+  "snapshotReplacementPhase",
+]
+status = "active"
+issue = "DEN-586"
+
+[adapters.go]
+strategy = "itf-json-driver"
+status = "planned"
+
+[adapters.gleam]
+strategy = "itf-json-driver"
+target = "clients/gleam"
+status = "planned"

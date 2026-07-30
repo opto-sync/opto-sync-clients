@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "coreResolutionPolicy": "one certified core revision per installed release set",
+  "targets": {
+    "typescript": {
+      "root": "clients/ts",
+      "strategy": "bundled-source",
+      "core": ["syncer.c/core", "syncer.c/bindings/typescript", "syncer.c/bindings/wasm"],
+      "consumer": ["npm ci", "npm run build", "npm test"],
+      "platforms": ["linux", "macos", "windows", "browser"],
+      "unsupportedBehavior": "fail package installation or native-addon load with an explicit platform error"
+    },
+    "rust": {
+      "root": "clients/rust",
+      "strategy": "bundled-source",
+      "core": ["syncer.c/core", "syncer.c/bindings/rust"],
+      "consumer": ["cargo test --locked --all-targets", "cargo test --locked --no-default-features --all-targets", "cargo clippy --locked --all-targets --all-features -- -D warnings"],
+      "platforms": ["linux", "macos", "windows"],
+      "unsupportedBehavior": "fail compilation with a documented target-platform diagnostic"
+    },
+    "dart": {
+      "root": "clients/dart",
+      "strategy": "bundled-source",
+      "core": ["syncer.c/core", "syncer.c/bindings/dart", "syncer.c/bindings/wasm"],
+      "consumer": ["dart pub get", "dart analyze", "dart test", "node tool/web_e2e.mjs"],
+      "platforms": ["linux", "macos", "windows", "browser", "flutter-mobile"],
+      "unsupportedBehavior": "refuse FFI initialization or browser startup with a typed actionable error"
+    },
+    "gleam": {
+      "root": "clients/gleam",
+      "strategy": "bundled-source",
+      "core": ["syncer.c/core", "syncer.c/bindings/beam", "syncer.c/bindings/gleam"],
+      "consumer": ["mix compile", "gleam deps download", "gleam format --check src test", "gleam test"],
+      "platforms": ["linux", "macos"],
+      "unsupportedBehavior": "fail NIF loading with a documented BEAM platform diagnostic"
+    }
+  },
+  "requiredFiles": ["LICENSE", "README.md", "release-set.json"],
+  "invariants": [
+    "no manifest path may escape the extracted target root",
+    "every target records the exact syncer.c source SHA",
+    "targets and whole-repository package must not resolve different core revisions",
+    "every target double-packs byte-identically",
+    "every extracted target passes its consumer commands without Git metadata or sibling repositories"
+  ]
+}

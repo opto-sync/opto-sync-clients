@@ -60,7 +60,7 @@
   ],
   "license": "MIT",
   "dependencies": {
-    "@opto-sync/syncer-wasm": "file:../../../syncer.c/bindings/wasm",
+    "@opto-sync/syncer-wasm": "file:../../syncer.c/bindings/wasm",
     "dexie": "^4.4.4"
   },
   "devDependencies": {
@@ -72,6 +72,6 @@
     "typescript": "^5.5.4"
   },
   "optionalDependencies": {
-    "@opto-sync/syncer": "file:../../../syncer.c/bindings/typescript"
+    "@opto-sync/syncer": "file:../../syncer.c/bindings/typescript"
   }
 }

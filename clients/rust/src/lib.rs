@@ -31,6 +31,10 @@ pub use syncer_rs::version as core_version;
 pub use syncer_rs::ArrayMergeStrategy as ArrayStrategy;
 
 pub mod clock;
+pub mod protocol;
+pub mod protocol_sync;
+#[cfg(feature = "sqlite")]
+pub mod sqlite;
 pub use clock::{
     compare_hlc, compose_node_id, format_hlc, parse_hlc, random_node_id, system_now_ms, ClockError,
     ClockPersistence, HlcParts, HybridLogicalClock, NoPersistence, SystemClock,
@@ -47,7 +51,9 @@ pub struct ReconcileOptions {
     pub array_match_keys: String,
     /// Enable CRDT-like timestamp resolution. Default: `true`.
     pub resolve_by_timestamp: bool,
-    /// Comma-separated Last-Write-Wins keys. Default: `"updatedAt,syncedAt"`.
+    /// Comma-separated Last-Write-Wins selectors. A plain selector is a direct
+    /// key; `#/path/to/key` is an RFC 6901 JSON Pointer relative to each merge
+    /// node. Default: `"updatedAt,syncedAt"`.
     pub lww_keys: String,
     /// Comma-separated First-Write-Wins keys. **Default: empty** — see below.
     ///
@@ -294,8 +300,13 @@ fn observe_tree(
             }
         }
         serde_json::Value::Object(map) => {
-            for key in keys {
-                if let Some(serde_json::Value::String(ts)) = map.get(*key) {
+            for selector in keys {
+                let timestamp = if let Some(pointer) = selector.strip_prefix('#') {
+                    node.pointer(pointer)
+                } else {
+                    map.get(*selector)
+                };
+                if let Some(serde_json::Value::String(ts)) = timestamp {
                     clock.observe(ts)?;
                 }
             }
@@ -429,7 +440,11 @@ impl<S: MutationStore> OptoSyncClient<S> {
             Box::new(NoPersistence),
         )
         .ok();
-        Self { store, options, clock }
+        Self {
+            store,
+            options,
+            clock,
+        }
     }
 
     /// Install a clock — typically one with durable persistence and a device id
@@ -508,7 +523,10 @@ impl<S: MutationStore> OptoSyncClient<S> {
         let obj = payload.as_object_mut().ok_or(ClientError::NotAJsonObject)?;
         if let Some(clock) = self.clock.as_mut() {
             if !obj.contains_key("updatedAt") {
-                obj.insert("updatedAt".to_string(), serde_json::Value::String(clock.next()));
+                obj.insert(
+                    "updatedAt".to_string(),
+                    serde_json::Value::String(clock.next()),
+                );
             }
         }
         Ok(self.store.queue_mutation(payload.to_string()))
@@ -532,7 +550,9 @@ impl<S: MutationStore> OptoSyncClient<S> {
     pub fn observe_incoming(&mut self, payload: &str) -> Result<(), ClientError> {
         let value: serde_json::Value =
             serde_json::from_str(payload).map_err(|_| ClientError::InvalidJson)?;
-        let Some(clock) = self.clock.as_mut() else { return Ok(()) };
+        let Some(clock) = self.clock.as_mut() else {
+            return Ok(());
+        };
         let keys: Vec<&str> = self
             .options
             .lww_keys
@@ -608,7 +628,10 @@ mod tests {
 
         let view =
             rebase_pending(server, [first, second], &ReconcileOptions::default(), false).unwrap();
-        assert!(view.contains("second edit"), "newest queued edit must win: {view}");
+        assert!(
+            view.contains("second edit"),
+            "newest queued edit must win: {view}"
+        );
     }
 
     #[test]
@@ -617,7 +640,10 @@ mod tests {
         let pending = r#"{"id":"r1","title":"mine","updatedAt":"1"}"#;
 
         let view = rebase_pending(server, [pending], &ReconcileOptions::default(), false).unwrap();
-        assert!(view.contains("alice"), "untouched server fields must survive: {view}");
+        assert!(
+            view.contains("alice"),
+            "untouched server fields must survive: {view}"
+        );
         assert!(view.contains("mine"));
     }
 
@@ -634,7 +660,10 @@ mod tests {
         let pending = r#"{"id":"r1","title":"stale local","updatedAt":"1000"}"#;
 
         let view = rebase_pending(server, [pending], &ReconcileOptions::default(), true).unwrap();
-        assert!(view.contains("server title"), "opt-in gating must reject it: {view}");
+        assert!(
+            view.contains("server title"),
+            "opt-in gating must reject it: {view}"
+        );
     }
 
     #[test]
@@ -651,7 +680,9 @@ mod tests {
     #[test]
     fn local_view_rebases_the_client_queue() {
         let mut client = OptoSyncClient::new(InMemoryStore::new());
-        client.queue_mutation(r#"{"id":"t1","title":"my edit","updatedAt":"1"}"#.to_string()).unwrap();
+        client
+            .queue_mutation(r#"{"id":"t1","title":"my edit","updatedAt":"1"}"#.to_string())
+            .unwrap();
 
         let server = r#"{"id":"t1","title":"server title","done":false,"updatedAt":"9000"}"#;
         let view = client.local_view(server).unwrap();
@@ -663,7 +694,9 @@ mod tests {
     #[test]
     fn local_view_settles_on_server_state_once_synced() {
         let mut client = OptoSyncClient::new(InMemoryStore::new());
-        let id = client.queue_mutation(r#"{"id":"t1","title":"my edit","updatedAt":"1"}"#.to_string()).unwrap();
+        let id = client
+            .queue_mutation(r#"{"id":"t1","title":"my edit","updatedAt":"1"}"#.to_string())
+            .unwrap();
         let server = r#"{"id":"t1","title":"server title","updatedAt":"9000"}"#;
         assert!(client.local_view(server).unwrap().contains("my edit"));
 
@@ -748,7 +781,10 @@ mod tests {
             &ReconcileOptions::default(),
         )
         .unwrap();
-        assert!(merged.contains(r#""v":"NEWEST""#), "newer write must land: {merged}");
+        assert!(
+            merged.contains(r#""v":"NEWEST""#),
+            "newer write must land: {merged}"
+        );
         assert!(!merged.contains(r#""v":"base""#), "{merged}");
     }
 
@@ -807,8 +843,10 @@ mod tests {
 
     #[test]
     fn custom_match_keys() {
-        let mut opts = ReconcileOptions::default();
-        opts.array_match_keys = "uuid,id".to_string();
+        let opts = ReconcileOptions {
+            array_match_keys: "uuid,id".to_string(),
+            ..ReconcileOptions::default()
+        };
         let merged = reconcile(
             r#"{"rows":[{"uuid":"u1","id":1,"v":"a"}]}"#,
             r#"{"rows":[{"uuid":"u1","id":999,"v":"b"}]}"#,
@@ -858,13 +896,23 @@ mod tests {
         // comparison lets an ISO-8601 writer beat an HLC writer until 2286.
         let mut client = OptoSyncClient::new(InMemoryStore::new())
             .with_clock(fixed_clock("rust1", 1_721_822_400_000));
-        client.queue_mutation(r#"{"id":"t1","title":"no timestamp"}"#.to_string()).unwrap();
+        client
+            .queue_mutation(r#"{"id":"t1","title":"no timestamp"}"#.to_string())
+            .unwrap();
 
         let stamped = queued_payload(&client);
-        let ts = stamped["updatedAt"].as_str().expect("updatedAt must be stamped");
+        let ts = stamped["updatedAt"]
+            .as_str()
+            .expect("updatedAt must be stamped");
         assert_eq!(ts, "1721822400000-0000-rust1");
-        assert!(parse_hlc(ts).is_some(), "the stamp must be a parseable HLC: {ts}");
-        assert_eq!(stamped["title"], "no timestamp", "other fields must survive");
+        assert!(
+            parse_hlc(ts).is_some(),
+            "the stamp must be a parseable HLC: {ts}"
+        );
+        assert_eq!(
+            stamped["title"], "no timestamp",
+            "other fields must survive"
+        );
     }
 
     #[test]
@@ -893,7 +941,10 @@ mod tests {
         // client that silently does not stamp loses every conflict to one that
         // does.
         let mut client = OptoSyncClient::new(InMemoryStore::new());
-        assert!(client.client_id().is_some(), "the default client must have a clock");
+        assert!(
+            client.client_id().is_some(),
+            "the default client must have a clock"
+        );
         client.queue_mutation(r#"{"id":"t1"}"#.to_string()).unwrap();
         assert!(queued_payload(&client)["updatedAt"].is_string());
     }
@@ -909,13 +960,19 @@ mod tests {
     #[test]
     fn queue_mutation_reports_payloads_it_cannot_stamp() {
         let mut client = OptoSyncClient::new(InMemoryStore::new());
-        assert_eq!(client.queue_mutation("{not json".to_string()), Err(ClientError::InvalidJson));
+        assert_eq!(
+            client.queue_mutation("{not json".to_string()),
+            Err(ClientError::InvalidJson)
+        );
         assert_eq!(
             client.queue_mutation("[1,2,3]".to_string()),
             Err(ClientError::NotAJsonObject),
             "a non-object payload must be reported, not quietly queued unstamped"
         );
-        assert!(client.store().pending().is_empty(), "nothing may be queued on error");
+        assert!(
+            client.store().pending().is_empty(),
+            "nothing may be queued on error"
+        );
     }
 
     #[test]
@@ -927,12 +984,14 @@ mod tests {
         let mut slow = OptoSyncClient::new(InMemoryStore::new())
             .with_clock(fixed_clock("slow", 1_721_822_400_000));
 
-        fast.queue_mutation(r#"{"id":"r1","title":"from fast device"}"#.to_string()).unwrap();
+        fast.queue_mutation(r#"{"id":"r1","title":"from fast device"}"#.to_string())
+            .unwrap();
         let fast_edit = fast.store().pending()[0].payload.clone();
 
         // The slow device sees the fast write, then makes a genuinely later edit.
         slow.observe_incoming(&fast_edit).unwrap();
-        slow.queue_mutation(r#"{"id":"r1","title":"from slow device"}"#.to_string()).unwrap();
+        slow.queue_mutation(r#"{"id":"r1","title":"from slow device"}"#.to_string())
+            .unwrap();
         let slow_edit = slow.store().pending()[0].payload.clone();
 
         for (base, incoming) in [(&fast_edit, &slow_edit), (&slow_edit, &fast_edit)] {
@@ -952,12 +1011,42 @@ mod tests {
             .with_clock(fixed_clock("me", 1_721_822_400_000));
         let remote = "1721822405000-00ff-peer";
         client
-            .observe_incoming(&format!(r#"{{"rows":[{{"id":"a","updatedAt":"{remote}"}}]}}"#))
+            .observe_incoming(&format!(
+                r#"{{"rows":[{{"id":"a","updatedAt":"{remote}"}}]}}"#
+            ))
             .unwrap();
 
-        client.queue_mutation(r#"{"id":"a","v":1}"#.to_string()).unwrap();
-        let stamp = queued_payload(&client)["updatedAt"].as_str().unwrap().to_string();
-        assert!(stamp > remote.to_string(), "{stamp} must outrank observed {remote}");
+        client
+            .queue_mutation(r#"{"id":"a","v":1}"#.to_string())
+            .unwrap();
+        let stamp = queued_payload(&client)["updatedAt"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            stamp.as_str() > remote,
+            "{stamp} must outrank observed {remote}"
+        );
+    }
+
+    #[test]
+    fn observe_incoming_follows_json_pointer_timestamp_selectors() {
+        let options = ReconcileOptions {
+            lww_keys: "#/_sync/updatedAt".to_string(),
+            ..ReconcileOptions::default()
+        };
+        let mut client = OptoSyncClient::with_options(InMemoryStore::new(), options)
+            .with_clock(fixed_clock("me", 1_721_822_400_000));
+        let poisoned = "9999999999999-00ff-peer";
+        let error = client
+            .observe_incoming(&format!(
+                r#"{{"rows":[{{"id":"a","_sync":{{"updatedAt":"{poisoned}"}}}}]}}"#
+            ))
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            ClientError::Clock(ClockError::Drift { .. })
+        ));
     }
 
     #[test]
@@ -972,11 +1061,20 @@ mod tests {
         let err = client
             .observe_incoming(&format!(r#"{{"id":"a","updatedAt":"{poisoned}"}}"#))
             .unwrap_err();
-        assert!(matches!(err, ClientError::Clock(ClockError::Drift { .. })), "{err:?}");
+        assert!(
+            matches!(err, ClientError::Clock(ClockError::Drift { .. })),
+            "{err:?}"
+        );
 
         client.queue_mutation(r#"{"id":"a"}"#.to_string()).unwrap();
-        let stamp = queued_payload(&client)["updatedAt"].as_str().unwrap().to_string();
-        assert!(stamp < poisoned, "a refused timestamp must not be adopted: {stamp}");
+        let stamp = queued_payload(&client)["updatedAt"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            stamp < poisoned,
+            "a refused timestamp must not be adopted: {stamp}"
+        );
     }
 
     #[test]

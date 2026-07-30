@@ -68,7 +68,11 @@ impl fmt::Display for ClockError {
             ClockError::InvalidNodeId(id) => {
                 write!(f, "node id must be non-empty and contain no '-': {id:?}")
             }
-            ClockError::Drift { remote, drift_ms, max_drift_ms } => write!(
+            ClockError::Drift {
+                remote,
+                drift_ms,
+                max_drift_ms,
+            } => write!(
                 f,
                 "remote timestamp {remote} is {drift_ms}ms ahead of local time \
                  (max {max_drift_ms}ms); refusing to adopt it"
@@ -252,7 +256,14 @@ impl<P: ClockPersistence> HybridLogicalClock<P> {
             None => (0, 0),
         };
         let _ = &mut persistence;
-        Ok(Self { node_id, millis, counter, max_drift_ms, now_fn, persistence })
+        Ok(Self {
+            node_id,
+            millis,
+            counter,
+            max_drift_ms,
+            now_fn,
+            persistence,
+        })
     }
 
     pub fn node_id(&self) -> &str {
@@ -265,11 +276,18 @@ impl<P: ClockPersistence> HybridLogicalClock<P> {
     }
 
     pub fn peek(&self) -> HlcParts {
-        HlcParts { millis: self.millis, counter: self.counter, node_id: self.node_id.clone() }
+        HlcParts {
+            millis: self.millis,
+            counter: self.counter,
+            node_id: self.node_id.clone(),
+        }
     }
 
     /// Issue the next timestamp: strictly greater than every timestamp this
     /// clock has issued or observed, even if the wall clock jumped backwards.
+    // This is a clock API, not an iterator: every call advances and persists
+    // the HLC, so implementing Iterator would obscure the fallible side effect.
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> String {
         let physical = (self.now_fn)();
         if physical > self.millis {
@@ -305,7 +323,9 @@ impl<P: ClockPersistence> HybridLogicalClock<P> {
     /// this clock having observed the remote value, so a caller that just wants
     /// to keep going can log the error and continue.
     pub fn observe(&mut self, remote: &str) -> Result<(), ClockError> {
-        let Some(parsed) = parse_hlc(remote) else { return Ok(()) };
+        let Some(parsed) = parse_hlc(remote) else {
+            return Ok(());
+        };
 
         let now = (self.now_fn)();
         if parsed.millis > now && parsed.millis - now > self.max_drift_ms {
@@ -358,8 +378,7 @@ mod tests {
     #[test]
     fn monotonic_within_one_millisecond() {
         let ms = Rc::new(Cell::new(1_721_822_400_000u64));
-        let mut c =
-            HybridLogicalClock::new("aaaa", clock_at(ms.clone()), NoPersistence).unwrap();
+        let mut c = HybridLogicalClock::new("aaaa", clock_at(ms.clone()), NoPersistence).unwrap();
         let a = c.next();
         let b = c.next();
         assert!(a < b, "{a} < {b}");
@@ -370,8 +389,7 @@ mod tests {
     #[test]
     fn survives_a_backwards_wall_clock() {
         let ms = Rc::new(Cell::new(1_721_822_400_000u64));
-        let mut c =
-            HybridLogicalClock::new("aaaa", clock_at(ms.clone()), NoPersistence).unwrap();
+        let mut c = HybridLogicalClock::new("aaaa", clock_at(ms.clone()), NoPersistence).unwrap();
         let before = c.next();
         ms.set(1_721_822_100_000); // five minutes into the past
         let after = c.next();
@@ -381,23 +399,25 @@ mod tests {
     #[test]
     fn observe_advances_past_a_remote_timestamp() {
         let ms = Rc::new(Cell::new(1_721_822_400_000u64));
-        let mut c =
-            HybridLogicalClock::new("aaaa", clock_at(ms.clone()), NoPersistence).unwrap();
+        let mut c = HybridLogicalClock::new("aaaa", clock_at(ms.clone()), NoPersistence).unwrap();
         // 10s ahead: ordinary skew, well inside the drift bound.
         let remote = "1721822410000-00ff-bbbb";
         c.observe(remote).unwrap();
         let next = c.next();
-        assert!(next > remote.to_string(), "{next} must outrank {remote}");
+        assert!(next.as_str() > remote, "{next} must outrank {remote}");
     }
 
     #[test]
     fn observe_ignores_incomparable_timestamps() {
         let ms = Rc::new(Cell::new(1_721_822_400_000u64));
-        let mut c =
-            HybridLogicalClock::new("aaaa", clock_at(ms.clone()), NoPersistence).unwrap();
+        let mut c = HybridLogicalClock::new("aaaa", clock_at(ms.clone()), NoPersistence).unwrap();
         c.observe("2026-07-25T00:00:00Z").unwrap();
         c.observe("1721822400000").unwrap();
-        assert_eq!(c.peek().millis, 0, "clock must not adopt an incomparable scale");
+        assert_eq!(
+            c.peek().millis,
+            0,
+            "clock must not adopt an incomparable scale"
+        );
     }
 
     #[test]
@@ -407,8 +427,7 @@ mod tests {
         // the poisoned timestamp forever.
         let wall = 1_721_822_400_000u64;
         let ms = Rc::new(Cell::new(wall));
-        let mut c =
-            HybridLogicalClock::new("aaaa", clock_at(ms.clone()), NoPersistence).unwrap();
+        let mut c = HybridLogicalClock::new("aaaa", clock_at(ms.clone()), NoPersistence).unwrap();
 
         let poisoned = format!("{}-0000-evil", wall + DEFAULT_MAX_DRIFT_MS + 60_000);
         let err = c.observe(&poisoned).unwrap_err();
@@ -416,7 +435,11 @@ mod tests {
             matches!(err, ClockError::Drift { .. }),
             "expected a drift refusal, got {err:?}"
         );
-        assert_eq!(c.peek().millis, 0, "a refused timestamp must not be adopted");
+        assert_eq!(
+            c.peek().millis,
+            0,
+            "a refused timestamp must not be adopted"
+        );
 
         // Within the bound is still adopted — ordinary skew must not break sync.
         let tolerable = format!("{}-0000-bbbb", wall + 5_000);
@@ -429,8 +452,7 @@ mod tests {
         // A remote clock *behind* ours is not drift: only future-skew poisons
         // the order, and the subtraction must not underflow.
         let ms = Rc::new(Cell::new(1_721_822_400_000u64));
-        let mut c =
-            HybridLogicalClock::new("aaaa", clock_at(ms.clone()), NoPersistence).unwrap();
+        let mut c = HybridLogicalClock::new("aaaa", clock_at(ms.clone()), NoPersistence).unwrap();
         c.observe("1000000000000-0001-bbbb").unwrap();
         assert_eq!(c.peek().millis, 1_000_000_000_000);
     }
@@ -451,18 +473,23 @@ mod tests {
 
         let a = compose_node_id("device1", None);
         let b = compose_node_id("device1", None);
-        assert_ne!(a, b, "two instances sharing a device id must not share a node id");
+        assert_ne!(
+            a, b,
+            "two instances sharing a device id must not share a node id"
+        );
         assert!(!a.contains('-'), "{a}");
     }
 
     #[test]
     fn two_nodes_never_tie() {
         let ms = Rc::new(Cell::new(1_721_822_400_000u64));
-        let mut a =
-            HybridLogicalClock::new("aaaa", clock_at(ms.clone()), NoPersistence).unwrap();
-        let mut b =
-            HybridLogicalClock::new("bbbb", clock_at(ms.clone()), NoPersistence).unwrap();
-        assert_ne!(a.next(), b.next(), "a tie would make the merge order-dependent");
+        let mut a = HybridLogicalClock::new("aaaa", clock_at(ms.clone()), NoPersistence).unwrap();
+        let mut b = HybridLogicalClock::new("bbbb", clock_at(ms.clone()), NoPersistence).unwrap();
+        assert_ne!(
+            a.next(),
+            b.next(),
+            "a tie would make the merge order-dependent"
+        );
     }
 
     #[test]
@@ -479,12 +506,9 @@ mod tests {
             c.next()
         };
         ms.set(1_721_800_000_000); // restart with the clock moved backwards
-        let mut reloaded = HybridLogicalClock::new(
-            "aaaa",
-            clock_at(ms.clone()),
-            VecPersistence(store.clone()),
-        )
-        .unwrap();
+        let mut reloaded =
+            HybridLogicalClock::new("aaaa", clock_at(ms.clone()), VecPersistence(store.clone()))
+                .unwrap();
         let after = reloaded.next();
         assert!(after > last, "{after} must outrank pre-restart {last}");
     }
@@ -500,7 +524,11 @@ mod tests {
     fn format_matches_the_typescript_and_dart_clients() {
         // Byte-identical formatting is what lets a Rust client's timestamps
         // order against a browser client's.
-        let parts = HlcParts { millis: 1_721_822_400_000, counter: 255, node_id: "9f3a2b".into() };
+        let parts = HlcParts {
+            millis: 1_721_822_400_000,
+            counter: 255,
+            node_id: "9f3a2b".into(),
+        };
         assert_eq!(format_hlc(&parts), "1721822400000-00ff-9f3a2b");
         assert_eq!(parse_hlc("1721822400000-00ff-9f3a2b").unwrap(), parts);
     }

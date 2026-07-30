@@ -1,0 +1,29 @@
+name: Target layout contract
+
+on:
+  pull_request:
+    paths:
+      - 'targets/**'
+      - 'scripts/check-target-layouts.py'
+      - '.github/workflows/target-layout-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'targets/**'
+      - 'scripts/check-target-layouts.py'
+      - '.github/workflows/target-layout-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Validate clean-room target layout specification
+        run: python3 scripts/check-target-layouts.py

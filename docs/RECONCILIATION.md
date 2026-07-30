@@ -21,7 +21,7 @@ Every client **and** every opto-sync server applies exactly this:
 | `arrayMatchKeys` | `"id"` | the identity key |
 | `resolveByTimestamp` | `true` | timestamp resolution on |
 | `lwwKeys` | `"updatedAt,syncedAt"` | Last-Write-Wins |
-| `fwwKeys` | `"createdAt"` | First-Write-Wins |
+| `fwwKeys` | unset | FWW remains opt-in because it vetoes an entire incoming node |
 
 | Client | Where it is declared |
 | --- | --- |
@@ -45,7 +45,7 @@ explicitly rather than inheriting it.
 
 This is pinned in
 [`clients/ts/test/reconcile.test.js`](../clients/ts/test/reconcile.test.js) by the
-test *"defaults: mergeByKey on id, updatedAt/syncedAt LWW, createdAt FWW"*, whose
+test *"defaults: mergeByKey on id, updatedAt/syncedAt LWW, no FWW"*, whose
 comment states the contract outright:
 
 > These defaults are a cross-tier contract: the Dart client, the Rust client, and
@@ -172,7 +172,7 @@ including objects nested inside arrays:
 | --- | --- | --- |
 | `updatedAt` | LWW | if the base's is newer, the incoming node is rejected |
 | `syncedAt` | LWW | same guard, for a server-stamped sync time |
-| `createdAt` | FWW | if the *incoming* is newer, the incoming node is rejected — protects an original creation record from a later claim |
+| `createdAt` | metadata by default | merged like an ordinary field unless a caller explicitly adds it to `fwwKeys` |
 
 So a record inside a jsonb array should look like:
 
@@ -181,19 +181,18 @@ So a record inside a jsonb array should look like:
 ```
 
 `id` gives it identity for `MERGE_BY_KEY`; `updatedAt` gives it its own LWW guard
-so it is resolved independently of its siblings; `createdAt` keeps its birth
-record. In the worked example above, this is precisely why `a` could be rejected
-while `b` was accepted in the same merge.
+so it is resolved independently of its siblings. `createdAt` may be retained as
+metadata, but it does not guard the node under the default policy.
 
 Three consequences:
 
 * **A guard only applies when both sides carry the key.** An element with no
   `updatedAt` on either side is a plain last-writer-wins deep merge, so arrival
   order decides.
-* **`createdAt` FWW rejects a *newer* incoming value, and accepts an older one.**
-  Verified: base `createdAt: 2026-01-01`, incoming `createdAt: 2025-06-01` — the
-  incoming node wins, `owner` becomes the incoming value and `createdAt` becomes
-  `2025-06-01`. FWW means "earliest sticks", not "the base always sticks".
+* **Explicit `createdAt` FWW rejects a *newer* incoming value and accepts an
+  older one by vetoing or accepting the whole node.** This is not field
+  immutability. A replica with a later creation claim can otherwise be unable
+  to land even a much newer `updatedAt`, which is why FWW is not the default.
 * **Use one format consistently per key.** ISO-8601 and epoch numbers mixed
   across replicas compare lexicographically and are not chronologically
   meaningful. All three clients' test suites use ISO-8601 or plain integers,

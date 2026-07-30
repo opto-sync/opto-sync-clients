@@ -1,16 +1,21 @@
 # Getting started
 
-Adoption guide for the three opto-sync **client** libraries — the packages an
+Adoption guide for the four opto-sync **client** libraries — the packages an
 external project imports.
 
 | Client | Package / crate | Local store | Merge engine |
 | --- | --- | --- | --- |
 | TypeScript | `@opto-sync/client` (`clients/ts`) | Dexie / IndexedDB | native N-API addon in Node, WebAssembly in the browser |
-| Dart | `opto_sync_client` (`clients/dart`) | Drift / SQLite | `libsyncer` shared library over `dart:ffi` |
-| Rust | `opto-sync-client` (`clients/rust`) | your own `MutationStore` impl | statically linked C core via `syncer-rs` |
+| Dart | `opto_sync_client` (`clients/dart`) | Drift / SQLite natively; Drift SQLite persisted in IndexedDB on web | `libsyncer` over `dart:ffi`, or WebAssembly in a browser |
+| Rust | `opto-sync-client` (`clients/rust`) | first-party SQLite protocol store, or your own store | statically linked C core via `syncer-rs` |
+| Gleam | `opto_sync_client` (`clients/gleam`) | versioned queue snapshot in your BEAM store | Rustler NIF via the typed Gleam binding |
 
-All three are **queue + reconcile only**. They ship **no transport** — you supply
-the HTTP layer. See [OFFLINE_QUEUE.md](OFFLINE_QUEUE.md) for a reference pattern.
+All four ship no concrete HTTP transport—you supply endpoints,
+authentication/token refresh, and authoritative-store callbacks. TypeScript
+and Dart include transport-neutral `ProtocolSyncLoop` coordinators. Rust
+provides `ProtocolSyncDriver`, a runtime-neutral pull/push/pull cycle whose
+queue persistence boundary is explicit. See [OFFLINE_QUEUE.md](OFFLINE_QUEUE.md)
+for the contract.
 
 ## Prerequisite: `syncer.c` as a sibling checkout
 
@@ -28,6 +33,7 @@ resolves without it:
 | ts | `file:../../../syncer.c/bindings/wasm` (required), `file:../../../syncer.c/bindings/typescript` (optional) |
 | dart | `path: ../../../syncer.c/bindings/dart` |
 | rust | `path = "../../../syncer.c/bindings/rust"` |
+| gleam | `{ path = "../../../syncer.c/bindings/gleam" }` |
 
 Core version at the time of writing: **0.2.1** (`engineVersion()` /
 `syncer.nativeVersion` / `core_version()` all report it).
@@ -138,7 +144,7 @@ Persisting the result is your job.
 ### Tests
 
 ```sh
-cd clients/ts && npm test        # 43 tests, 0 failures
+cd clients/ts && npm test        # 76 tests, 0 failures
 ```
 
 Headless-Chromium coverage skips loudly if a browser cannot be launched; install
@@ -231,16 +237,19 @@ todos todo-1 true
 buy milk
 ```
 
-The Dart `OptoSyncClient` exposes only `queueMutation` and `reconcileIncoming`;
-queue reads and status transitions go through the publicly exposed
-`OptoSyncDatabase` with ordinary Drift queries, as above.
+The Dart `OptoSyncClient` also exposes protocol-aware `queueDelete`,
+`pendingMutations`, `protocolPushRequest`, `acknowledgePush(response, request)`,
+`pullCheckpoint`, and `setPullCheckpoint`. The publicly exposed
+`OptoSyncDatabase` remains available for application-specific transactions.
+Use `queueMutationAtomic` / `queueDeleteAtomic` when the application row uses
+that same SQLite connection, so the row and queue intent commit together.
 `reconcileIncoming` is declared `Future` but does no I/O — the merge itself is a
 synchronous FFI call.
 
 ### Tests
 
 ```sh
-cd clients/dart && dart test        # 8 tests, All tests passed!
+cd clients/dart && dart test        # 52 tests, All tests passed!
 ```
 
 Set `SYNCER_LIB_PATH` if the core is not under a discoverable
@@ -254,8 +263,10 @@ opens the same file from three successive connections.
 
 ### Install
 
-Edition 2021. The only dependency is the sibling binding, which statically links
-the C core, so there is nothing to `dlopen` at runtime.
+Edition 2021. The sibling binding statically links the C core, so there is
+nothing to `dlopen` at runtime. The default `sqlite` feature bundles SQLite
+through `rusqlite`; set `default-features = false` for a core-only,
+application-supplied store.
 
 ```toml
 [dependencies]
@@ -301,17 +312,72 @@ pending after flush: 0
 {"id":"todo-1","title":"buy milk","updatedAt":"2026-07-24T12:00:00Z"}
 ```
 
-The Rust API is string-in / string-out (`&str` -> `String`): no serde types
-appear in the public surface. `InMemoryStore` is for tests and toy clients —
-implement [`MutationStore`](OFFLINE_QUEUE.md#rust) over your own persistence for
-anything real.
+The reconciliation API remains string-in / string-out (`&str` -> `String`).
+The public `protocol` module separately provides serde-compatible wire types and
+a serializable `ProtocolQueue`. `InMemoryStore` is for tests and toy clients.
+
+For production local-first protocol state, open the first-party SQLite store:
+
+```rust
+use opto_sync_client::sqlite::SqliteProtocolStore;
+
+let mut store = SqliteProtocolStore::open("opto-sync.sqlite", "stable-install-id")?;
+store.queue_upsert_record(
+    "tasks",
+    "todo-1",
+    serde_json::json!({"title": "buy milk"}),
+    None,
+    false,
+)?;
+let mut queue = store.load_queue()?;
+let result = driver.sync_cycle_atomic(&mut queue, &mut transport, &mut store)?;
+```
+
+`queue_upsert_with` / `queue_delete_with` let application SQL run in the same
+transaction as mutation allocation. The store also commits pull pages,
+snapshots, accepted/rejected overlays, and checkpoints atomically. HTTP,
+executor, lifecycle scheduling, and ORM integration remain application seams.
 
 ### Tests
 
 ```sh
 cd clients/rust && cargo test --offline
-# 7 passed (src/lib.rs) + 2 passed (tests/durability.rs) + 1 passed (doc-test)
+# 60 unit + 2 generic durability + 10 first-party SQLite integration tests
 ```
+
+---
+
+## Gleam — `opto_sync_client`
+
+The Gleam client targets Erlang/OTP and invokes the same core through the typed
+Gleam wrapper over the Rustler NIF. It owns no HTTP or database dependency.
+
+```gleam
+import gleam/option.{None}
+import opto_sync_client
+
+let assert Ok(queue) = opto_sync_client.new("stable-installation-id")
+let assert Ok(#(queue, _)) =
+  opto_sync_client.enqueue_upsert(
+    queue,
+    "todos",
+    "todo-1",
+    "{\"title\":\"buy milk\",\"updatedAt\":2}",
+    None,
+    False,
+  )
+let snapshot = opto_sync_client.encode_queue(queue)
+// Commit `snapshot` with the optimistic row in your Ecto/SQL transaction.
+
+let assert Ok(restored) = opto_sync_client.decode_queue(snapshot)
+let assert Ok(request) = opto_sync_client.build_push_request(restored, 100)
+let body = opto_sync_client.encode_push_request(request)
+```
+
+`decode_push_response` and `acknowledge` validate the exact immutable batch.
+`reconcile` invokes the native NIF. The Linux container suite currently passes
+13 queue/restart/wire/native cases, and the e2e suite pushes, retries, pulls,
+and deletes through the live PostgreSQL protocol server.
 
 ---
 
