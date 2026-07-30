@@ -61,7 +61,7 @@ Future<WriteReceipt> write(
     recordId,
     payload,
     baseRevision: baseRevision,
-    resurrect: resurrect,
+    resurrect: resurrect ?? false,
   );
   return _settle(client, loop, optimism, queuedMutationId);
 }
