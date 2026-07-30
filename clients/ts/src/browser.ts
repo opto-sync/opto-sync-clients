@@ -54,6 +54,7 @@ export {
   reconcileIncoming,
   rebasePending,
   resolveReconcileOptions,
+  engineVersion,
 } from './reconcile-core.js';
 export type {
   JsonRecord,
