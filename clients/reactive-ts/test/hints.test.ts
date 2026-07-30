@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { BehaviorSubject, Subject, firstValueFrom, take, toArray } from 'rxjs';
+import { BehaviorSubject, Subject, firstValueFrom, take } from 'rxjs';
 
 import {
   SyncHint,
@@ -167,15 +167,20 @@ test('wake pipeline coalesces bursts and refuses overlapping protocol ownership'
 test('BroadcastChannel bus emits locally and to another tab without payloads', async () => {
   class Channel {
     static channels = new Map<string, Set<Channel>>();
+    readonly name: string;
     listeners = new Set<(event: { data: unknown }) => void>();
-    constructor(readonly name: string) {
+
+    constructor(name: string) {
+      this.name = name;
       const peers = Channel.channels.get(name) ?? new Set();
       peers.add(this);
       Channel.channels.set(name, peers);
     }
     postMessage(value: unknown) {
       for (const peer of Channel.channels.get(this.name) ?? []) {
-        if (peer !== this) for (const listener of peer.listeners) listener({ data: value });
+        if (peer !== this) {
+          for (const listener of peer.listeners) listener({ data: value });
+        }
       }
     }
     addEventListener(_type: 'message', listener: (event: { data: unknown }) => void) {
