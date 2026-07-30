@@ -1,8 +1,10 @@
 {
   "name": "@opto-sync/reactive",
   "version": "0.1.0",
+  "private": true,
   "description": "RxJS orchestration for opto-sync optimism policies, session-scoped source fusion, background sync, and live transport hints",
   "type": "module",
+  "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
     "./service-worker": "./src/service-worker.ts",
