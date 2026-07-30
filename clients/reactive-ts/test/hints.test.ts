@@ -182,16 +182,21 @@ test('custom live decoders cannot override source, reason, or session ownership'
   sessions.complete();
 });
 
-test('wake pipeline coalesces bursts and refuses overlapping protocol ownership', async () => {
+test('wake pipeline coalesces bursts, serializes ownership, and preserves a trailing wake', async () => {
   const hints = new Subject<SyncHint>();
   let cycles = 0;
+  let active = 0;
+  let maxActive = 0;
   const outcomes: unknown[] = [];
   const subscription = createSyncWakePipeline({
     hints: [hints],
     coalesceMs: 5,
     syncNow: async () => {
       cycles += 1;
+      active += 1;
+      maxActive = Math.max(maxActive, active);
       await new Promise((resolve) => setTimeout(resolve, 40));
+      active -= 1;
       return cycles;
     },
   }).subscribe((outcome) => outcomes.push(outcome));
@@ -205,13 +210,14 @@ test('wake pipeline coalesces bursts and refuses overlapping protocol ownership'
   hints.next({ ...hint, source: 'supabase' });
   await new Promise((resolve) => setTimeout(resolve, 10));
   hints.next({ ...hint, source: 'broadcast' });
-  await new Promise((resolve) => setTimeout(resolve, 80));
-  assert.equal(cycles, 1);
-  assert.equal(outcomes.length, 1);
+  await new Promise((resolve) => setTimeout(resolve, 110));
+  assert.equal(cycles, 2, 'a wake arriving during the first cycle is not lost');
+  assert.equal(outcomes.length, 2);
+  assert.equal(maxActive, 1, 'protocol cycles never overlap');
   subscription.unsubscribe();
 });
 
-test('BroadcastChannel bus emits locally and to another tab without payloads', async () => {
+test('BroadcastChannel bus sanitizes metadata for local and remote tabs', async () => {
   class Channel {
     static channels = new Map<string, Set<Channel>>();
     readonly name: string;
@@ -258,7 +264,8 @@ test('BroadcastChannel bus emits locally and to another tab without payloads', a
     'opto-test',
     (name) => new Channel(name),
   );
-  const received = firstValueFrom(second.hints$.pipe(take(1)));
+  const local = firstValueFrom(first.hints$.pipe(take(1)));
+  const remote = firstValueFrom(second.hints$.pipe(take(1)));
   first.publish({
     reason: 'local-mutation',
     source: 'local',
@@ -266,7 +273,14 @@ test('BroadcastChannel bus emits locally and to another tab without payloads', a
     table: 'todos',
     recordId: 'todo-1',
   });
-  assert.equal((await received).source, 'local');
+  assert.deepEqual(await local, {
+    reason: 'local-mutation',
+    source: 'broadcast',
+    sessionPartition: transportSessionKey(identity),
+    table: 'todos',
+    recordId: 'todo-1',
+  });
+  assert.equal((await remote).source, 'broadcast');
   first.close();
   second.close();
 });
