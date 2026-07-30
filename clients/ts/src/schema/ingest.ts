@@ -81,7 +81,7 @@ export const envelopeSchema = z
 export type IngestEnvelope = z.infer<typeof envelopeSchema>;
 
 export class IngestValidationError extends Error {
-  constructor(public readonly issues: z.core.$ZodIssue[]) {
+  constructor(public readonly issues: z.ZodIssue[]) {
     super(
       `envelope failed validation: ${issues
         .map((issue) => `${issue.path.join('.') || '<root>'}: ${issue.message}`)
