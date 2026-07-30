@@ -50,11 +50,12 @@ const recordSchema = z
     baseRevision: z.string().regex(/^(?:0|[1-9][0-9]*)$/).optional(),
     payload: z.record(z.string(), z.unknown()),
   })
+  .strict()
   .superRefine((record, context) => {
     if ((record.operation ?? 'upsert') === 'delete') {
       if (Object.keys(record.payload).length !== 0) {
         context.addIssue({
-          code: 'custom',
+          code: z.ZodIssueCode.custom,
           path: ['payload'],
           message: 'a delete record must carry an empty payload',
         });
