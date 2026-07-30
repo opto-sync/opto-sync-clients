@@ -10,10 +10,12 @@ import {
   switchMap,
 } from 'rxjs';
 
-import {
+import type {
   SyncRecordEvent,
   SyncSession,
   SyncSessionIdentity,
+} from './contracts.ts';
+import {
   recordEventDedupeKey,
   requireAuthenticated,
   sameProjectedValue,
