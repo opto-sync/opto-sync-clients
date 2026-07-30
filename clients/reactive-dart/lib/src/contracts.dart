@@ -97,17 +97,18 @@ SyncSessionIdentity requireAuthenticated(SyncSession session) {
       'sync authentication is degraded; privileged synchronization fails closed: $reason',
     );
   }
-  throw StateError('sync requires an authenticated session: ${session.runtimeType}');
+  throw StateError(
+      'sync requires an authenticated session: ${session.runtimeType}');
 }
 
 String _component(String value) => Uri.encodeComponent(value);
 
 /// Durable storage/queue partition. Session rotation does not strand work.
 String storagePartitionKey(SyncSessionIdentity identity) => <String>[
-  identity.provider,
-  identity.providerTenant,
-  identity.sharedUserId,
-].map(_component).join(':');
+      identity.provider,
+      identity.providerTenant,
+      identity.sharedUserId,
+    ].map(_component).join(':');
 
 /// Live transport generation. Session rotation cancels stale streams.
 String transportSessionKey(SyncSessionIdentity identity) =>
