@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": false,
+    "lib": ["ES2022", "DOM", "WebWorker"],
+    "types": ["node"],
+    "typeRoots": ["../ts/node_modules/@types"],
+    "baseUrl": ".",
+    "paths": {
+      "@opto-sync/client": ["../ts/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}
