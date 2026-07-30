@@ -11,8 +11,7 @@ enum BackgroundWakeReason {
 }
 
 final class BackgroundSyncContext {
-  BackgroundSyncContext(this.budget)
-      : deadline = DateTime.now().add(budget);
+  BackgroundSyncContext(this.budget) : deadline = DateTime.now().add(budget);
 
   final Duration budget;
   final DateTime deadline;
@@ -38,9 +37,8 @@ final class BackgroundSyncContext {
   }
 }
 
-typedef BackgroundSyncCycle<R> = Future<R> Function(
-  BackgroundSyncContext context,
-);
+typedef BackgroundSyncCycle<R> =
+    Future<R> Function(BackgroundSyncContext context);
 
 /// One bounded, single-flight HTTP push/pull cycle for a worker isolate.
 ///
@@ -147,22 +145,23 @@ ValueStream<BackgroundSyncOutcome<R>> createBackgroundSyncOutcomes<R>({
   return MergeStream<BackgroundWakeReason>(streams)
       .debounceTime(coalesce)
       .concatMap(
-        (wake) => Stream<BackgroundSyncOutcome<R>>.fromFuture(
-          runner.runOnce().then(
+        (wake) =>
+            Stream<BackgroundSyncOutcome<R>>.fromFuture(
+              runner.runOnce().then(
                 (result) => BackgroundSyncOutcome<R>(
                   wake: wake,
                   ok: true,
                   result: result,
                 ),
               ),
-        ).onErrorReturnWith(
-          (error, stackTrace) => BackgroundSyncOutcome<R>(
-            wake: wake,
-            ok: false,
-            error: error,
-            stackTrace: stackTrace,
-          ),
-        ),
+            ).onErrorReturnWith(
+              (error, stackTrace) => BackgroundSyncOutcome<R>(
+                wake: wake,
+                ok: false,
+                error: error,
+                stackTrace: stackTrace,
+              ),
+            ),
       )
       .shareValue();
 }

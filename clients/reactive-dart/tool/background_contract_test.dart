@@ -32,7 +32,8 @@ Future<void> _cooperativeCancellation() async {
     throw StateError('one mobile worker exposed two in-flight futures');
   }
   runner.cancel('test scheduler stop');
-  if (!observed.isCancelled || observed.cancellationReason != 'test scheduler stop') {
+  if (!observed.isCancelled ||
+      observed.cancellationReason != 'test scheduler stop') {
     throw StateError('native cancellation did not reach the Dart sync context');
   }
   release.complete();

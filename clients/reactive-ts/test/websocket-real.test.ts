@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
-import type { Socket } from 'node:net';
+import type { Duplex } from 'node:stream';
 import test from 'node:test';
 
 import { BehaviorSubject, firstValueFrom, take } from 'rxjs';
@@ -29,7 +29,7 @@ function textFrame(value: unknown): Buffer {
 }
 
 test('WebSocket hint source receives a real RFC6455 text frame', async () => {
-  const sockets = new Set<Socket>();
+  const sockets = new Set<Duplex>();
   const server = createServer();
   server.on('upgrade', (request, socket) => {
     sockets.add(socket);
