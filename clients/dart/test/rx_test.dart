@@ -33,11 +33,10 @@ String locateCoreLibrary() {
 }
 
 class _FakeLoop implements rx.SyncKicker {
-  _FakeLoop(this.client, {this.acknowledge = true, this.fail = false});
+  _FakeLoop(this.client, {this.acknowledge = true});
 
   final OptoSyncClient client;
   final bool acknowledge;
-  final bool fail;
   int hints = 0;
   int cycles = 0;
 
