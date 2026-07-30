@@ -86,8 +86,7 @@ jobs:
         run: |
           set -euo pipefail
           dart pub get
-          dart format lib tool
-          git diff -- lib tool || true
+          dart format --output=none --set-exit-if-changed lib tool
           dart analyze
           dart run tool/self_test.dart
           python3 tool/check_native_background_adapters.py
