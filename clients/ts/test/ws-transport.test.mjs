@@ -48,6 +48,14 @@ function transport(overrides = {}) {
 }
 
 const signal = () => new AbortController().signal;
+const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+async function firstSocket() {
+  // dial() awaits the auth token before constructing the socket.
+  for (let i = 0; i < 10 && FakeSocket.instances.length === 0; i += 1) {
+    await tick();
+  }
+  return FakeSocket.instances[0];
+}
 
 test('push and pull correlate concurrent requests by requestId', async () => {
   const ws = transport();
