@@ -15,8 +15,6 @@
 /// reintroduce the lost-update window the queue exists to close.
 library;
 
-import 'package:drift/drift.dart';
-
 import '../../opto_sync_client.dart';
 
 enum Optimism { background, localFirst, awaitServer }
