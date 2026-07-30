@@ -14,6 +14,11 @@ export interface TcpJsonLineProtocolOptions {
   timeoutMs?: number;
   connect?: typeof createConnection;
   auth?: () => Promise<Record<string, string>> | Record<string, string>;
+  /**
+   * Plain TCP defaults to loopback only. Set this only when `connect` supplies
+   * TLS or the destination is on an authenticated private transport boundary.
+   */
+  allowNonLoopback?: boolean;
 }
 
 interface TcpEnvelope {
@@ -32,6 +37,15 @@ interface TcpResponse {
 
 let requestSequence = 0;
 
+function isLoopback(host: string): boolean {
+  const normalized = host.toLowerCase().replace(/^\[|\]$/g, '');
+  return (
+    normalized === 'localhost' ||
+    normalized === '::1' ||
+    normalized.startsWith('127.')
+  );
+}
+
 /**
  * One bounded JSON-lines request per connection for trusted Node/native hosts.
  * Browser and mobile background workers should use HTTP; they cannot safely or
@@ -45,6 +59,11 @@ export class TcpJsonLineProtocolTransport implements ProtocolTransport {
   constructor(options: TcpJsonLineProtocolOptions) {
     this.options = options;
     if (!options.host) throw new Error('TCP host is required');
+    if (!isLoopback(options.host) && options.allowNonLoopback !== true) {
+      throw new Error(
+        'plain opto-sync TCP is loopback-only unless allowNonLoopback is explicitly enabled for a TLS/private transport boundary',
+      );
+    }
     if (
       !Number.isInteger(options.port) ||
       options.port < 1 ||
@@ -98,6 +117,11 @@ export class TcpJsonLineProtocolTransport implements ProtocolTransport {
       payload,
       ...(this.options.auth ? { auth: await this.options.auth() } : {}),
     };
+    const requestLine = `${JSON.stringify(envelope)}\n`;
+    if (Buffer.byteLength(requestLine, 'utf8') > 2 * 1024 * 1024) {
+      throw new Error('opto-sync TCP request exceeded 2 MiB');
+    }
+
     return new Promise<T>((resolve, reject) => {
       let settled = false;
       let buffer = '';
@@ -124,12 +148,10 @@ export class TcpJsonLineProtocolTransport implements ProtocolTransport {
       if (signal.aborted) return onAbort();
 
       socket.setEncoding('utf8');
-      socket.on('connect', () =>
-        socket.write(`${JSON.stringify(envelope)}\n`),
-      );
+      socket.on('connect', () => socket.write(requestLine));
       socket.on('data', (chunk) => {
         buffer += chunk;
-        if (buffer.length > 2 * 1024 * 1024) {
+        if (Buffer.byteLength(buffer, 'utf8') > 2 * 1024 * 1024) {
           finish(new Error('opto-sync TCP response exceeded 2 MiB'));
           return;
         }
