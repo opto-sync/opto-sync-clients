@@ -33,7 +33,12 @@ const pageHtml = Buffer.from(`<!doctype html>
 <script>
   window.registerWorker = async () => {
     await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-    return navigator.serviceWorker.ready;
+    await navigator.serviceWorker.ready;
+    return true;
+  };
+  window.workerReady = async () => {
+    await navigator.serviceWorker.ready;
+    return true;
   };
   window.wakeWorker = async (requestId) => {
     const registration = await navigator.serviceWorker.ready;
@@ -68,6 +73,12 @@ const pageHtml = Buffer.from(`<!doctype html>
       database.close();
     }
   };
+  window.deleteTestDatabase = () => new Promise((resolve, reject) => {
+    const request = indexedDB.deleteDatabase('opto-sync-service-worker-e2e');
+    request.onerror = () => reject(request.error);
+    request.onblocked = () => reject(new Error('test database deletion blocked'));
+    request.onsuccess = () => resolve(true);
+  });
 </script>`);
 
 const server = createServer((request, response) => {
@@ -101,15 +112,18 @@ try {
     first.goto(origin, { waitUntil: 'load' }),
     second.goto(origin, { waitUntil: 'load' }),
   ]);
-  await first.evaluate(() => window.registerWorker());
+  assert.equal(await first.evaluate(() => window.registerWorker()), true);
   await Promise.all([
     first.reload({ waitUntil: 'load' }),
     second.reload({ waitUntil: 'load' }),
   ]);
-  await Promise.all([
-    first.evaluate(() => navigator.serviceWorker.ready),
-    second.evaluate(() => navigator.serviceWorker.ready),
-  ]);
+  assert.deepEqual(
+    await Promise.all([
+      first.evaluate(() => window.workerReady()),
+      second.evaluate(() => window.workerReady()),
+    ]),
+    [true, true],
+  );
 
   const [firstResult, secondResult] = await Promise.all([
     first.evaluate(() => window.wakeWorker('tab-a')),
@@ -134,13 +148,16 @@ try {
     hasWindow: true,
   });
 
+  await second.close();
   await first.evaluate(async () => {
     const registration = await navigator.serviceWorker.ready;
     await registration.unregister();
-    indexedDB.deleteDatabase('opto-sync-service-worker-e2e');
+    await window.deleteTestDatabase();
   });
   await context.close();
-  console.log('service worker: two tabs, one bounded IndexedDB cycle, then one later cycle');
+  console.log(
+    'service worker: two tabs, one bounded IndexedDB cycle, then one later cycle',
+  );
 } finally {
   await browser?.close();
   await new Promise((resolve) => server.close(resolve));
