@@ -55,12 +55,48 @@ public final class OptoSyncBackgroundScheduler {
       name: Self.methodChannelName,
       binaryMessenger: engine.binaryMessenger
     )
+    let stateLock = NSLock()
     var completed = false
-    let complete: (Bool) -> Void = { success in
-      guard !completed else { return }
+    var runStarted = false
+
+    func complete(_ success: Bool) {
+      stateLock.lock()
+      guard !completed else {
+        stateLock.unlock()
+        return
+      }
       completed = true
-      task.setTaskCompleted(success: success)
-      engine.destroyContext()
+      stateLock.unlock()
+      DispatchQueue.main.async {
+        channel.setMethodCallHandler(nil)
+        task.setTaskCompleted(success: success)
+        engine.destroyContext()
+      }
+    }
+
+    func beginRunAfterDartIsReady() {
+      stateLock.lock()
+      guard !completed && !runStarted else {
+        stateLock.unlock()
+        return
+      }
+      runStarted = true
+      stateLock.unlock()
+      channel.invokeMethod(
+        "runOnce",
+        arguments: ["budgetMilliseconds": budgetMilliseconds]
+      ) { result in
+        complete(!(result is FlutterError))
+      }
+    }
+
+    channel.setMethodCallHandler { call, result in
+      guard call.method == "ready" else {
+        result(FlutterMethodNotImplemented)
+        return
+      }
+      result(nil)
+      beginRunAfterDartIsReady()
     }
 
     task.expirationHandler = {
@@ -71,16 +107,6 @@ public final class OptoSyncBackgroundScheduler {
     guard engine.run(withEntrypoint: "optoSyncBackgroundMain") else {
       complete(false)
       return
-    }
-    channel.invokeMethod(
-      "runOnce",
-      arguments: ["budgetMilliseconds": budgetMilliseconds]
-    ) { result in
-      if result is FlutterError {
-        complete(false)
-      } else {
-        complete(true)
-      }
     }
   }
 }
