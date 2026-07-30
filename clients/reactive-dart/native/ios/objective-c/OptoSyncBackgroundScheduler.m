@@ -54,14 +54,40 @@ static NSString * const OptoSyncBackgroundChannel = @"opto-sync/background";
       methodChannelWithName:OptoSyncBackgroundChannel
             binaryMessenger:engine.binaryMessenger];
   __block BOOL completed = NO;
+  __block BOOL runStarted = NO;
+
   void (^complete)(BOOL) = ^(BOOL success) {
     @synchronized (task) {
       if (completed) return;
       completed = YES;
+    }
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [channel setMethodCallHandler:nil];
       [task setTaskCompletedWithSuccess:success];
       [engine destroyContext];
-    }
+    });
   };
+
+  void (^beginRunAfterDartIsReady)(void) = ^{
+    @synchronized (task) {
+      if (completed || runStarted) return;
+      runStarted = YES;
+    }
+    [channel invokeMethod:@"runOnce"
+                arguments:@{ @"budgetMilliseconds": @(self.budgetMilliseconds) }
+                   result:^(id _Nullable result) {
+      complete(![result isKindOfClass:[FlutterError class]]);
+    }];
+  };
+
+  [channel setMethodCallHandler:^(FlutterMethodCall *call, FlutterResult result) {
+    if (![call.method isEqualToString:@"ready"]) {
+      result(FlutterMethodNotImplemented);
+      return;
+    }
+    result(nil);
+    beginRunAfterDartIsReady();
+  }];
 
   task.expirationHandler = ^{
     [channel invokeMethod:@"cancel" arguments:nil];
@@ -70,13 +96,7 @@ static NSString * const OptoSyncBackgroundChannel = @"opto-sync/background";
 
   if (![engine runWithEntrypoint:@"optoSyncBackgroundMain"]) {
     complete(NO);
-    return;
   }
-  [channel invokeMethod:@"runOnce"
-              arguments:@{ @"budgetMilliseconds": @(self.budgetMilliseconds) }
-                 result:^(id _Nullable result) {
-    complete(![result isKindOfClass:[FlutterError class]]);
-  }];
 }
 
 @end
