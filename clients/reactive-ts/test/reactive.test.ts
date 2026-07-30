@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { BehaviorSubject, Subject } from 'rxjs';
+import { BehaviorSubject, Observable, Subject } from 'rxjs';
 
 import {
   SyncRecordEvent,
@@ -90,18 +90,14 @@ test('session rotation tears down stale generations and replays the latest value
       {
         name: 'counted',
         events: () =>
-          new (class extends Subject<SyncRecordEvent<{ value: string }>> {
-            constructor() {
-              super();
-              subscriptions += 1;
-              const upstream = events.subscribe(this);
-              this.subscribe({ complete: () => upstream.unsubscribe() });
-            }
-            override unsubscribe(): void {
+          new Observable<SyncRecordEvent<{ value: string }>>((subscriber) => {
+            subscriptions += 1;
+            const upstream = events.subscribe(subscriber);
+            return () => {
               unsubscriptions += 1;
-              super.unsubscribe();
-            }
-          })(),
+              upstream.unsubscribe();
+            };
+          }),
       },
     ],
   });
@@ -136,9 +132,10 @@ test('session rotation tears down stale generations and replays the latest value
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(values, ['first', 'rotated']);
   assert.equal(subscriptions, 2, 'one source generation per authenticated session');
+  assert.equal(unsubscriptions, 1, 'the old session source was torn down');
   first.unsubscribe();
   second.unsubscribe();
-  assert.ok(unsubscriptions >= 0);
+  assert.equal(unsubscriptions, 2, 'the final source closed when refCount reached zero');
 });
 
 test('degraded authentication fails closed instead of looking logged out', () => {
@@ -148,11 +145,16 @@ test('degraded authentication fails closed instead of looking logged out', () =>
   });
   assert.throws(
     () =>
-      createReactiveRecord$({
+      createReactiveRecord$<unknown>({
         session$,
         table: 'todos',
         recordId: 'todo-1',
-        sources: [{ name: 'never', events: () => new Subject() }],
+        sources: [
+          {
+            name: 'never',
+            events: () => new Subject<SyncRecordEvent<unknown>>(),
+          },
+        ],
       }).subscribe(),
     /degraded/,
   );
