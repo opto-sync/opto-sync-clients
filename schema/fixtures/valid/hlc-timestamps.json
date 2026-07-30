@@ -1,0 +1,13 @@
+{
+  "formatVersion": 1,
+  "records": [
+    {
+      "table": "notes",
+      "recordId": "n-1",
+      "payload": {
+        "updatedAt": "2026-07-30T12:00:00.000000001Z-0001-a1b2c3d4",
+        "body": "hlc-stamped"
+      }
+    }
+  ]
+}
