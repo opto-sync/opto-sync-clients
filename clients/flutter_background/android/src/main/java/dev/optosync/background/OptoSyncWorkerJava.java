@@ -38,15 +38,25 @@ public final class OptoSyncWorkerJava extends ListenableWorker {
     @NonNull
     @Override
     public ListenableFuture<Result> startWork() {
-        final SettableFuture<Result> future = SettableFuture.create();
         final Context context = getApplicationContext();
-        final long callbackHandle = OptoSyncBackgroundPlugin.Companion.storedCallbackHandle$opto_sync_flutter_background_release(context);
-        final long dispatcherHandle = OptoSyncBackgroundPlugin.Companion.storedDispatcherHandle$opto_sync_flutter_background_release(context);
-        if (callbackHandle == 0L || dispatcherHandle == 0L) {
-            future.set(Result.failure());
-            return future;
-        }
+        final long callbackHandle = OptoSyncBackgroundPlugin.storedCallbackHandle(context);
+        final long dispatcherHandle = OptoSyncBackgroundPlugin.storedDispatcherHandle(context);
 
+        return CallbackToFutureAdapter.getFuture(completer -> {
+            if (callbackHandle == 0L || dispatcherHandle == 0L) {
+                completer.set(Result.failure());
+                return "opto-sync-drain";
+            }
+            startDrain(context, callbackHandle, dispatcherHandle, completer);
+            return "opto-sync-drain";
+        });
+    }
+
+    private void startDrain(
+            Context context,
+            long callbackHandle,
+            long dispatcherHandle,
+            CallbackToFutureAdapter.Completer<Result> future) {
         final Handler main = new Handler(Looper.getMainLooper());
         main.post(() -> {
             final FlutterLoader loader = new FlutterLoader();
