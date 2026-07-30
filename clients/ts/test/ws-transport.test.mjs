@@ -62,9 +62,9 @@ test('push and pull correlate concurrent requests by requestId', async () => {
   const pushPromise = ws.push({ protocolVersion: 1, clientId: 'c', mutations: [] }, signal());
   const pullPromise = ws.pull('0', 100, signal());
   // Both requests share the socket created by the first call.
-  const socket = FakeSocket.instances[0];
+  const socket = await firstSocket();
   socket.open();
-  await Promise.resolve();
+  await tick();
 
   assert.equal(socket.sent.length, 2);
   const [pushFrame, pullFrame] = socket.sent;
@@ -102,9 +102,9 @@ test('push and pull correlate concurrent requests by requestId', async () => {
 test('error frames reject with SyncTransportError carrying code and retryability', async () => {
   const ws = transport();
   const pending = ws.pull('0', 10, signal());
-  const socket = FakeSocket.instances[0];
+  const socket = await firstSocket();
   socket.open();
-  await Promise.resolve();
+  await tick();
   socket.reply({
     v: 1,
     type: 'error',
@@ -125,9 +125,9 @@ test('unsolicited changed frames invoke onChanged with the watermark', async () 
   const hints = [];
   const ws = transport({ onChanged: (watermark) => hints.push(watermark) });
   const pending = ws.pull('0', 10, signal());
-  const socket = FakeSocket.instances[0];
+  const socket = await firstSocket();
   socket.open();
-  await Promise.resolve();
+  await tick();
   socket.reply({ v: 1, type: 'changed', watermark: 42 });
   socket.reply({
     v: 1,
@@ -145,9 +145,9 @@ test('unsolicited changed frames invoke onChanged with the watermark', async () 
 test('socket close rejects in-flight requests as retryable', async () => {
   const ws = transport();
   const pending = ws.pull('0', 10, signal());
-  const socket = FakeSocket.instances[0];
+  const socket = await firstSocket();
   socket.open();
-  await Promise.resolve();
+  await tick();
   socket.close();
   await assert.rejects(pending, (error) => {
     assert.ok(error instanceof SyncTransportError);
@@ -160,8 +160,8 @@ test('aborting the signal rejects with AbortError (loop stop semantics)', async 
   const ws = transport();
   const controller = new AbortController();
   const pending = ws.pull('0', 10, controller.signal);
-  FakeSocket.instances[0].open();
-  await Promise.resolve();
+  (await firstSocket()).open();
+  await tick();
   controller.abort();
   await assert.rejects(pending, (error) => error.name === 'AbortError');
 });
@@ -214,12 +214,12 @@ test('auth token is appended to the dial URL', async () => {
     auth: { getToken: async () => 'session-token-123' },
   });
   const pending = ws.pull('0', 10, signal());
-  await Promise.resolve();
-  await Promise.resolve();
-  const socket = FakeSocket.instances[0];
+  await tick();
+  await tick();
+  const socket = await firstSocket();
   assert.match(socket.url, /\?token=session-token-123$/);
   socket.open();
-  await Promise.resolve();
+  await tick();
   socket.reply({
     v: 1,
     type: 'pull-result',
@@ -235,7 +235,7 @@ test('auth token is appended to the dial URL', async () => {
 test('request timeout produces a retryable WS_TIMEOUT error', async () => {
   const ws = transport({ requestTimeoutMs: 10 });
   const pending = ws.pull('0', 10, signal());
-  FakeSocket.instances[0].open();
+  (await firstSocket()).open();
   await assert.rejects(pending, (error) => {
     assert.equal(error.code, 'WS_TIMEOUT');
     assert.equal(error.retryable, true);

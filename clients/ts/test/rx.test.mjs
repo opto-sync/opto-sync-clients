@@ -178,15 +178,16 @@ test('createRxSyncLoop streams state transitions with replay for late subscriber
         { onStateChange, observeBrowserLifecycle: false },
       ),
   );
+  // An un-started loop settles to 'stopped' after a one-shot cycle.
   const statuses = firstValueFrom(
     state$.pipe(
-      filter((state) => state.status === 'idle'),
+      filter((state) => state.status === 'stopped'),
       take(1),
     ),
   );
   await loop.syncNow();
-  assert.equal((await statuses).status, 'idle');
+  assert.equal((await statuses).status, 'stopped');
   // Late subscriber sees the latest state via replay.
   const replayed = await firstValueFrom(state$.pipe(take(1)));
-  assert.equal(replayed.status, 'idle');
+  assert.equal(replayed.status, 'stopped');
 });
