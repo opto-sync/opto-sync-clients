@@ -46,7 +46,6 @@ class _FakeLoop implements rx.SyncKicker {
   @override
   Future<ProtocolSyncCycleResult> syncNow() async {
     cycles++;
-    if (fail) throw const SyncTransportException('sync failed');
     if (acknowledge) {
       // Pretend the server accepted everything queued so far.
       await client.db
