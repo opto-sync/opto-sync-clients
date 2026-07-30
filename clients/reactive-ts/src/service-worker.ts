@@ -18,11 +18,15 @@ export interface MessageEventLike extends ExtendableEventLike {
 export interface ServiceWorkerScopeLike {
   addEventListener(
     type: 'sync' | 'periodicsync' | 'message' | 'activate',
-    listener: (event: SyncEventLike | MessageEventLike | ExtendableEventLike) => void,
+    listener: (
+      event: SyncEventLike | MessageEventLike | ExtendableEventLike,
+    ) => void,
   ): void;
   removeEventListener(
     type: 'sync' | 'periodicsync' | 'message' | 'activate',
-    listener: (event: SyncEventLike | MessageEventLike | ExtendableEventLike) => void,
+    listener: (
+      event: SyncEventLike | MessageEventLike | ExtendableEventLike,
+    ) => void,
   ): void;
 }
 
@@ -46,8 +50,14 @@ function wakeRequest(value: unknown): { requestId?: string } | null {
   if (request.type !== OPTO_SYNC_WAKE_MESSAGE) return null;
   return {
     requestId:
-      typeof request.requestId === 'string' ? request.requestId.slice(0, 128) : undefined,
+      typeof request.requestId === 'string'
+        ? request.requestId.slice(0, 128)
+        : undefined,
   };
+}
+
+function abortError(message: string): DOMException {
+  return new DOMException(message, 'AbortError');
 }
 
 /**
@@ -63,37 +73,62 @@ export function installOptoSyncServiceWorker<R>(
 ): ServiceWorkerSyncController<R> {
   const tag = options.tag ?? OPTO_SYNC_BACKGROUND_TAG;
   const timeoutMs = options.timeoutMs ?? 25_000;
-  if (!Number.isFinite(timeoutMs) || timeoutMs < 1000 || timeoutMs > 10 * 60_000) {
+  if (
+    !Number.isFinite(timeoutMs) ||
+    timeoutMs < 1000 ||
+    timeoutMs > 10 * 60_000
+  ) {
     throw new RangeError('timeoutMs must be from 1000 through 600000');
   }
   let inFlight: Promise<R> | undefined;
+  let activeController: AbortController | undefined;
   let closed = false;
 
   const runNow = (): Promise<R> => {
-    if (closed) return Promise.reject(new Error('service-worker sync controller is closed'));
+    if (closed) {
+      return Promise.reject(
+        new Error('service-worker sync controller is closed'),
+      );
+    }
     if (inFlight) return inFlight;
+
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort('opto-sync background timeout'), timeoutMs);
-    const running = options
-      .syncOnce(controller.signal)
+    activeController = controller;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const operation = Promise.resolve().then(() =>
+      options.syncOnce(controller.signal),
+    );
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => {
+        const error = abortError('opto-sync background timeout');
+        controller.abort(error);
+        reject(error);
+      }, timeoutMs);
+    });
+    const running = Promise.race([operation, deadline])
       .catch((error) => {
         options.onError?.(error);
         throw error;
       })
       .finally(() => {
-        clearTimeout(timer);
-        inFlight = undefined;
+        if (timer !== undefined) clearTimeout(timer);
+        if (activeController === controller) activeController = undefined;
+        if (inFlight === running) inFlight = undefined;
       });
     inFlight = running;
     return running;
   };
 
-  const syncListener = (raw: SyncEventLike | MessageEventLike | ExtendableEventLike) => {
+  const syncListener = (
+    raw: SyncEventLike | MessageEventLike | ExtendableEventLike,
+  ) => {
     const event = raw as SyncEventLike;
     if (event.tag !== tag) return;
     event.waitUntil(runNow());
   };
-  const messageListener = (raw: SyncEventLike | MessageEventLike | ExtendableEventLike) => {
+  const messageListener = (
+    raw: SyncEventLike | MessageEventLike | ExtendableEventLike,
+  ) => {
     const event = raw as MessageEventLike;
     const request = wakeRequest(event.data);
     if (!request) return;
@@ -111,7 +146,10 @@ export function installOptoSyncServiceWorker<R>(
           type: OPTO_SYNC_RESULT_MESSAGE,
           requestId: request.requestId,
           ok: false,
-          error: error instanceof Error ? error.message.slice(0, 200) : String(error).slice(0, 200),
+          error:
+            error instanceof Error
+              ? error.message.slice(0, 200)
+              : String(error).slice(0, 200),
         });
       },
     );
@@ -131,6 +169,7 @@ export function installOptoSyncServiceWorker<R>(
     close() {
       if (closed) return;
       closed = true;
+      activeController?.abort(abortError('service-worker sync controller closed'));
       options.scope.removeEventListener('sync', syncListener);
       options.scope.removeEventListener('periodicsync', syncListener);
       options.scope.removeEventListener('message', messageListener);
@@ -158,8 +197,11 @@ export async function registerOptoSyncBackgroundWake(
     await registration.sync.register(tag);
     return 'background-sync';
   }
-  const target = registration.active ?? registration.waiting ?? registration.installing;
-  if (!target) throw new Error('no service worker is available for opto-sync wake-up');
+  const target =
+    registration.active ?? registration.waiting ?? registration.installing;
+  if (!target) {
+    throw new Error('no service worker is available for opto-sync wake-up');
+  }
   target.postMessage({ type: OPTO_SYNC_WAKE_MESSAGE });
   return 'message';
 }
@@ -170,7 +212,9 @@ export function createServiceWorkerMutationTrigger(
 ): () => void {
   return () => {
     void getRegistration()
-      .then((registration) => registerOptoSyncBackgroundWake(registration, tag))
+      .then((registration) =>
+        registerOptoSyncBackgroundWake(registration, tag),
+      )
       .catch(() => {
         // The queue commit is already durable. Connectivity/visibility/manual
         // hints provide another chance, so a wake failure cannot fail the write.
