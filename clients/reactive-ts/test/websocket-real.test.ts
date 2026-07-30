@@ -29,6 +29,7 @@ function textFrame(value: unknown): Buffer {
 }
 
 test('WebSocket hint source receives a real RFC6455 text frame', async () => {
+  // Node exposes the raw upgraded transport as a Duplex on current type definitions.
   const sockets = new Set<Duplex>();
   const server = createServer();
   server.on('upgrade', (request, socket) => {
