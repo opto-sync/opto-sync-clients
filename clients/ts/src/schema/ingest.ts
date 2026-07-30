@@ -35,14 +35,15 @@ const identifierSchema = z
   .regex(/^[A-Za-z_][A-Za-z0-9_]{0,62}$/, 'SQL-safe table identifier');
 
 const payloadSchema = z
-  .looseObject({
+  .object({
     updatedAt: timestampSchema,
     createdAt: timestampSchema.optional(),
     syncedAt: timestampSchema.optional(),
-  });
+  })
+  .passthrough();
 
 const recordSchema = z
-  .strictObject({
+  .object({
     table: identifierSchema,
     recordId: z.string().min(1).max(512),
     operation: z.enum(['upsert', 'delete']).optional(),
