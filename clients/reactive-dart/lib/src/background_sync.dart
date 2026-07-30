@@ -88,14 +88,14 @@ ValueStream<BackgroundSyncOutcome<R>> createBackgroundSyncOutcomes<R>({
               result: result,
             ),
           ),
-        ).handleError((Object error, StackTrace stackTrace) {
-          return BackgroundSyncOutcome<R>(
+        ).onErrorReturnWith(
+          (error, stackTrace) => BackgroundSyncOutcome<R>(
             wake: wake,
             ok: false,
             error: error,
             stackTrace: stackTrace,
-          );
-        }),
+          ),
+        ),
       )
       .shareValue();
 }
