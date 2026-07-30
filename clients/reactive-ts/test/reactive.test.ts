@@ -143,19 +143,19 @@ test('degraded authentication fails closed instead of looking logged out', () =>
     status: 'degraded',
     reason: 'shared-auth and Supabase unavailable',
   });
-  assert.throws(
-    () =>
-      createReactiveRecord$<unknown>({
-        session$,
-        table: 'todos',
-        recordId: 'todo-1',
-        sources: [
-          {
-            name: 'never',
-            events: () => new Subject<SyncRecordEvent<unknown>>(),
-          },
-        ],
-      }).subscribe(),
-    /degraded/,
-  );
+  const errors: unknown[] = [];
+  const subscription = createReactiveRecord$<unknown>({
+    session$,
+    table: 'todos',
+    recordId: 'todo-1',
+    sources: [
+      {
+        name: 'never',
+        events: () => new Subject<SyncRecordEvent<unknown>>(),
+      },
+    ],
+  }).subscribe({ error: (error) => errors.push(error) });
+  assert.equal(errors.length, 1);
+  assert.match(String(errors[0]), /degraded/);
+  subscription.unsubscribe();
 });
