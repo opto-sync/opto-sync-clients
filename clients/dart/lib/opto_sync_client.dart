@@ -128,6 +128,13 @@ class OptoSyncDatabase extends _$OptoSyncDatabase {
           await m.addColumn(localMutations, localMutations.attempts);
           await m.addColumn(localMutations, localMutations.lastError);
           await _adoptLegacyProtocolIdentity();
+
+          // Drift normally updates user_version only after onUpgrade returns,
+          // outside this transaction. Persist it here as well so a process
+          // loss after this commit cannot leave v3 columns and identities
+          // labeled as v1/v2, which would replay non-idempotent ALTERs on the
+          // next open. Drift's later write of the same value is harmless.
+          await customStatement('PRAGMA user_version = $to');
         }
       });
     },
