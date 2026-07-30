@@ -1,0 +1,27 @@
+{
+  "formatVersion": 1,
+  "records": [
+    {
+      "table": "documents",
+      "recordId": "doc-9",
+      "operation": "upsert",
+      "baseRevision": "41",
+      "payload": {
+        "updatedAt": 1753876800123456789,
+        "createdAt": "2026-01-02T03:04:05Z",
+        "syncedAt": "1753876800123",
+        "sections": [
+          { "id": "s1", "updatedAt": "2026-07-30T11:59:59Z", "text": "alpha" },
+          { "id": 2, "updatedAt": "2026-07-30T12:00:01Z", "text": "beta" }
+        ],
+        "meta": { "nested": { "deep": [1, 2, 3] } }
+      }
+    },
+    {
+      "table": "documents",
+      "recordId": "doc-10",
+      "operation": "delete",
+      "payload": {}
+    }
+  ]
+}
