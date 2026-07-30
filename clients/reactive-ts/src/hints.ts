@@ -11,7 +11,7 @@ import {
   share,
 } from 'rxjs';
 
-import { SyncHint } from './contracts.ts';
+import type { SyncHint } from './contracts.ts';
 
 export interface SyncWakeResult<R = unknown> {
   ok: boolean;
