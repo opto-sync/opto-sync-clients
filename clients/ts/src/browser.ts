@@ -35,16 +35,114 @@
 import { setMergeEngine, hasMergeEngine } from './engine.js';
 import { OptoSyncClient, OptoSyncClientOptions } from './client.js';
 
-export * from './reconcile-core.js';
-export * from './client.js';
-export * from './clock.js';
-export * from './protocol.js';
-export * from './sync-loop.js';
-export * from './transport/ws.js';
-export * from './cross-tab.js';
-export * from './register-sw.js';
-export * from './rx/streams.js';
-export * from './rx/write.js';
+/* Namespaced surface (recommended for wrapper libraries; clash-proof). */
+export * as reconcile from './reconcile-core.js';
+export * as engine from './engine.js';
+export * as queue from './client.js';
+export * as clock from './clock.js';
+export * as protocol from './protocol.js';
+export * as syncLoop from './sync-loop.js';
+export * as transports from './transport/ws.js';
+export * as crossTab from './cross-tab.js';
+export * as backgroundSync from './register-sw.js';
+export * as rx from './rx/index.js';
+
+/* Curated top-level names — one explicit re-export each, never `export *`. */
+export {
+  ArrayStrategy,
+  DEFAULT_RECONCILE_OPTIONS,
+  reconcileIncoming,
+  rebasePending,
+  resolveReconcileOptions,
+} from './reconcile-core.js';
+export type {
+  JsonRecord,
+  ReconcileOptions,
+  RebaseOptions,
+  MergeOptions,
+} from './reconcile-core.js';
+export {
+  setMergeEngine,
+  hasMergeEngine,
+  getMergeEngine,
+  resetMergeEngine,
+  engineVersion,
+  mergeEngineKind,
+} from './engine.js';
+export type { MergeEngine, MergeEngineKind } from './engine.js';
+export {
+  OptoSyncClient,
+  OptoSyncDatabase,
+  QueueQuotaError,
+  SYNC_STATUS,
+  DEFAULT_MAX_PENDING_MUTATIONS,
+  DEFAULT_MAX_QUEUED_PAYLOAD_BYTES,
+} from './client.js';
+export type {
+  OptoSyncClientOptions,
+  LocalMutation,
+  MetaRow,
+  AtomicOptimisticWriter,
+} from './client.js';
+export {
+  HybridLogicalClock,
+  ClockDriftError,
+  DEFAULT_MAX_DRIFT_MS,
+  randomNodeId,
+  composeNodeId,
+  formatHlc,
+  parseHlc,
+  compareHlc,
+} from './clock.js';
+export type {
+  HlcParts,
+  HlcPersistence,
+  HybridLogicalClockOptions,
+} from './clock.js';
+export { buildPushRequest, validatePushResponse } from './protocol.js';
+export type {
+  ProtocolMutationOptions,
+  PushMutation,
+  PushRequest,
+  PushResponse,
+  MutationResult,
+  PullResponse,
+  Change,
+  SnapshotRecord,
+  SnapshotResponse,
+} from './protocol.js';
+export {
+  ProtocolSyncLoop,
+  SyncTransportError,
+  computeRetryDelay,
+} from './sync-loop.js';
+export type {
+  ProtocolTransport,
+  ProtocolQueueAdapter,
+  ProtocolSyncCallbacks,
+  ProtocolSyncState,
+  ProtocolSyncStatus,
+  ProtocolSyncCycleResult,
+  ProtocolSyncLoopOptions,
+  ResetRequired,
+} from './sync-loop.js';
+export { WebSocketTransport } from './transport/ws.js';
+export type {
+  WebSocketTransportOptions,
+  AuthTokenProvider,
+  WebSocketLike,
+} from './transport/ws.js';
+export { startCrossTabCoordinator } from './cross-tab.js';
+export type {
+  CrossTabCoordinator,
+  CrossTabCoordinatorOptions,
+} from './cross-tab.js';
+export { registerBackgroundSync } from './register-sw.js';
+export type {
+  BackgroundSyncHandle,
+  BackgroundSyncStrategy,
+  RegisterBackgroundSyncOptions,
+} from './register-sw.js';
 
 /** Options forwarded to the wasm engine's own initializer. */
 export interface InitOptoSyncOptions {
