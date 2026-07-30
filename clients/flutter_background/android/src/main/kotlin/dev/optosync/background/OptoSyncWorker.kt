@@ -72,16 +72,18 @@ class OptoSyncWorker(
                     }
                 }
 
-                // setupBackgroundChannel is the Dart-side @pragma('vm:entry-point').
-                val entrypoint = FlutterCallbackInformation.lookupCallbackInformation(callbackHandle)
-                    ?: return@withContext Result.failure()
+                // setupBackgroundChannel is the Dart-side @pragma('vm:entry-point')
+                // dispatcher; the user drain handle travels over the channel.
+                val dispatcherHandle =
+                    OptoSyncBackgroundPlugin.storedDispatcherHandle(applicationContext)
+                val dispatcher =
+                    FlutterCallbackInformation.lookupCallbackInformation(dispatcherHandle)
+                        ?: return@withContext Result.failure()
                 engine.dartExecutor.executeDartCallback(
                     DartExecutor.DartCallback(
                         applicationContext.assets,
                         loader.findAppBundlePath(),
-                        FlutterCallbackInformation.lookupCallbackInformation(
-                            DrainEntrypoint.setupHandle(applicationContext, entrypoint),
-                        ),
+                        dispatcher,
                     ),
                 )
 
