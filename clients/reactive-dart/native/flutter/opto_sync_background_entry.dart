@@ -23,15 +23,19 @@ Future<void> optoSyncBackgroundMain() async {
   channel.setMethodCallHandler((call) async {
     switch (call.method) {
       case 'runOnce':
-        return runner.runOnce();
+        await runner.runOnce();
+        // Do not send arbitrary application result objects through StandardCodec.
+        return <String, Object?>{'ok': true};
       case 'cancel':
-        // A bounded cycle must observe its own deadline/cancellation source.
+        runner.cancel('native background scheduler expired or stopped');
         // Never delete queue rows when the OS expires a worker.
-        return null;
+        return <String, Object?>{'cancelled': true};
       default:
         throw MissingPluginException('unknown opto-sync background method');
     }
   });
+  // Do not let native invoke runOnce before Dart has installed its handler.
+  await channel.invokeMethod<void>('ready');
   // Native owns process/task completion. The isolate remains available only for
   // the bounded BGTask/WorkManager invocation and may be killed immediately.
 }
