@@ -10,13 +10,44 @@ enum BackgroundWakeReason {
   manual,
 }
 
-typedef BackgroundSyncCycle<R> = Future<R> Function(Duration budget);
+final class BackgroundSyncContext {
+  BackgroundSyncContext(this.budget)
+      : deadline = DateTime.now().add(budget);
+
+  final Duration budget;
+  final DateTime deadline;
+  Object? _cancellationReason;
+
+  bool get isCancelled => _cancellationReason != null;
+  Object? get cancellationReason => _cancellationReason;
+
+  Duration get remaining {
+    final value = deadline.difference(DateTime.now());
+    return value.isNegative ? Duration.zero : value;
+  }
+
+  void cancel([Object reason = 'opto-sync background cycle cancelled']) {
+    _cancellationReason ??= reason;
+  }
+
+  void throwIfCancelled() {
+    final reason = _cancellationReason;
+    if (reason != null) {
+      throw StateError('opto-sync background cycle cancelled: $reason');
+    }
+  }
+}
+
+typedef BackgroundSyncCycle<R> = Future<R> Function(
+  BackgroundSyncContext context,
+);
 
 /// One bounded, single-flight HTTP push/pull cycle for a worker isolate.
 ///
 /// Android WorkManager and Apple BGTaskScheduler may stop a task at any time.
 /// The callback must therefore use durable queue/checkpoint state, remain
-/// idempotent, and finish within [budget]. It must not own a permanent socket.
+/// idempotent, observe [BackgroundSyncContext], and finish within its budget. It
+/// must not own a permanent socket.
 final class BackgroundSyncRunner<R> {
   BackgroundSyncRunner({
     required BackgroundSyncCycle<R> syncOnce,
@@ -36,19 +67,25 @@ final class BackgroundSyncRunner<R> {
   final Duration budget;
   Future<R>? _operation;
   Future<R>? _visibleResult;
+  BackgroundSyncContext? _context;
 
   Future<R> runOnce() {
     final visible = _visibleResult;
     if (visible != null) return visible;
 
-    final operation = _syncOnce(budget);
+    final context = BackgroundSyncContext(budget);
+    final operation = _syncOnce(context);
     final bounded = operation.timeout(
       budget,
-      onTimeout: () => throw TimeoutException(
-        'opto-sync background cycle exceeded $budget',
-        budget,
-      ),
+      onTimeout: () {
+        context.cancel('deadline exceeded');
+        throw TimeoutException(
+          'opto-sync background cycle exceeded $budget',
+          budget,
+        );
+      },
     );
+    _context = context;
     _operation = operation;
     _visibleResult = bounded;
 
@@ -62,8 +99,13 @@ final class BackgroundSyncRunner<R> {
     return bounded;
   }
 
+  void cancel([Object reason = 'native scheduler stopped the worker']) {
+    _context?.cancel(reason);
+  }
+
   void _clearIfCurrent(Future<R> operation) {
     if (!identical(_operation, operation)) return;
+    _context = null;
     _operation = null;
     _visibleResult = null;
   }
