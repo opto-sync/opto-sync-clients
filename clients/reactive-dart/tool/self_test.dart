@@ -18,17 +18,18 @@ SyncRecordEvent<Map<String, Object?>> _event({
   required String title,
   bool pending = false,
   SyncSessionIdentity? identity,
-}) => SyncRecordEvent<Map<String, Object?>>(
-  table: 'todos',
-  recordId: 'todo-1',
-  operation: 'upsert',
-  payload: <String, Object?>{'title': title},
-  revision: revision,
-  source: source,
-  authority: authority,
-  pending: pending,
-  sessionPartition: transportSessionKey(identity ?? _identity),
-);
+}) =>
+    SyncRecordEvent<Map<String, Object?>>(
+      table: 'todos',
+      recordId: 'todo-1',
+      operation: 'upsert',
+      payload: <String, Object?>{'title': title},
+      revision: revision,
+      source: source,
+      authority: authority,
+      pending: pending,
+      sessionPartition: transportSessionKey(identity ?? _identity),
+    );
 
 Future<void> _waitFor(bool Function() test) async {
   final deadline = DateTime.now().add(const Duration(seconds: 3));
@@ -207,15 +208,14 @@ Future<void> _optimismTest() async {
   }
 
   calls.clear();
-  final confirmed =
-      await writeWithOptimism<Map<String, Object?>, int, String>(
-        strategy: SyncOptimism.remoteConfirmed,
-        session: session,
-        value: <String, Object?>{'title': 'online'},
-        local: local,
-        remote: remote,
-        sync: sync,
-      );
+  final confirmed = await writeWithOptimism<Map<String, Object?>, int, String>(
+    strategy: SyncOptimism.remoteConfirmed,
+    session: session,
+    value: <String, Object?>{'title': 'online'},
+    local: local,
+    remote: remote,
+    sync: sync,
+  );
   if (confirmed is! RemoteConfirmedWrite<Map<String, Object?>, int, String> ||
       calls.join(',') != 'remote:online,authoritative:online-server') {
     throw StateError('remote-confirmed strategy failed: $calls');
