@@ -17,7 +17,8 @@ final class SyncRecordSource<T> {
   const SyncRecordSource({required this.name, required this.events});
 
   final String name;
-  final Stream<SyncRecordEvent<T>> Function(SyncSessionIdentity identity) events;
+  final Stream<SyncRecordEvent<T>> Function(SyncSessionIdentity identity)
+      events;
 }
 
 final class ReactiveRecordSnapshot<T> {
@@ -56,10 +57,10 @@ final class ReactiveRecordController<T> {
     SameProjectedValue<T>? sameValue,
     this.onSourceError,
     this.maxRememberedEvents = 2048,
-  }) : _sessions = sessions,
-       _sources = List<SyncRecordSource<T>>.unmodifiable(sources),
-       _project = project ?? _defaultProject,
-       _sameValue = sameValue ?? _defaultSameValue {
+  })  : _sessions = sessions,
+        _sources = List<SyncRecordSource<T>>.unmodifiable(sources),
+        _project = project ?? _defaultProject,
+        _sameValue = sameValue ?? _defaultSameValue {
     if (_sources.isEmpty) {
       throw ArgumentError.value(sources, 'sources', 'must not be empty');
     }
@@ -79,13 +80,13 @@ final class ReactiveRecordController<T> {
   final ReactiveProjector<T> _project;
   final SameProjectedValue<T> _sameValue;
   final void Function(String source, Object error, StackTrace stackTrace)?
-  onSourceError;
+      onSourceError;
   final int maxRememberedEvents;
 
   final BehaviorSubject<ReactiveRecordSnapshot<T>> _subject =
       BehaviorSubject<ReactiveRecordSnapshot<T>>();
   final LinkedHashSet<String> _seen = LinkedHashSet<String>();
-  StreamSubscription<SyncRecordEvent<T>>? _subscription;
+  StreamSubscription<ReactiveRecordSnapshot<T>?>? _subscription;
   SyncSessionIdentity? _identity;
   SyncRecordEvent<T>? _local;
   SyncRecordEvent<T>? _authoritative;
@@ -108,7 +109,8 @@ final class ReactiveRecordController<T> {
       return MergeStream<SyncRecordEvent<T>>(
         _sources.map(
           (source) => source.events(identity).transform(
-            StreamTransformer<SyncRecordEvent<T>, SyncRecordEvent<T>>.fromHandlers(
+            StreamTransformer<SyncRecordEvent<T>,
+                SyncRecordEvent<T>>.fromHandlers(
               handleError: (error, stackTrace, sink) {
                 onSourceError?.call(source.name, error, stackTrace);
                 // Individual transport errors are diagnostics. The transport
@@ -150,7 +152,8 @@ final class ReactiveRecordController<T> {
       _local?.payload,
       _local?.pending ?? false,
     );
-    if (_sameValue(_value, projected) && event.authority != SyncRecordAuthority.localView) {
+    if (_sameValue(_value, projected) &&
+        event.authority != SyncRecordAuthority.localView) {
       return null;
     }
     _value = projected;
@@ -189,7 +192,8 @@ final class ReactiveRecordController<T> {
     T? authoritative,
     T? localView,
     bool localPending,
-  ) => localPending ? localView : authoritative ?? localView;
+  ) =>
+      localPending ? localView : authoritative ?? localView;
 
   static bool _defaultSameValue<T>(T? left, T? right) =>
       stableJson(left) == stableJson(right);
