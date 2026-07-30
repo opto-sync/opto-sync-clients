@@ -10,14 +10,21 @@ import type {
 } from '@opto-sync/client';
 
 export class HttpSyncError extends Error {
+  readonly status: number;
+  readonly retryable: boolean;
+  readonly retryAfterMs: number | undefined;
+
   constructor(
     message: string,
-    public readonly status: number,
-    public readonly retryable: boolean,
-    public readonly retryAfterMs?: number,
+    status: number,
+    retryable: boolean,
+    retryAfterMs?: number,
   ) {
     super(message);
     this.name = 'HttpSyncError';
+    this.status = status;
+    this.retryable = retryable;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
@@ -43,12 +50,15 @@ function retryAfterMs(value: string | null): number | undefined {
 
 function path(value: string | undefined, fallback: string): string {
   const result = value ?? fallback;
-  if (!result.startsWith('/')) throw new Error(`sync endpoint must start with /: ${result}`);
+  if (!result.startsWith('/')) {
+    throw new Error(`sync endpoint must start with /: ${result}`);
+  }
   return result;
 }
 
 /** HTTP remains authoritative; WebSocket/Supabase/TCP messages only call hint(). */
 export class HttpProtocolTransport implements ProtocolTransport {
+  private readonly options: HttpProtocolTransportOptions;
   private readonly base: URL;
   private readonly fetchImpl: typeof globalThis.fetch;
   private readonly pushPath: string;
@@ -57,9 +67,14 @@ export class HttpProtocolTransport implements ProtocolTransport {
   private readonly credentials: RequestCredentials;
   private readonly sameOriginSnapshots: boolean;
 
-  constructor(private readonly options: HttpProtocolTransportOptions) {
+  constructor(options: HttpProtocolTransportOptions) {
+    this.options = options;
     this.base = new URL(options.baseUrl);
-    if (this.base.protocol !== 'https:' && this.base.hostname !== '127.0.0.1' && this.base.hostname !== 'localhost') {
+    if (
+      this.base.protocol !== 'https:' &&
+      this.base.hostname !== '127.0.0.1' &&
+      this.base.hostname !== 'localhost'
+    ) {
       throw new Error('opto-sync HTTP transport requires HTTPS outside loopback');
     }
     this.fetchImpl = options.fetch ?? globalThis.fetch;
@@ -87,7 +102,10 @@ export class HttpProtocolTransport implements ProtocolTransport {
     const url = new URL(this.pullPath, this.base);
     url.searchParams.set('checkpoint', checkpoint);
     url.searchParams.set('limit', String(limit));
-    return this.requestJson<PullResponse | ResetRequired>(url, { method: 'GET', signal });
+    return this.requestJson<PullResponse | ResetRequired>(url, {
+      method: 'GET',
+      signal,
+    });
   }
 
   async snapshot(
@@ -103,10 +121,7 @@ export class HttpProtocolTransport implements ProtocolTransport {
     return this.requestJson<SnapshotResponse>(url, { method: 'GET', signal });
   }
 
-  private async requestJson<T>(
-    url: URL,
-    init: RequestInit,
-  ): Promise<T> {
+  private async requestJson<T>(url: URL, init: RequestInit): Promise<T> {
     const headers = await this.options.headers?.();
     const response = await this.fetchImpl(url, {
       ...init,
@@ -120,7 +135,11 @@ export class HttpProtocolTransport implements ProtocolTransport {
     });
     if (!response.ok) {
       const body = (await response.text()).slice(0, 300);
-      const retryable = response.status === 408 || response.status === 425 || response.status === 429 || response.status >= 500;
+      const retryable =
+        response.status === 408 ||
+        response.status === 425 ||
+        response.status === 429 ||
+        response.status >= 500;
       throw new HttpSyncError(
         `opto-sync HTTP ${response.status}: ${body || response.statusText}`,
         response.status,
@@ -130,7 +149,11 @@ export class HttpProtocolTransport implements ProtocolTransport {
     }
     const contentType = response.headers.get('content-type') ?? '';
     if (!contentType.toLowerCase().includes('application/json')) {
-      throw new HttpSyncError('opto-sync endpoint returned non-JSON content', response.status, false);
+      throw new HttpSyncError(
+        'opto-sync endpoint returned non-JSON content',
+        response.status,
+        false,
+      );
     }
     return (await response.json()) as T;
   }
