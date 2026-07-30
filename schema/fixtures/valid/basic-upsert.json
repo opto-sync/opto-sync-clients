@@ -1,0 +1,14 @@
+{
+  "formatVersion": 1,
+  "source": "unit-fixture",
+  "records": [
+    {
+      "table": "todos",
+      "recordId": "todo-1",
+      "payload": {
+        "title": "buy milk",
+        "updatedAt": "2026-07-30T12:00:00Z"
+      }
+    }
+  ]
+}
