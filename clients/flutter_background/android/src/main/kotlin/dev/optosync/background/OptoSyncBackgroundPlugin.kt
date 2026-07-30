@@ -27,10 +27,15 @@ class OptoSyncBackgroundPlugin : FlutterPlugin, MethodChannel.MethodCallHandler 
         const val EXPEDITED_WORK_NAME = "opto-sync-expedited"
         const val PREFS = "dev.optosync.background"
         const val KEY_CALLBACK_HANDLE = "callbackHandle"
+        const val KEY_DISPATCHER_HANDLE = "dispatcherHandle"
 
         internal fun storedCallbackHandle(context: Context): Long =
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getLong(KEY_CALLBACK_HANDLE, 0L)
+
+        internal fun storedDispatcherHandle(context: Context): Long =
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getLong(KEY_DISPATCHER_HANDLE, 0L)
     }
 
     private lateinit var channel: MethodChannel
