@@ -70,11 +70,13 @@ const recordSchema = z
     }
   });
 
-export const envelopeSchema = z.strictObject({
-  formatVersion: z.literal(1),
-  source: z.string().max(200).optional(),
-  records: z.array(recordSchema).min(1),
-});
+export const envelopeSchema = z
+  .object({
+    formatVersion: z.literal(1),
+    source: z.string().max(200).optional(),
+    records: z.array(recordSchema).min(1),
+  })
+  .strict();
 
 export type IngestEnvelope = z.infer<typeof envelopeSchema>;
 
