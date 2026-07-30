@@ -55,8 +55,11 @@ class OptoSyncBackground {
         "@pragma('vm:entry-point')",
       );
     }
+    final dispatcher =
+        PluginUtilities.getCallbackHandle(setupBackgroundChannel)!;
     await channel.invokeMethod<void>('initialize', {
       'callbackHandle': handle.toRawHandle(),
+      'dispatcherHandle': dispatcher.toRawHandle(),
     });
   }
 
