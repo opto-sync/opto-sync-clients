@@ -4,11 +4,10 @@ import test from 'node:test';
 import { BehaviorSubject, Observable, Subject } from 'rxjs';
 
 import {
-  SyncRecordEvent,
-  SyncSession,
   createReactiveRecord$,
   transportSessionKey,
 } from '../src/index.ts';
+import type { SyncRecordEvent, SyncSession } from '../src/index.ts';
 
 const identity = {
   shared_user_id: 'user-1',
@@ -61,11 +60,17 @@ test('local view survives duplicate HTTP/WebSocket echoes until acknowledgement'
     ],
   }).subscribe((snapshot) => values.push(snapshot.value));
 
-  local.next(event('local', 'local-view', 'local:1', { title: 'optimistic' }, true));
-  const serverEcho = event('http', 'authoritative', '7', { title: 'server-old' });
+  local.next(
+    event('local', 'local-view', 'local:1', { title: 'optimistic' }, true),
+  );
+  const serverEcho = event('http', 'authoritative', '7', {
+    title: 'server-old',
+  });
   http.next(serverEcho);
   websocket.next({ ...serverEcho, source: 'websocket' });
-  local.next(event('local', 'local-view', 'ack:1', { title: 'optimistic' }, false));
+  local.next(
+    event('local', 'local-view', 'ack:1', { title: 'optimistic' }, false),
+  );
 
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(values, [{ title: 'optimistic' }, { title: 'server-old' }]);
@@ -102,9 +107,15 @@ test('session rotation tears down stale generations and replays the latest value
     ],
   });
 
-  const first = stream.subscribe((snapshot) => values.push(snapshot.value?.value ?? 'deleted'));
+  const first = stream.subscribe((snapshot) =>
+    values.push(snapshot.value?.value ?? 'deleted'),
+  );
   const second = stream.subscribe();
-  events.next(event('http', 'authoritative', '1', { value: 'first' }) as SyncRecordEvent<{ value: string }>);
+  events.next(
+    event('http', 'authoritative', '1', {
+      value: 'first',
+    }) as SyncRecordEvent<{ value: string }>,
+  );
 
   const rotated = { ...identity, session_id: 'session-b' };
   session$.next({ status: 'authenticated', identity: rotated });
@@ -131,11 +142,19 @@ test('session rotation tears down stale generations and replays the latest value
 
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(values, ['first', 'rotated']);
-  assert.equal(subscriptions, 2, 'one source generation per authenticated session');
+  assert.equal(
+    subscriptions,
+    2,
+    'one source generation per authenticated session',
+  );
   assert.equal(unsubscriptions, 1, 'the old session source was torn down');
   first.unsubscribe();
   second.unsubscribe();
-  assert.equal(unsubscriptions, 2, 'the final source closed when refCount reached zero');
+  assert.equal(
+    unsubscriptions,
+    2,
+    'the final source closed when refCount reached zero',
+  );
 });
 
 test('degraded authentication fails closed instead of looking logged out', () => {
