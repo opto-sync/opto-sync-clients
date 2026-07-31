@@ -99,7 +99,8 @@ jobs:
         run: |
           set -euo pipefail
           gleam deps download
-          gleam format --check
+          gleam format
+          git diff --exit-code -- src test
           gleam test
           gleam build
           sh -n formal/quint-itf-replay.sh
