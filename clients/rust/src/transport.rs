@@ -191,7 +191,11 @@ fn dispatch_frame(
     if frame.get("v").and_then(Value::as_u64) != Some(1) {
         return;
     }
-    match frame.get("type").and_then(Value::as_str) {
+    let frame_type = frame
+        .get("type")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    match frame_type.as_deref() {
         Some("changed") => {
             if let (Some(watermark), Some(handler)) =
                 (frame.get("watermark").and_then(Value::as_u64), on_changed)
@@ -221,13 +225,17 @@ fn dispatch_frame(
                 retryable: frame.get("retryable").and_then(Value::as_bool) != Some(false),
                 retry_after: None,
             };
-            pending.complete(&request_id.to_string(), Err(failure));
+            pending.complete(request_id, Err(failure));
         }
         Some("push-result" | "pull-result" | "snapshot-result") => {
-            let Some(request_id) = frame.get("requestId").and_then(Value::as_str) else {
+            let Some(request_id) = frame
+                .get("requestId")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+            else {
                 return;
             };
-            pending.complete(&request_id.to_string(), Ok(frame.clone()));
+            pending.complete(&request_id, Ok(frame));
         }
         _ => {}
     }
