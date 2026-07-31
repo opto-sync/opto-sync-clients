@@ -10,11 +10,11 @@ keywords = ["sync", "local-first", "optimistic", "indexeddb", "sqlite", "polyglo
 vcs = "git"
 url = "https://github.com/opto-sync/opto-sync-clients"
 
-# The engine ships vendored via the syncer.c submodule pin, but the
-# relationship is also part of the package graph and eventual lockfile
-# rather than tribal knowledge.
-[dependencies]
-"opto-sync/syncer" = "^0.2.1"
+# The engine relationship is represented by the committed syncer.c gitlink and
+# .gitmodules URL, then verified by scripts/check-package-layout.py and
+# scripts/check-dependency-boundary.py. Do not also declare it as an installable
+# Zed dependency: the complete repository artifact already contains that exact
+# pinned core, and a second resolution could introduce two engine revisions.
 
 [publish]
 include_readme = true

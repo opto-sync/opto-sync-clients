@@ -1,0 +1,104 @@
+name: Desktop background sync
+
+on:
+  pull_request:
+    paths:
+      - 'clients/reactive-ts/**'
+      - 'clients/reactive-dart/**'
+      - 'clients/desktop-rust/**'
+      - 'docs/DESKTOP_BACKGROUND_SYNC.md'
+      - '.github/workflows/desktop-background-sync.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'clients/reactive-ts/**'
+      - 'clients/reactive-dart/**'
+      - 'clients/desktop-rust/**'
+      - 'docs/DESKTOP_BACKGROUND_SYNC.md'
+      - '.github/workflows/desktop-background-sync.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-background-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typescript-desktop:
+    name: TypeScript desktop (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.12.0'
+          cache: npm
+          cache-dependency-path: clients/reactive-ts/package-lock.json
+
+      - name: Install the reactive package
+        working-directory: clients/reactive-ts
+        run: npm ci
+
+      - name: Exercise durable desktop fencing and lifecycle contracts
+        working-directory: clients/reactive-ts
+        run: node --experimental-strip-types --test test/desktop.test.ts
+
+  dart-desktop:
+    name: Dart desktop contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Resolve and verify the Dart desktop surface
+        working-directory: clients/reactive-dart
+        run: |
+          set -euo pipefail
+          dart pub get
+          dart format lib/src/desktop_sync.dart tool/desktop_self_test.dart
+          git diff --exit-code -- \
+            lib/src/desktop_sync.dart tool/desktop_self_test.dart
+          dart analyze
+          dart run tool/desktop_self_test.dart
+
+  rust-desktop:
+    name: Rust desktop (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0 # 1.88.0
+        with:
+          components: rustfmt, clippy
+
+      - name: Format, lint, and test the desktop runner
+        run: |
+          cargo fmt --manifest-path clients/desktop-rust/Cargo.toml -- --check
+          cargo clippy --locked --manifest-path clients/desktop-rust/Cargo.toml --all-targets -- -D warnings
+          cargo test --locked --manifest-path clients/desktop-rust/Cargo.toml
