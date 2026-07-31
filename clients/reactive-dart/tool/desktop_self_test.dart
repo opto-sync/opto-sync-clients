@@ -132,8 +132,7 @@ void _capabilityTest() {
       tcpAvailable: true,
     ),
   );
-  if (electron.executionClass !=
-          DesktopExecutionClass.persistentNativeRunner ||
+  if (electron.executionClass != DesktopExecutionClass.persistentNativeRunner ||
       electron.tcp != DesktopTcpCapability.native ||
       !electron.survivesHostTermination) {
     throw StateError('native desktop capability was understated');

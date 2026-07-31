@@ -123,8 +123,8 @@ fn response_from_state(
 ) -> AnyResult<PushResponse> {
     let mutation_id = state_u64(state, "response_mutation_id")?.to_string();
     let checkpoint = state_u64(state, "response_checkpoint")?.to_string();
-    let has_applied_effect = status == ResultStatus::Applied
-        || original_status == Some(ResultStatus::Applied);
+    let has_applied_effect =
+        status == ResultStatus::Applied || original_status == Some(ResultStatus::Applied);
 
     Ok(PushResponse {
         protocol_version: 1,
@@ -279,7 +279,10 @@ fn apply_action(adapter: &mut Adapter, state: &ItfState) -> AnyResult<()> {
             adapter.response_valid = false;
         }
         "acknowledge" => {
-            ensure(adapter.response_valid, "cannot acknowledge an invalid response")?;
+            ensure(
+                adapter.response_valid,
+                "cannot acknowledge an invalid response",
+            )?;
             let response = adapter
                 .response
                 .as_ref()
@@ -293,7 +296,10 @@ fn apply_action(adapter: &mut Adapter, state: &ItfState) -> AnyResult<()> {
                 "acknowledgement id does not match the in-flight request",
             )?;
             let changed = adapter.queue.acknowledge(response, request)?;
-            ensure(changed == 1, format!("acknowledgement changed {changed} rows"))?;
+            ensure(
+                changed == 1,
+                format!("acknowledgement changed {changed} rows"),
+            )?;
             adapter.request = None;
             adapter.response = None;
             adapter.response_valid = false;
@@ -304,7 +310,10 @@ fn apply_action(adapter: &mut Adapter, state: &ItfState) -> AnyResult<()> {
                 .set_checkpoint(state_u64(state, "local_checkpoint")?.to_string())?;
         }
         "begin_reset" => {
-            ensure(!adapter.replacing_snapshot, "snapshot replacement already active")?;
+            ensure(
+                !adapter.replacing_snapshot,
+                "snapshot replacement already active",
+            )?;
             adapter.replacing_snapshot = true;
         }
         "crash_during_reset" => {
@@ -383,9 +392,7 @@ fn assert_projection(adapter: &Adapter, state: &ItfState, context: &str) -> AnyR
     )?;
     ensure(
         actual_confirmed == expected_confirmed,
-        format!(
-            "{context}: confirmed {actual_confirmed:?} != model {expected_confirmed:?}"
-        ),
+        format!("{context}: confirmed {actual_confirmed:?} != model {expected_confirmed:?}"),
     )?;
 
     let actual_all = adapter
@@ -470,7 +477,8 @@ fn replay(path: &Path) -> AnyResult<usize> {
     let mut adapter = Adapter::new()?;
     for (index, state) in trace.states.iter().enumerate() {
         let context = format!("{} state {index} action {}", path.display(), state.action);
-        apply_action(&mut adapter, state).map_err(|error| invalid(format!("{context}: {error}")))?;
+        apply_action(&mut adapter, state)
+            .map_err(|error| invalid(format!("{context}: {error}")))?;
         assert_projection(&adapter, state, &context)?;
     }
     Ok(trace.states.len())

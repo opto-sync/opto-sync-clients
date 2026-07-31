@@ -75,15 +75,15 @@ DesktopSyncCapability resolveDesktopSyncCapability(
   final executionClass = input.persistentNativeRunnerAvailable
       ? DesktopExecutionClass.persistentNativeRunner
       : input.serviceWorkerAvailable
-          ? DesktopExecutionClass.serviceWorkerEvents
-          : DesktopExecutionClass.foregroundOnly;
+      ? DesktopExecutionClass.serviceWorkerEvents
+      : DesktopExecutionClass.foregroundOnly;
   final tcp = !input.tcpAvailable
       ? DesktopTcpCapability.unsupported
       : input.runtime == DesktopRuntime.wasmWebView
-          ? input.nativeHostBridgeAvailable
-              ? DesktopTcpCapability.hostBridge
-              : DesktopTcpCapability.unsupported
-          : DesktopTcpCapability.native;
+      ? input.nativeHostBridgeAvailable
+            ? DesktopTcpCapability.hostBridge
+            : DesktopTcpCapability.unsupported
+      : DesktopTcpCapability.native;
 
   return DesktopSyncCapability(
     runtime: input.runtime,
@@ -93,7 +93,7 @@ DesktopSyncCapability resolveDesktopSyncCapability(
     tcp: tcp,
     survivesWindowClosure:
         executionClass == DesktopExecutionClass.persistentNativeRunner ||
-            input.serviceWorkerAvailable,
+        input.serviceWorkerAvailable,
     survivesHostTermination:
         executionClass == DesktopExecutionClass.persistentNativeRunner,
   );
@@ -228,13 +228,13 @@ final class DesktopSyncRunner<R> {
     Duration? leaseTtl,
     DateTime Function()? now,
     String Function()? tokenFactory,
-  })  : _leaseStore = leaseStore,
-        _leaseKey = leaseKey,
-        _ownerId = ownerId,
-        _syncOnce = syncOnce,
-        leaseTtl = leaseTtl ?? budget + const Duration(seconds: 5),
-        _now = now ?? DateTime.now,
-        _tokenFactory = tokenFactory ?? _secureToken {
+  }) : _leaseStore = leaseStore,
+       _leaseKey = leaseKey,
+       _ownerId = ownerId,
+       _syncOnce = syncOnce,
+       leaseTtl = leaseTtl ?? budget + const Duration(seconds: 5),
+       _now = now ?? DateTime.now,
+       _tokenFactory = tokenFactory ?? _secureToken {
     _validateIdentifier('leaseKey', leaseKey);
     _validateIdentifier('ownerId', ownerId);
     if (budget < const Duration(seconds: 1) ||
