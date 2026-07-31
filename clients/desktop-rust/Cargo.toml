@@ -8,7 +8,10 @@ license = "MIT"
 publish = false
 
 [dependencies]
-rusqlite = { version = "0.40.1", features = ["bundled"] }
+# 0.40.x pulls libsqlite3-sys 0.38.x, whose build script requires a newer
+# compiler than this crate's deliberate Rust 1.88 MSRV. Keep the newest
+# bundled SQLite stack verified against the repository toolchain.
+rusqlite = { version = "=0.39.0", features = ["bundled"] }
 
 [lints.rust]
 unsafe_code = "forbid"
