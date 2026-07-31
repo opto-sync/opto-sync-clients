@@ -29,10 +29,9 @@ pub type FormalProjection {
 pub fn project(
   queue: opto_sync_client.Queue,
 ) -> Result(FormalProjection, ProjectionError) {
-  case json.parse(
-    opto_sync_client.encode_queue(queue),
-    next_mutation_id_decoder(),
-  ) {
+  case
+    json.parse(opto_sync_client.encode_queue(queue), next_mutation_id_decoder())
+  {
     Error(_) -> Error(InvalidProductionSnapshot)
     Ok(next_mutation_id) ->
       case parse_positive_canonical_decimal(next_mutation_id) {
@@ -81,11 +80,7 @@ fn allocated_ids(
   case current >= before {
     True -> list.reverse(reversed)
     False ->
-      allocated_ids(
-        current + 1,
-        before,
-        [int.to_string(current), ..reversed],
-      )
+      allocated_ids(current + 1, before, [int.to_string(current), ..reversed])
   }
 }
 
