@@ -1,0 +1,67 @@
+name: DEN-1071 Dart desktop format repair v2
+
+on:
+  push:
+    branches:
+      - agent/den-1071-desktop-background-sync
+    paths:
+      - '.github/workflows/agent-den-1071-dart-format-v2.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: den-1071-dart-format-repair
+  cancel-in-progress: true
+
+jobs:
+  format-validate-and-clean:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: agent/den-1071-desktop-background-sync
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: true
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+      - name: Format and validate the Dart desktop contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd clients/reactive-dart
+          dart format lib/src/desktop_sync.dart tool/desktop_self_test.dart
+          dart pub get
+          dart format --output=none --set-exit-if-changed \
+            lib/src/desktop_sync.dart tool/desktop_self_test.dart
+          dart analyze
+          dart run tool/desktop_self_test.dart
+      - name: Commit only canonical Dart artifacts and remove this workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm .github/workflows/agent-den-1071-dart-format-v2.yml
+          changed="$(git status --short | cut -c4- | sort)"
+          printf '%s\n' "$changed" | grep -Fx '.github/workflows/agent-den-1071-dart-format-v2.yml'
+          while IFS= read -r path; do
+            case "$path" in
+              .github/workflows/agent-den-1071-dart-format-v2.yml|\
+              clients/reactive-dart/lib/src/desktop_sync.dart|\
+              clients/reactive-dart/tool/desktop_self_test.dart|\
+              clients/reactive-dart/pubspec.lock)
+                ;;
+              *)
+                echo "unexpected final change: $path" >&2
+                exit 1
+                ;;
+            esac
+          done <<< "$changed"
+          git diff --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'style: format DEN-1071 Dart desktop contracts'
+          git push origin HEAD:agent/den-1071-desktop-background-sync
