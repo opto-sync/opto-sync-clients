@@ -7,9 +7,8 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use opto_sync_desktop::sqlite::{
-    SqliteCoordinatedDesktopSyncRunner, SqliteDesktopAcquireRequest,
-    SqliteDesktopAcquireResult, SqliteDesktopCoordinator, SqliteDesktopCoordinatorOptions,
-    SqliteDesktopError,
+    SqliteCoordinatedDesktopSyncRunner, SqliteDesktopAcquireRequest, SqliteDesktopAcquireResult,
+    SqliteDesktopCoordinator, SqliteDesktopCoordinatorOptions, SqliteDesktopError,
 };
 use opto_sync_desktop::{DesktopLeaseRequest, DesktopLeaseStore, DesktopWakeReason};
 
@@ -34,11 +33,8 @@ impl Fixture {
     }
 
     fn coordinator(&self) -> SqliteDesktopCoordinator {
-        SqliteDesktopCoordinator::open(
-            &self.path,
-            SqliteDesktopCoordinatorOptions::default(),
-        )
-        .expect("open SQLite coordinator")
+        SqliteDesktopCoordinator::open(&self.path, SqliteDesktopCoordinatorOptions::default())
+            .expect("open SQLite coordinator")
     }
 }
 
@@ -74,9 +70,11 @@ fn acquired(
 fn child_command(path: &Path, mode: &str, owner: &str, hold_ms: u64, ttl_ms: u64) -> Command {
     let mut command = Command::new(std::env::current_exe().expect("current test executable"));
     command
+        .arg("sqlite_child_process")
+        .arg("--exact")
         .arg("--ignored")
         .arg("--nocapture")
-        .arg("sqlite_child_process")
+        .arg("--test-threads=1")
         .env("OPTO_SYNC_SQLITE_CHILD", "1")
         .env("OPTO_SYNC_SQLITE_MODE", mode)
         .env("OPTO_SYNC_SQLITE_PATH", path)
@@ -94,9 +92,23 @@ fn start_holder(path: &Path, owner: &str, ttl_ms: u64) -> Child {
         .expect("spawn holder process");
     let stdout = child.stdout.take().expect("holder stdout");
     let mut reader = BufReader::new(stdout);
-    let mut line = String::new();
-    reader.read_line(&mut line).expect("read holder acquisition");
-    assert!(line.starts_with("acquired:"), "holder output: {line:?}");
+    let mut transcript = String::new();
+    loop {
+        let mut line = String::new();
+        let read = reader
+            .read_line(&mut line)
+            .expect("read holder acquisition");
+        if read == 0 {
+            panic!("holder exited before acquisition: {transcript:?}");
+        }
+        transcript.push_str(&line);
+        if line.contains("acquired:") {
+            break;
+        }
+        if line.contains("busy:") {
+            panic!("holder unexpectedly found a busy lease: {transcript:?}");
+        }
+    }
     child
 }
 
@@ -218,9 +230,7 @@ fn wake_after_inspection_is_retained_for_a_trailing_fenced_cycle() {
         .renew(&grant, 5_000)
         .expect("renew lease")
         .expect("same owner remains current");
-    let second_completion = owner
-        .complete(&renewed, "2")
-        .expect("second completion");
+    let second_completion = owner.complete(&renewed, "2").expect("second completion");
     assert!(second_completion.released);
     let state = owner.read_state("partition").expect("read state");
     assert_eq!(state.wake_generation, "2");

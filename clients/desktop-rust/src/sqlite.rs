@@ -53,8 +53,9 @@ impl std::fmt::Display for SqliteDesktopError {
             Self::GenerationExhausted(name) => {
                 write!(formatter, "{name} exhausted SQLite's signed 64-bit range")
             }
-            Self::StaleFence => formatter
-                .write_str("desktop SQLite fence is stale, expired, or no longer owned"),
+            Self::StaleFence => {
+                formatter.write_str("desktop SQLite fence is stale, expired, or no longer owned")
+            }
         }
     }
 }
@@ -317,14 +318,7 @@ PRAGMA synchronous = FULL;",
                  WHERE lease_key = ?3 AND owner_token = ?4 \
                  AND fence = ?5 AND expires_at_ms > ?6"
             ),
-            params![
-                expires_at_ms,
-                now_ms,
-                grant.key,
-                grant.token,
-                fence,
-                now_ms
-            ],
+            params![expires_at_ms, now_ms, grant.key, grant.token, fence, now_ms],
         )?;
         if changed != 1 {
             transaction.commit()?;
@@ -395,10 +389,7 @@ PRAGMA synchronous = FULL;",
         Ok(completion)
     }
 
-    pub fn release_lease(
-        &mut self,
-        grant: &DesktopLeaseGrant,
-    ) -> Result<(), SqliteDesktopError> {
+    pub fn release_lease(&mut self, grant: &DesktopLeaseGrant) -> Result<(), SqliteDesktopError> {
         validate_grant(grant)?;
         let fence = parse_decimal("fence", &grant.fence)?;
         let transaction = self
@@ -658,8 +649,8 @@ impl SqliteCoordinatedDesktopSyncRunner {
             {
                 SqliteDesktopAcquireResult::Acquired(grant) => break grant,
                 SqliteDesktopAcquireResult::Busy(busy) => {
-                    let elapsed_ms = u64::try_from(busy_started.elapsed().as_millis())
-                        .unwrap_or(u64::MAX);
+                    let elapsed_ms =
+                        u64::try_from(busy_started.elapsed().as_millis()).unwrap_or(u64::MAX);
                     if elapsed_ms >= self.busy_wait_budget_ms {
                         return Err(SqliteDesktopRunError::Busy {
                             reasons,
@@ -697,10 +688,8 @@ impl SqliteCoordinatedDesktopSyncRunner {
             let result = match cycle(&mut self.coordinator, &context) {
                 Ok(result) => result,
                 Err(error) => {
-                    let release_error = self
-                        .coordinator
-                        .release_lease(&grant.desktop_grant())
-                        .err();
+                    let release_error =
+                        self.coordinator.release_lease(&grant.desktop_grant()).err();
                     return Err(SqliteDesktopRunError::Cycle(Box::new(
                         SqliteDesktopCycleFailure {
                             error,
@@ -792,9 +781,7 @@ fn parse_decimal(name: &str, value: &str) -> Result<i64, SqliteDesktopError> {
 
 fn non_negative_i64(value: i64, name: &str) -> Result<u64, SqliteDesktopError> {
     u64::try_from(value).map_err(|_| {
-        SqliteDesktopError::InvalidConfiguration(format!(
-            "SQLite returned a negative {name}"
-        ))
+        SqliteDesktopError::InvalidConfiguration(format!("SQLite returned a negative {name}"))
     })
 }
 
@@ -823,11 +810,7 @@ fn store_now_ms(connection: &Connection) -> Result<i64, SqliteDesktopError> {
     Ok(now_ms)
 }
 
-fn ensure_row(
-    connection: &Connection,
-    key: &str,
-    now_ms: i64,
-) -> Result<(), SqliteDesktopError> {
+fn ensure_row(connection: &Connection, key: &str, now_ms: i64) -> Result<(), SqliteDesktopError> {
     connection.execute(
         &format!(
             "INSERT INTO {TABLE} (lease_key, owner_token, fence, expires_at_ms, \
