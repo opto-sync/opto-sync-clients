@@ -60,12 +60,12 @@ final class SqliteDesktopLeaseGrant {
   final String handledGeneration;
 
   DesktopLeaseGrant get desktopGrant => DesktopLeaseGrant(
-        key: key,
-        ownerId: ownerId,
-        token: token,
-        fence: fence,
-        expiresAt: DateTime.fromMillisecondsSinceEpoch(expiresAtMs),
-      );
+    key: key,
+    ownerId: ownerId,
+    token: token,
+    fence: fence,
+    expiresAt: DateTime.fromMillisecondsSinceEpoch(expiresAtMs),
+  );
 
   SqliteDesktopLeaseGrant copyWith({
     int? expiresAtMs,
@@ -263,8 +263,8 @@ final class SqliteDesktopCoordinator implements DesktopLeaseStore {
     String path, {
     SqliteDesktopCoordinatorOptions options =
         const SqliteDesktopCoordinatorOptions(),
-  })  : _database = _openPath(path),
-        _ownsDatabase = true {
+  }) : _database = _openPath(path),
+       _ownsDatabase = true {
     try {
       _initialize(options);
     } catch (_) {
@@ -278,8 +278,8 @@ final class SqliteDesktopCoordinator implements DesktopLeaseStore {
     Database database, {
     SqliteDesktopCoordinatorOptions options =
         const SqliteDesktopCoordinatorOptions(),
-  })  : _database = database,
-        _ownsDatabase = false {
+  }) : _database = database,
+       _ownsDatabase = false {
     _initialize(options);
   }
 
@@ -401,12 +401,7 @@ final class SqliteDesktopCoordinator implements DesktopLeaseStore {
                updated_at_ms = ?
          WHERE lease_key = ?
         ''',
-        <Object?>[
-          request.token,
-          expiresAtMs,
-          nowMs,
-          request.key,
-        ],
+        <Object?>[request.token, expiresAtMs, nowMs, request.key],
       );
       final granted = _readRow(request.key);
       return SqliteDesktopAcquired(
@@ -625,10 +620,7 @@ final class SqliteDesktopCoordinator implements DesktopLeaseStore {
     _parseGeneration('fence', grant.fence);
   }
 
-  _CoordinationRow _readOwnedUnexpiredRow(
-    DesktopLeaseGrant grant,
-    int nowMs,
-  ) {
+  _CoordinationRow _readOwnedUnexpiredRow(DesktopLeaseGrant grant, int nowMs) {
     final row = _readRow(grant.key);
     if (row.ownerToken != grant.token ||
         row.fence != grant.fence ||
@@ -737,9 +729,8 @@ final class SqliteDesktopSyncCycleContext {
   DateTime get deadline => cancellation.deadline;
 }
 
-typedef SqliteDesktopSyncCycle<R> = Future<R> Function(
-  SqliteDesktopSyncCycleContext context,
-);
+typedef SqliteDesktopSyncCycle<R> =
+    Future<R> Function(SqliteDesktopSyncCycleContext context);
 
 enum SqliteDesktopFailurePhase { acquire, cycle, complete, renew, release }
 
@@ -806,17 +797,18 @@ final class SqliteCoordinatedDesktopSyncRunner<R> {
     DateTime Function()? now,
     String Function()? tokenFactory,
     void Function(SqliteDesktopSyncOutcome<R> outcome)? onOutcome,
-  })  : _coordinator = coordinator,
-        _leaseKey = leaseKey,
-        _ownerId = ownerId,
-        _syncOnce = syncOnce,
-        leaseTtl = leaseTtl ?? budget + const Duration(seconds: 5),
-        busyWaitBudget = busyWaitBudget ??
-            (leaseTtl ?? budget + const Duration(seconds: 5)) +
-                const Duration(seconds: 1),
-        _now = now ?? DateTime.now,
-        _tokenFactory = tokenFactory ?? _secureToken,
-        _onOutcome = onOutcome {
+  }) : _coordinator = coordinator,
+       _leaseKey = leaseKey,
+       _ownerId = ownerId,
+       _syncOnce = syncOnce,
+       leaseTtl = leaseTtl ?? budget + const Duration(seconds: 5),
+       busyWaitBudget =
+           busyWaitBudget ??
+           (leaseTtl ?? budget + const Duration(seconds: 5)) +
+               const Duration(seconds: 1),
+       _now = now ?? DateTime.now,
+       _tokenFactory = tokenFactory ?? _secureToken,
+       _onOutcome = onOutcome {
     _validateIdentifier('leaseKey', leaseKey);
     _validateIdentifier('ownerId', ownerId);
     _validateDurationMs(
@@ -1010,10 +1002,10 @@ final class SqliteCoordinatedDesktopSyncRunner<R> {
         case SqliteDesktopAcquired(grant: final acquiredGrant):
           grant = acquiredGrant;
         case SqliteDesktopBusy(
-            :final retryAfterMs,
-            :final wakeGeneration,
-            :final handledGeneration,
-          ):
+          :final retryAfterMs,
+          :final wakeGeneration,
+          :final handledGeneration,
+        ):
           if (waitWatch.elapsed >= busyWaitBudget) {
             final now = _now();
             return <SqliteDesktopSyncOutcome<R>>[
@@ -1032,14 +1024,17 @@ final class SqliteCoordinatedDesktopSyncRunner<R> {
               busyWaitBudget.inMilliseconds - waitWatch.elapsedMilliseconds;
           final delayMs = min(
             busyRetryCap.inMilliseconds,
-            min(retryAfterMs <= 0 ? busyRetryCap.inMilliseconds : retryAfterMs,
-                remainingMs),
+            min(
+              retryAfterMs <= 0 ? busyRetryCap.inMilliseconds : retryAfterMs,
+              remainingMs,
+            ),
           );
           await Future<void>.delayed(Duration(milliseconds: max(1, delayMs)));
       }
     }
 
     absorbPendingReasons();
+    var activeGrant = grant!;
     while (true) {
       final startedAt = _now();
       final cancellation = BackgroundSyncContext(budget);
@@ -1059,9 +1054,9 @@ final class SqliteCoordinatedDesktopSyncRunner<R> {
             reasons: currentReasons(),
             ownerId: _ownerId,
             leaseKey: _leaseKey,
-            fence: grant.fence,
-            wakeGeneration: grant.wakeGeneration,
-            grant: grant,
+            fence: activeGrant.fence,
+            wakeGeneration: activeGrant.wakeGeneration,
+            grant: activeGrant,
             coordinator: _coordinator,
           ),
         );
@@ -1078,7 +1073,7 @@ final class SqliteCoordinatedDesktopSyncRunner<R> {
         Object? releaseError;
         StackTrace? releaseStackTrace;
         try {
-          _coordinator.releaseLease(grant.desktopGrant);
+          _coordinator.releaseLease(activeGrant.desktopGrant);
         } catch (error, stackTrace) {
           releaseError = error;
           releaseStackTrace = stackTrace;
@@ -1089,9 +1084,9 @@ final class SqliteCoordinatedDesktopSyncRunner<R> {
             reasons: currentReasons(),
             startedAt: startedAt,
             finishedAt: _now(),
-            fence: grant.fence,
-            wakeGeneration: grant.wakeGeneration,
-            handledGeneration: grant.handledGeneration,
+            fence: activeGrant.fence,
+            wakeGeneration: activeGrant.wakeGeneration,
+            handledGeneration: activeGrant.handledGeneration,
             failurePhase: releaseError == null
                 ? SqliteDesktopFailurePhase.cycle
                 : SqliteDesktopFailurePhase.release,
@@ -1104,7 +1099,7 @@ final class SqliteCoordinatedDesktopSyncRunner<R> {
 
       SqliteDesktopCompletion completion;
       try {
-        completion = _coordinator.complete(grant, grant.wakeGeneration);
+        completion = _coordinator.complete(activeGrant, activeGrant.wakeGeneration);
       } catch (error, stackTrace) {
         outcomes.add(
           SqliteDesktopSyncOutcome<R>(
@@ -1112,9 +1107,9 @@ final class SqliteCoordinatedDesktopSyncRunner<R> {
             reasons: currentReasons(),
             startedAt: startedAt,
             finishedAt: _now(),
-            fence: grant.fence,
-            wakeGeneration: grant.wakeGeneration,
-            handledGeneration: grant.handledGeneration,
+            fence: activeGrant.fence,
+            wakeGeneration: activeGrant.wakeGeneration,
+            handledGeneration: activeGrant.handledGeneration,
             result: result,
             failurePhase: SqliteDesktopFailurePhase.complete,
             error: error,
@@ -1129,8 +1124,8 @@ final class SqliteCoordinatedDesktopSyncRunner<R> {
           reasons: currentReasons(),
           startedAt: startedAt,
           finishedAt: _now(),
-          fence: grant.fence,
-          wakeGeneration: grant.wakeGeneration,
+          fence: activeGrant.fence,
+          wakeGeneration: activeGrant.wakeGeneration,
           handledGeneration: completion.handledGeneration,
           result: result,
         ),
@@ -1138,7 +1133,7 @@ final class SqliteCoordinatedDesktopSyncRunner<R> {
       if (completion.released) return outcomes;
 
       absorbPendingReasons();
-      final renewed = _coordinator.renew(grant, leaseTtl);
+      final renewed = _coordinator.renew(activeGrant, leaseTtl);
       if (renewed == null) {
         final now = _now();
         outcomes.add(
@@ -1147,7 +1142,7 @@ final class SqliteCoordinatedDesktopSyncRunner<R> {
             reasons: currentReasons(),
             startedAt: now,
             finishedAt: now,
-            fence: grant.fence,
+            fence: activeGrant.fence,
             wakeGeneration: completion.currentWakeGeneration,
             handledGeneration: completion.handledGeneration,
             failurePhase: SqliteDesktopFailurePhase.renew,
@@ -1158,7 +1153,7 @@ final class SqliteCoordinatedDesktopSyncRunner<R> {
         );
         return outcomes;
       }
-      grant = renewed.copyWith(
+      activeGrant = renewed.copyWith(
         wakeGeneration: completion.currentWakeGeneration,
         handledGeneration: completion.handledGeneration,
       );
