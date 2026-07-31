@@ -60,9 +60,13 @@ jobs:
           test/sqlite-desktop.test.ts
 
   dart-desktop:
-    name: Dart desktop contracts
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    name: Dart desktop (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-2022]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
@@ -74,15 +78,28 @@ jobs:
           sdk: stable
 
       - name: Resolve and verify the Dart desktop surface
+        shell: bash
         working-directory: clients/reactive-dart
         run: |
           set -euo pipefail
           dart pub get
-          dart format lib/src/desktop_sync.dart tool/desktop_self_test.dart
+          dart format \
+            lib/src/desktop_sync.dart \
+            lib/src/sqlite_desktop.dart \
+            lib/opto_sync_reactive_sqlite.dart \
+            tool/desktop_self_test.dart \
+            tool/sqlite_desktop_child.dart \
+            tool/sqlite_desktop_self_test.dart
           git diff --exit-code -- \
-            lib/src/desktop_sync.dart tool/desktop_self_test.dart
+            lib/src/desktop_sync.dart \
+            lib/src/sqlite_desktop.dart \
+            lib/opto_sync_reactive_sqlite.dart \
+            tool/desktop_self_test.dart \
+            tool/sqlite_desktop_child.dart \
+            tool/sqlite_desktop_self_test.dart
           dart analyze
           dart run tool/desktop_self_test.dart
+          dart run tool/sqlite_desktop_self_test.dart
 
   rust-desktop:
     name: Rust desktop (${{ matrix.os }})
