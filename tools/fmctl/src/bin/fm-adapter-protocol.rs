@@ -7,9 +7,7 @@ use std::process::ExitCode;
 #[path = "../adapter_stream_v1.rs"]
 mod adapter_stream;
 
-use adapter_stream::{
-    canonical_json_bytes, parse_stream_message_line, validate_stream_transcript,
-};
+use adapter_stream::{canonical_json_bytes, parse_stream_message_line, validate_stream_transcript};
 use serde_json::{json, Value};
 
 fn main() -> ExitCode {
