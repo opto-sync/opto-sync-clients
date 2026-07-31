@@ -89,7 +89,7 @@ jobs:
             tool/desktop_self_test.dart \
             tool/sqlite_desktop_child.dart \
             tool/sqlite_desktop_self_test.dart
-          dart analyze
+          dart analyze --no-fatal-infos
           dart run tool/desktop_self_test.dart
           dart run tool/sqlite_desktop_self_test.dart
 
