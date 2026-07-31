@@ -111,6 +111,9 @@ test('session rotation tears down stale generations and replays the latest value
     values.push(snapshot.value?.value ?? 'deleted'),
   );
   const second = stream.subscribe();
+  // The session-scoped pipeline subscribes to sources on a microtask; let it
+  // attach before the first event so the emission is observed, not replayed.
+  await new Promise((resolve) => setTimeout(resolve, 0));
   events.next(
     event('http', 'authoritative', '1', {
       value: 'first',
