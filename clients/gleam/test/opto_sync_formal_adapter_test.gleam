@@ -1,6 +1,6 @@
 import gleam/string
-import gleeunit/should
 import gleam_community/maths/bigint
+import gleeunit/should
 import opto_sync_formal_adapter as adapter
 import opto_sync_formal_projection as projection
 
@@ -17,13 +17,7 @@ pub fn projection_json_round_trips_test() {
 
 pub fn reply_json_preserves_duplicate_origin_test() {
   let one = bigint.from_int(1)
-  let reply =
-    projection.Duplicate(
-      one,
-      one,
-      one,
-      projection.RejectedOutcome,
-    )
+  let reply = projection.Duplicate(one, one, one, projection.RejectedOutcome)
 
   let encoded = adapter.reply_json(reply)
   encoded |> string.contains("\"status\":\"duplicate\"") |> should.be_true
