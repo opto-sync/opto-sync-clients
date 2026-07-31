@@ -15,8 +15,10 @@ The adapter deliberately separates operational and semantic concerns:
   and reports the first divergent trace/state/action.
 - `src/opto_sync_formal_adapter.gleam` serializes canonical observations and
   exercises the production request/response validator.
-- `src/opto_sync_formal_projection.gleam` remains the production protocol state
-  implementation used for every transition.
+- `src/opto_sync_formal_projection.gleam` delegates queue mutation, request
+  construction, response validation, acknowledgement, and checkpoint changes to
+  the production client, retaining only model-observation metadata that the
+  public queue does not store.
 
 The Erlang harness never reconstructs Gleam record/variant internals. It calls
 public production functions for enqueue, server outcomes, acknowledgement,
