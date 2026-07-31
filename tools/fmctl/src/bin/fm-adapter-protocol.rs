@@ -4,7 +4,7 @@ use std::io::{self, Write};
 use std::process::ExitCode;
 
 #[allow(dead_code)]
-#[path = "../adapter_stream.rs"]
+#[path = "../adapter_stream_v1.rs"]
 mod adapter_stream;
 
 use adapter_stream::{
