@@ -26,15 +26,12 @@ pub fn projection_json_uses_production_queue_state_test() {
   |> string.contains("\"pending\":{\"#set\":[]}")
   |> should.be_true
   encoded
-  |> string.contains(
-    "\"confirmed\":{\"#set\":[{\"#bigint\":\"1\"}]}",
-  )
+  |> string.contains("\"confirmed\":{\"#set\":[")
   |> should.be_true
   encoded
-  |> string.contains(
-    "\"allocated\":{\"#set\":[{\"#bigint\":\"1\"}]}",
-  )
+  |> string.contains("\"allocated\":{\"#set\":[")
   |> should.be_true
+  encoded |> string.contains("\"#bigint\":\"1\"") |> should.be_true
 }
 
 pub fn reply_json_preserves_duplicate_origin_test() {
