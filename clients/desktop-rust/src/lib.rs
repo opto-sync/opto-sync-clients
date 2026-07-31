@@ -6,6 +6,8 @@
 //! `(client_id, mutation_id)` deduplication remains the final correctness
 //! boundary if a process dies after a remote commit but before local release.
 
+pub mod sqlite;
+
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
