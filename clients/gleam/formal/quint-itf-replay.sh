@@ -12,7 +12,7 @@ cd "$package_dir"
 # Elixir/Rustler NIF is built below the sibling Mix _build/ tree. Gleam package
 # modules and Erlang dependencies may live in `_gleam_artefacts` rather than an
 # OTP `ebin` directory, so both compiled forms belong on the VM path. This
-# launcher never compiles and keeps stdout reserved for the JSON-lines protocol.
+# launcher never compiles and keeps stdout reserved for the JSON protocol.
 search_roots=""
 for root in build _build ../../syncer.c/bindings/beam/_build; do
   if [ -d "$root" ]; then
@@ -45,28 +45,65 @@ for directory in $beam_path_list; do
 done
 IFS=$old_ifs
 
-# The BEAM harness predates the finalized external field name and uses
-# `tracePaths` internally. Normalize the canonical fmctl `traces` request at the
-# process boundary; do not alter the corpus, ordering, or replay implementation.
+# fmctl.adapter.v1 is a batch contract. The repository-local BEAM harness has a
+# deliberately smaller isolation boundary: one fresh adapter process per trace.
+# Fan out the canonical batch into one-trace sessions, validate that each harness
+# actually reports exactly one replayed trace, and aggregate the canonical fmctl
+# response. This preserves batch correlation while preventing state leakage
+# between traces; it does not paper over an incorrect harness count.
 request_file=$(mktemp)
-result_file=$(mktemp)
-normalized_request_file=$(mktemp)
-trap 'rm -f "$request_file" "$result_file" "$normalized_request_file"' EXIT HUP INT TERM
+trace_list_file=$(mktemp)
+single_request_file=$(mktemp)
+single_result_file=$(mktemp)
+first_failure_file=$(mktemp)
+trap 'rm -f "$request_file" "$trace_list_file" "$single_request_file" "$single_result_file" "$first_failure_file"' EXIT HUP INT TERM
 cat >"$request_file"
-trace_count=$(jq -er '.traces | arrays | length | select(. > 0)' "$request_file")
-jq -c '. + {tracePaths: .traces}' "$request_file" >"$normalized_request_file"
-erl -noshell "$@" -s opto_sync_formal_replay_ffi main \
-  <"$normalized_request_file" >"$result_file"
 
-# Normalize the harness's detailed internal result into the repository-wide
-# fmctl.adapter.v1 aggregate envelope used by Rust, TypeScript, and Dart.
-jq -c --argjson trace_count "$trace_count" '
-  if .result.status == "ok" then
+trace_count=$(jq -er '.traces | arrays | length | select(. > 0)' "$request_file")
+jq -er '.traces[] | strings | select(length > 0)' "$request_file" >"$trace_list_file"
+listed_trace_count=$(wc -l <"$trace_list_file" | tr -d ' ')
+if [ "$listed_trace_count" -ne "$trace_count" ]; then
+  printf '%s\n' 'fmctl adapter request contains a non-string, empty, or newline-bearing trace path.' >&2
+  exit 65
+fi
+
+traces_passed=0
+failed_trace=''
+: >"$first_failure_file"
+
+while IFS= read -r trace_path; do
+  jq -c --arg trace_path "$trace_path" '
+    . + {
+      traces: [$trace_path],
+      tracePaths: [$trace_path]
+    }
+  ' "$request_file" >"$single_request_file"
+
+  erl -noshell "$@" -s opto_sync_formal_replay_ffi main \
+    <"$single_request_file" >"$single_result_file"
+
+  internal_status=$(jq -er '.result.status | strings' "$single_result_file")
+  internal_trace_count=$(jq -er '.result.traceCount // 0' "$single_result_file")
+
+  if [ "$internal_status" = 'ok' ] && [ "$internal_trace_count" -eq 1 ]; then
+    traces_passed=$((traces_passed + 1))
+    continue
+  fi
+
+  failed_trace=$trace_path
+  cp "$single_result_file" "$first_failure_file"
+  break
+done <"$trace_list_file"
+
+if [ "$traces_passed" -eq "$trace_count" ]; then
+  jq -nc \
+    --arg protocol 'fmctl.adapter.v1' \
+    --argjson trace_count "$trace_count" '
     {
-      protocol: .protocol,
+      protocol: $protocol,
       success: true,
-      traces_total: .result.traceCount,
-      traces_passed: .result.traceCount,
+      traces_total: $trace_count,
+      traces_passed: $trace_count,
       mismatches: [],
       implementation: {
         language: "gleam",
@@ -74,17 +111,26 @@ jq -c --argjson trace_count "$trace_count" '
         version: "0.1.0"
       }
     }
-  else
+  '
+  exit 0
+fi
+
+if [ ! -s "$first_failure_file" ]; then
+  jq -nc \
+    --arg protocol 'fmctl.adapter.v1' \
+    --argjson trace_count "$trace_count" \
+    --argjson traces_passed "$traces_passed" \
+    --arg trace "$failed_trace" '
     {
-      protocol: .protocol,
+      protocol: $protocol,
       success: false,
       traces_total: $trace_count,
-      traces_passed: 0,
+      traces_passed: $traces_passed,
       mismatches: [{
-        trace: (.result.tracePath // "<adapter-request>"),
-        step: .result.stateIndex,
-        action: .result.action,
-        message: .result.error,
+        trace: $trace,
+        step: null,
+        action: null,
+        message: "Gleam adapter batch ended without a valid one-trace result",
         expected: null,
         actual: null
       }],
@@ -94,5 +140,37 @@ jq -c --argjson trace_count "$trace_count" '
         version: "0.1.0"
       }
     }
-  end
-' "$result_file"
+  '
+  exit 0
+fi
+
+jq -c \
+  --argjson trace_count "$trace_count" \
+  --argjson traces_passed "$traces_passed" \
+  --arg failed_trace "$failed_trace" '
+  {
+    protocol: (.protocol // "fmctl.adapter.v1"),
+    success: false,
+    traces_total: $trace_count,
+    traces_passed: $traces_passed,
+    mismatches: [{
+      trace: (.result.tracePath // $failed_trace),
+      step: .result.stateIndex,
+      action: .result.action,
+      message: (
+        if .result.status == "ok" then
+          "Gleam adapter reported an invalid per-trace aggregate count"
+        else
+          (.result.error // "Gleam adapter replay failed")
+        end
+      ),
+      expected: { traceCount: 1 },
+      actual: { traceCount: (.result.traceCount // null) }
+    }],
+    implementation: {
+      language: "gleam",
+      name: "opto_sync_client production protocol projection",
+      version: "0.1.0"
+    }
+  }
+' "$first_failure_file"
