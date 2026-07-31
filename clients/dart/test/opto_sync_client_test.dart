@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:drift/drift.dart' show OrderingTerm, Value;
+import 'package:drift/drift.dart' show MigrationStrategy, OrderingTerm, Value;
 import 'package:drift/native.dart';
 import 'package:opto_sync_client/opto_sync_client.dart';
 import 'package:sqlite3/sqlite3.dart' show Database, sqlite3;
@@ -98,6 +98,25 @@ List<List<Object?>> _legacyQueueSnapshot(Database raw) {
         ],
       )
       .toList(growable: false);
+}
+
+class _FailAfterUpgradeDatabase extends OptoSyncDatabase {
+  _FailAfterUpgradeDatabase(super.executor);
+
+  @override
+  MigrationStrategy get migration {
+    final base = super.migration;
+    return MigrationStrategy(
+      onCreate: base.onCreate,
+      onUpgrade: base.onUpgrade,
+      beforeOpen: (details) async {
+        await base.beforeOpen?.call(details);
+        if (details.hadUpgrade) {
+          throw StateError('injected failure after onUpgrade');
+        }
+      },
+    );
+  }
 }
 
 void main() {
@@ -1113,6 +1132,68 @@ void main() {
           ['1', '2'],
         );
         expect(recoveredRequest['clientId'], isNotEmpty);
+        await recoveredDb.close();
+      } finally {
+        await dir.delete(recursive: true);
+      }
+    },
+  );
+
+  test(
+    'v3 version marker commits with schema before post-upgrade hooks',
+    () async {
+      await db.close();
+      final dir = await Directory.systemTemp.createTemp(
+        'opto_sync_post_upgrade_failure',
+      );
+      final file = File('${dir.path}/queue.sqlite');
+      try {
+        final legacy = sqlite3.open(file.path);
+        _createLegacyQueue(legacy, version: 2);
+        legacy.close();
+
+        final failedOpen = _FailAfterUpgradeDatabase(NativeDatabase(file));
+        await expectLater(
+          failedOpen.select(failedOpen.localMutations).get(),
+          throwsA(
+            isA<StateError>().having(
+              (error) => error.message,
+              'message',
+              'injected failure after onUpgrade',
+            ),
+          ),
+        );
+        await failedOpen.close();
+
+        // Drift normally writes user_version after beforeOpen. The migration
+        // must commit it alongside its non-idempotent DDL and adoption data so
+        // a process loss in that gap cannot make restart replay ALTER TABLE.
+        final afterFailure = sqlite3.open(file.path);
+        expect(
+          afterFailure.select('PRAGMA user_version').single['user_version'],
+          3,
+        );
+        expect(
+          afterFailure
+              .select('PRAGMA table_info(local_mutations)')
+              .map((row) => row['name']),
+          containsAll(['client_id', 'mutation_id']),
+        );
+        afterFailure.close();
+
+        final recoveredDb = OptoSyncDatabase(NativeDatabase(file));
+        final recovered = OptoSyncClient(
+          db: recoveredDb,
+          syncer: syncer,
+          stampUpdatedAt: false,
+        );
+        final request = await recovered.protocolPushRequest();
+        expect(
+          (request['mutations'] as List)
+              .map((mutation) => (mutation as Map)['mutationId'])
+              .toList(),
+          ['1', '2'],
+        );
         await recoveredDb.close();
       } finally {
         await dir.delete(recursive: true);

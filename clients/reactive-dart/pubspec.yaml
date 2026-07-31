@@ -1,0 +1,12 @@
+name: opto_sync_reactive
+version: 0.1.0
+publish_to: none
+description: >-
+  RxDart orchestration, optimism policies, and bounded Flutter/mobile
+  background-sync adapters for opto-sync.
+environment:
+  sdk: '>=3.4.0 <4.0.0'
+dependencies:
+  opto_sync_client:
+    path: ../dart
+  rxdart: 0.28.0

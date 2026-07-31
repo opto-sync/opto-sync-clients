@@ -1,6 +1,7 @@
 # opto-sync-clients
 
 [![CI](https://github.com/opto-sync/opto-sync-clients/actions/workflows/ci.yml/badge.svg)](https://github.com/opto-sync/opto-sync-clients/actions/workflows/ci.yml)
+[![Background reactive sync](https://github.com/opto-sync/opto-sync-clients/actions/workflows/background-reactive-sync.yml/badge.svg)](https://github.com/opto-sync/opto-sync-clients/actions/workflows/background-reactive-sync.yml)
 [![Zed package](https://github.com/opto-sync/opto-sync-clients/actions/workflows/zed-package.yml/badge.svg)](https://github.com/opto-sync/opto-sync-clients/actions/workflows/zed-package.yml)
 
 Client libraries for **opto-sync**: optimistic local-first writes (IndexedDB in the
@@ -22,12 +23,14 @@ protocol lifecycle; Kani proves Rust queue arithmetic, while the pinned
 
 ```text
 opto-sync-clients/
-  syncer.c/       pinned opto-sync/syncer.c submodule
+  syncer.c/         pinned opto-sync/syncer.c submodule
   clients/
-    dart/         package opto_sync_client — Drift/SQLite or IndexedDB queue + FFI/WASM
-    ts/           package @opto-sync/client — Dexie/IndexedDB mutation queue + native syncer
-    rust/         crate opto-sync-client — first-party SQLite protocol store + pluggable seams
-    gleam/        package opto_sync_client — protocol queue + BEAM NIF reconciliation
+    dart/           package opto_sync_client — Drift/SQLite or IndexedDB queue + FFI/WASM
+    ts/             package @opto-sync/client — Dexie/IndexedDB mutation queue + native syncer
+    rust/           crate opto-sync-client — first-party SQLite protocol store + pluggable seams
+    gleam/          package opto_sync_client — protocol queue + BEAM NIF reconciliation
+    reactive-ts/    package @opto-sync/reactive — RxJS, Service Worker, HTTP/WS/TCP/Supabase hints
+    reactive-dart/  package opto_sync_reactive — RxDart + Flutter/iOS/Android background adapters
 ```
 
 ## Optimistic writes
@@ -46,6 +49,15 @@ unconfirmed writes on top of server state so that window never exists.
 See **[docs/OPTIMISTIC_WRITES.md](docs/OPTIMISTIC_WRITES.md)** for the full
 contract: rebase, `(clientId, mutationId)` dedupe, ordering, and what a push
 loop still has to do.
+
+The reactive packages make the write strategy explicit per operation:
+
+- **remote-confirmed** — send and wait before changing local authoritative state;
+- **local-durable** — atomically save locally and queue, then let background sync land it;
+- **local-then-remote** — render immediately but await one protocol cycle before completion.
+
+WebSocket, Supabase Realtime, BroadcastChannel, and TCP events are wake hints.
+HTTP protocol push/pull remains the commit-ordered source of truth.
 
 ## Reconciliation model
 
@@ -84,6 +96,7 @@ timestamps and ISO-8601 strings are unaffected. The cross-server suites in
 
 - [Getting started](docs/GETTING_STARTED.md)—install and a minimal example per client
 - [Browser](docs/BROWSER.md)—the WebAssembly engine, bundlers, and workers
+- [Background and reactive sync](docs/BACKGROUND_REACTIVE_SYNC.md)—RxJS/RxDart, optimism, Service Workers, mobile workers, sessions, and transports
 - [Offline queue](docs/OFFLINE_QUEUE.md)—the queue model and durability guarantees
 - [Sync protocol v1](docs/SYNC_PROTOCOL_V1.md)—push dedupe, pull checkpoints, tombstones, rejection, and reset
 - [Reconciliation](docs/RECONCILIATION.md)—policy, schema guidance, and timestamp conventions
@@ -117,6 +130,11 @@ cmake --build syncer.c/core/build --target syncer
 (cd clients/dart && dart pub get && dart analyze && dart test)
 (cd clients/rust && cargo test --locked --all-targets)
 (cd clients/gleam && gleam deps download && gleam test)
+
+# reactive/background suites
+(cd clients/reactive-ts && npm ci && npm test)
+(cd clients/reactive-dart && dart pub get && dart analyze && dart run tool/self_test.dart)
+python3 clients/reactive-dart/tool/check_native_background_adapters.py
 ```
 
 ## Zed package
@@ -139,9 +157,15 @@ Zed targets or changing the pinned core.
 
 ## CI
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs all four client
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs all four core client
 suites on `ubuntu-latest` for every push to `main`, every pull request, and on
 demand. Checkout is recursive; there is no mutable sibling `syncer.c@main`
 checkout. Dart covers native SQLite/FFI and real Chromium IndexedDB/WASM. Rust
 runs its SQLite transaction/restart suite and builds without the default
 `sqlite` feature. Gleam compiles and invokes the real Rustler/C NIF.
+
+[`.github/workflows/background-reactive-sync.yml`](.github/workflows/background-reactive-sync.yml)
+adds RxJS type/unit tests, a real two-tab Service Worker + IndexedDB test, RxDart
+behavioral tests, mobile adapter contract checks, 750 randomized Rust-wrapper vs
+raw-C ABI comparisons, and the Postgres/Supabase integration profiles using the
+current client branch.
