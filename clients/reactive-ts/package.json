@@ -1,0 +1,45 @@
+{
+  "name": "@opto-sync/reactive",
+  "version": "0.1.0",
+  "private": true,
+  "description": "RxJS orchestration for opto-sync optimism policies, session-scoped source fusion, background sync, and live transport hints",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./service-worker": "./src/service-worker.ts",
+    "./node-tcp": "./src/node-tcp.ts"
+  },
+  "files": [
+    "src/",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "test:browser": "node test/service-worker-browser.mjs"
+  },
+  "keywords": [
+    "rxjs",
+    "offline-first",
+    "service-worker",
+    "indexeddb",
+    "supabase",
+    "websocket",
+    "background-sync"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "rxjs": "7.8.2"
+  },
+  "peerDependencies": {
+    "@opto-sync/client": "^0.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@opto-sync/client": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}
