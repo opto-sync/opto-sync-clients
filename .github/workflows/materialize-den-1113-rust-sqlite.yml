@@ -8,6 +8,13 @@ on:
       - 'clients/desktop-rust/**'
       - 'docs/RUST_SQLITE_DESKTOP_COORDINATION.md'
       - '.github/workflows/materialize-den-1113-rust-sqlite.yml'
+  pull_request:
+    branches:
+      - agent/den-1113-validation-base
+    paths:
+      - 'clients/desktop-rust/**'
+      - 'docs/RUST_SQLITE_DESKTOP_COORDINATION.md'
+      - '.github/workflows/materialize-den-1113-rust-sqlite.yml'
   workflow_dispatch:
 
 permissions:
@@ -19,12 +26,15 @@ concurrency:
 
 jobs:
   validate-and-materialize:
+    if: >-
+      github.repository == 'opto-sync/opto-sync-clients' &&
+      (github.event_name != 'pull_request' || github.head_ref == 'agent/den-1113-rust-sqlite-coordinator')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
           fetch-depth: 0
           persist-credentials: true
 
@@ -60,7 +70,7 @@ jobs:
 
       - name: Commit only validated product files and remove this one-shot workflow
         env:
-          BRANCH_NAME: ${{ github.ref_name }}
+          BRANCH_NAME: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
         run: |
           set -euo pipefail
           rm .github/workflows/materialize-den-1113-rust-sqlite.yml
