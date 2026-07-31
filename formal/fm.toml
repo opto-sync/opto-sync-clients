@@ -134,5 +134,14 @@ status = "planned"
 
 [adapters.gleam]
 strategy = "itf-json-driver"
-target = "clients/gleam"
+target = "clients/gleam/src/opto_sync_formal_projection.gleam"
+implementation = "clients/gleam production Queue APIs and versioned queue snapshot"
+observable_state = [
+  "nextMutationId",
+  "pendingMutationIds",
+  "confirmedMutationIds",
+  "allocatedMutationIds",
+  "checkpoint",
+]
 status = "planned"
+issue = "DEN-587"

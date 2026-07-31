@@ -20,3 +20,6 @@ _apalache-out/
 *.swp
 .vscode/
 .idea/
+
+# Gradle build caches (never tracked)
+**/.gradle/

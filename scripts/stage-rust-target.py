@@ -76,6 +76,16 @@ def main() -> int:
         )
 
     copy_tree(ROOT / "clients/rust", output / "clients/rust")
+    # Formal/model replay adapters remain repository-source verification assets.
+    # Zed source packing intentionally omits conventional examples/ trees, so
+    # remove that source-only tree explicitly after copying rather than relying
+    # on callback path identity inside shutil.copytree.
+    examples = output / "clients/rust/examples"
+    if examples.exists():
+        if not examples.is_dir() or examples.is_symlink():
+            fail("clients/rust/examples must be a normal directory when present")
+        shutil.rmtree(examples)
+
     copy_tree(ROOT / "syncer.c/core/include", output / "syncer.c/core/include")
     copy_tree(ROOT / "syncer.c/core/src", output / "syncer.c/core/src")
     copy_tree(ROOT / "syncer.c/bindings/rust", output / "syncer.c/bindings/rust")
@@ -88,9 +98,8 @@ def main() -> int:
     )
     (output / "syncer.c/SOURCE_SHA").write_text(gitlink_sha + "\n", encoding="utf-8")
 
-    # Zed source packing intentionally omits conventional examples/ trees. Put
-    # the identity probe under src/bin so the exact packed artifact retains a
-    # normal executable target that Cargo can compile on every supported OS.
+    # Put the identity probe under src/bin so the exact packed artifact retains
+    # a normal executable target that Cargo can compile on every supported OS.
     identity_bin = output / "clients/rust/src/bin"
     identity_bin.mkdir(parents=True, exist_ok=True)
     (identity_bin / "core_identity.rs").write_text(

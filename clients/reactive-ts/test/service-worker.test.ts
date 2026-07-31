@@ -97,26 +97,45 @@ test('registration uses native Background Sync and falls back to a worker messag
   assert.deepEqual(messages, [{ type: OPTO_SYNC_WAKE_MESSAGE }]);
 });
 
-test('timeout aborts a non-cooperative cycle and reports a bounded error', async () => {
+test('timeout keeps a non-cooperative cycle single-flight until it settles', async () => {
   const scope = new FakeScope();
-  const controller = installOptoSyncServiceWorker({
+  let cycles = 0;
+  let settleFirst!: () => void;
+  const controller = installOptoSyncServiceWorker<void>({
     scope,
     timeoutMs: 1_000,
-    syncOnce: (signal) =>
-      new Promise((_resolve, reject) => {
-        signal.addEventListener(
-          'abort',
-          () => reject(new DOMException('aborted', 'AbortError')),
-          { once: true },
-        );
-      }),
+    syncOnce() {
+      cycles += 1;
+      if (cycles === 1) {
+        return new Promise<void>((resolve) => {
+          settleFirst = resolve;
+        });
+      }
+      return Promise.resolve();
+    },
   });
+
+  const first = controller.runNow();
   await assert.rejects(
-    controller.runNow(),
+    first,
     (error: unknown) =>
       error instanceof DOMException &&
       error.name === 'AbortError' &&
       error.message === 'opto-sync background timeout',
   );
+
+  const second = controller.runNow();
+  assert.strictEqual(
+    second,
+    first,
+    'a timeout must not clear ownership while the callback still executes',
+  );
+  await assert.rejects(second, /opto-sync background timeout/);
+  assert.equal(cycles, 1, 'the non-cooperative callback was not overlapped');
+
+  settleFirst();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await controller.runNow();
+  assert.equal(cycles, 2, 'a new cycle starts only after the first settles');
   controller.close();
 });

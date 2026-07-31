@@ -37,8 +37,8 @@ final class BackgroundSyncContext {
   }
 }
 
-typedef BackgroundSyncCycle<R> =
-    Future<R> Function(BackgroundSyncContext context);
+typedef BackgroundSyncCycle<R> = Future<R> Function(
+    BackgroundSyncContext context);
 
 /// One bounded, single-flight HTTP push/pull cycle for a worker isolate.
 ///
@@ -127,9 +127,10 @@ final class BackgroundSyncOutcome<R> {
 
 /// Coalesce wake bursts and serialize durable queue ownership.
 ///
-/// `concatMap` preserves one coalesced trailing wake that arrives while a cycle
-/// is running. Dropping it would strand a mutation committed just after the
-/// active cycle inspected its queue. The runner still guarantees single-flight.
+/// A single-concurrency flat-map preserves one coalesced trailing wake that
+/// arrives while a cycle is running. Dropping it would strand a mutation
+/// committed just after the active cycle inspected its queue. The runner still
+/// guarantees single-flight.
 ValueStream<BackgroundSyncOutcome<R>> createBackgroundSyncOutcomes<R>({
   required Iterable<Stream<BackgroundWakeReason>> wakeStreams,
   required BackgroundSyncRunner<R> runner,
@@ -144,15 +145,16 @@ ValueStream<BackgroundSyncOutcome<R>> createBackgroundSyncOutcomes<R>({
   }
   return MergeStream<BackgroundWakeReason>(streams)
       .debounceTime(coalesce)
-      .concatMap(
-        (wake) => Stream<BackgroundSyncOutcome<R>>.fromFuture(
+      .flatMap<BackgroundSyncOutcome<R>>(
+        (BackgroundWakeReason wake) =>
+            Stream<BackgroundSyncOutcome<R>>.fromFuture(
           runner.runOnce().then(
-            (result) => BackgroundSyncOutcome<R>(
-              wake: wake,
-              ok: true,
-              result: result,
-            ),
-          ),
+                (result) => BackgroundSyncOutcome<R>(
+                  wake: wake,
+                  ok: true,
+                  result: result,
+                ),
+              ),
         ).onErrorReturnWith(
           (error, stackTrace) => BackgroundSyncOutcome<R>(
             wake: wake,
@@ -161,6 +163,7 @@ ValueStream<BackgroundSyncOutcome<R>> createBackgroundSyncOutcomes<R>({
             stackTrace: stackTrace,
           ),
         ),
+        maxConcurrent: 1,
       )
       .shareValue();
 }
