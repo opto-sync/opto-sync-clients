@@ -1,3 +1,4 @@
+# PR #32 trigger after the disposable base gained the read-only format oracle.
 name: DEN-587 materialize Gleam test format
 
 on:
