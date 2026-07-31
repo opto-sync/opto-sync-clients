@@ -1,19 +1,13 @@
+import gleam/int
 import gleam/json
-import gleam_community/maths/bigint.{type BigInt}
+import gleam/option.{None}
+import opto_sync_client
 import opto_sync_formal_projection as projection
 
-/// Render only the canonical abstract protocol projection. The adapter never
-/// serializes private BEAM terms or implementation-specific storage layout.
 pub fn projection_json(state: projection.State) -> String {
-  state
-  |> projection.observe
-  |> projection.encode_projection_json
-  |> json.to_string
+  projection.encode_projection_json(state)
 }
 
-/// Render the production reply value using the same tagged-bigint vocabulary as
-/// the shared ITF projection. This lets the BEAM adapter check wire semantics
-/// without teaching the Erlang harness the representation of Gleam custom types.
 pub fn reply_json(reply: projection.Reply) -> String {
   let encoded = case reply {
     projection.Applied(mutation_id, watermark, checkpoint) ->
@@ -23,7 +17,6 @@ pub fn reply_json(reply: projection.Reply) -> String {
         #("watermark", bigint_json(watermark)),
         #("checkpoint", bigint_json(checkpoint)),
       ])
-
     projection.Rejected(mutation_id, watermark, checkpoint) ->
       json.object([
         #("status", json.string("rejected")),
@@ -31,7 +24,6 @@ pub fn reply_json(reply: projection.Reply) -> String {
         #("watermark", bigint_json(watermark)),
         #("checkpoint", bigint_json(checkpoint)),
       ])
-
     projection.Duplicate(mutation_id, watermark, checkpoint, original) ->
       json.object([
         #("status", json.string("duplicate")),
@@ -41,42 +33,50 @@ pub fn reply_json(reply: projection.Reply) -> String {
         #("originalStatus", json.string(outcome_name(original))),
       ])
   }
-
   json.to_string(encoded)
 }
 
-/// Exercise the production request/response validator at the malformed-response
-/// boundary. The Erlang harness supplies only scalar model values; all protocol
-/// record construction and validation remain in Gleam production code.
 pub fn mismatched_response_rejected(
-  request_id: BigInt,
-  response_id: BigInt,
-  watermark: BigInt,
-  checkpoint: BigInt,
+  request_id: Int,
+  response_id: Int,
+  watermark: Int,
+  checkpoint: Int,
 ) -> Bool {
-  let request =
-    projection.PushRequest(
-      protocol_version: 1,
-      client_id: "gleam-formal-adapter",
-      mutation_ids: [request_id],
+  let assert Ok(queue) = opto_sync_client.new("gleam-formal-adapter")
+  let assert Ok(#(queue, _)) =
+    opto_sync_client.enqueue_upsert(
+      queue,
+      "formal_records",
+      int.to_string(request_id),
+      "{}",
+      None,
+      False,
     )
+  let assert Ok(request) = opto_sync_client.build_push_request(queue, 1)
   let response =
-    projection.PushResponse(
+    opto_sync_client.PushResponse(
       protocol_version: 1,
       client_id: "gleam-formal-adapter",
-      last_mutation_id: watermark,
-      checkpoint: checkpoint,
-      result: projection.Applied(response_id, watermark, checkpoint),
+      last_mutation_id: int.to_string(watermark),
+      checkpoint: int.to_string(checkpoint),
+      results: [
+        opto_sync_client.MutationResult(
+          mutation_id: int.to_string(response_id),
+          status: opto_sync_client.Applied,
+          original_status: None,
+          checkpoint: None,
+          revision: None,
+        ),
+      ],
     )
-
-  case projection.validate_response(request, response) {
-    Error(projection.ResponseDoesNotMatchRequest) -> True
+  case opto_sync_client.acknowledge(queue, request, response) {
+    Error(opto_sync_client.InvalidAcknowledgement) -> True
     _ -> False
   }
 }
 
-fn bigint_json(value: BigInt) -> json.Json {
-  json.object([#("#bigint", json.string(bigint.to_string(value)))])
+fn bigint_json(value: Int) -> json.Json {
+  json.object([#("#bigint", json.string(int.to_string(value)))])
 }
 
 fn outcome_name(outcome: projection.Outcome) -> String {
