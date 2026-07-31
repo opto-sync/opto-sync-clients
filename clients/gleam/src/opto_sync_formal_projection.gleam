@@ -160,15 +160,17 @@ pub fn encode_projection_json(state: State) -> String {
   ) = projection
   json.object([
     #("nextId", tagged_int(next_mutation_id)),
-    #("pending", tagged_int_list(pending_mutation_ids)),
-    #("confirmed", tagged_int_list(confirmed_mutation_ids)),
-    #("allocated", tagged_int_list(allocated_mutation_ids)),
+    #("pending", tagged_int_set(pending_mutation_ids)),
+    #("confirmed", tagged_int_set(confirmed_mutation_ids)),
+    #("allocated", tagged_int_set(allocated_mutation_ids)),
     #("knownOutcomes", json.array(outcomes, encode_outcome)),
     #("checkpoint", tagged_int(checkpoint)),
     #(
       "resetPhase",
       json.string(case reset_phase {
-        Idle -> "idle"
+        // The BEAM replay harness historically called the non-replacing state
+        // `ready`; this is a representation alias for the model's `Idle` tag.
+        Idle -> "ready"
         Replacing -> "replacing"
       }),
     ),
@@ -275,8 +277,10 @@ fn tagged_int(value: String) -> json.Json {
   json.object([#("#bigint", json.string(value))])
 }
 
-fn tagged_int_list(values: List(String)) -> json.Json {
-  json.array(values, tagged_int)
+fn tagged_int_set(values: List(String)) -> json.Json {
+  json.object([
+    #("#set", json.array(values, tagged_int)),
+  ])
 }
 
 fn allocated_ids(
