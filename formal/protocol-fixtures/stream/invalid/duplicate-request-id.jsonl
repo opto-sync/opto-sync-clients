@@ -1,0 +1,5 @@
+{"kind":"request","message":{"protocol":"fm.adapter.stream.v1","protocolVersion":1,"requestId":"1","machine":"counter","generation":0,"operation":{"name":"hello"}}}
+{"kind":"response","message":{"protocol":"fm.adapter.stream.v1","protocolVersion":1,"requestId":"1","machine":"counter","generation":0,"operation":"hello","outcome":{"kind":"ok","value":{"implementation":{"language":"typescript","name":"counter","version":"1.0.0"},"capabilities":["reset","apply","observe","close"],"canonicalStateSchemaHash":"sha256:2222222222222222222222222222222222222222222222222222222222222222"}}}}
+{"kind":"request","message":{"protocol":"fm.adapter.stream.v1","protocolVersion":1,"requestId":"2","machine":"counter","generation":0,"operation":{"name":"observe"}}}
+{"kind":"response","message":{"protocol":"fm.adapter.stream.v1","protocolVersion":1,"requestId":"2","machine":"counter","generation":0,"operation":"observe","outcome":{"kind":"ok","value":{"observation":{"counter":{"#bigint":"0"}}}}}}
+{"kind":"request","message":{"protocol":"fm.adapter.stream.v1","protocolVersion":1,"requestId":"2","machine":"counter","generation":0,"operation":{"name":"close"}}}
