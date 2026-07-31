@@ -1,0 +1,64 @@
+name: DEN-587 materialize Gleam test format
+
+on:
+  push:
+    branches:
+      - agent/den-587-test-format-materializer
+    paths:
+      - 'clients/gleam/test/opto_sync_formal_adapter_test.gleam'
+      - '.github/workflows/materialize-den-587-gleam-test-format.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: den-587-gleam-test-format-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - uses: gleam-lang/setup-gleam@v1
+        with:
+          gleam-version: '1.16.0'
+
+      - name: Apply canonical formatter output
+        run: |
+          set -euo pipefail
+          gleam format clients/gleam/test/opto_sync_formal_adapter_test.gleam
+          gleam format --check clients/gleam/test/opto_sync_formal_adapter_test.gleam
+          rm .github/workflows/materialize-den-587-gleam-test-format.yml
+
+      - name: Commit only the formatted product file
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git add -A -- \
+            .github/workflows/materialize-den-587-gleam-test-format.yml \
+            clients/gleam/test/opto_sync_formal_adapter_test.gleam
+          changed="$(git diff --cached --name-only)"
+          printf '%s\n' "$changed"
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(.github/workflows/materialize-den-587-gleam-test-format.yml|clients/gleam/test/opto_sync_formal_adapter_test.gleam)$' || true)"
+          if [ -n "$unexpected" ]; then
+            echo "unexpected formatted paths:" >&2
+            printf '%s\n' "$unexpected" >&2
+            exit 1
+          fi
+          if git diff --cached --quiet; then
+            echo 'formatter produced no materialized change' >&2
+            exit 1
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'DEN-587 apply canonical Gleam test formatting'
+          git push origin "HEAD:${BRANCH_NAME}"
