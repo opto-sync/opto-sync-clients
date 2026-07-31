@@ -171,7 +171,7 @@ jobs:
               clients/gleam/src/opto_sync_formal_projection.gleam \
               clients/gleam/src/opto_sync_formal_adapter.gleam \
               clients/gleam/src/opto_sync_formal_replay.gleam \
-              clients/gleam/src/opto_sync_formal_replay_ffi.erl \
+              clients/gleam/src/opto_sync_formal_replay_ffi_v2.erl \
               syncer.c/bindings/beam/mix.lock
           } > .formal-artifacts/gleam/provenance.txt
 
