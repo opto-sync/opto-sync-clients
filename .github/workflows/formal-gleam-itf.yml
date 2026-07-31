@@ -51,7 +51,7 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Install manifest Rust toolchain for fmctl
+      - name: Install manifest Rust toolchain for fmctl and the production NIF
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
         with:
           toolchain: '1.88.0'
@@ -59,16 +59,28 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
-          workspaces: tools/fmctl
+          workspaces: |
+            tools/fmctl
+            syncer.c/bindings/beam/native/syncer_nif
 
-      - name: Install Erlang/OTP and Gleam
-        uses: erlef/setup-beam@v1
+      - name: Install Erlang/OTP, Elixir, and Gleam
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
         with:
           otp-version: '27.3.4'
+          elixir-version: '1.18.4'
           gleam-version: '1.16.0'
 
       - name: Build fmctl
         run: cargo build --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl
+
+      - name: Build the production BEAM reconciliation NIF
+        working-directory: syncer.c/bindings/beam
+        run: |
+          set -euo pipefail
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          mix compile
 
       - name: Validate manifest and typecheck executable specification
         shell: bash
@@ -93,14 +105,18 @@ jobs:
             trace 2>&1 \
             | tee .formal-artifacts/gleam/trace-generation.log
 
-      - name: Format, test, and build Gleam adapter
+      - name: Format, test, and build Gleam adapter with the production NIF
         working-directory: clients/gleam
         shell: bash
+        env:
+          OPTO_SYNC_BEAM_EBIN: ../../syncer.c/bindings/beam/_build/dev/lib/opto_sync_nif/ebin
         run: |
           set -euo pipefail
           gleam deps download
           gleam format --check
-          gleam test -- --filter opto_sync_formal
+          OPTO_SYNC_ELIXIR_EBIN="$(
+            elixir -e 'IO.puts(Path.join(:code.lib_dir(:elixir), "ebin"))'
+          )" gleam test
           gleam build
           sh -n formal/quint-itf-replay.sh
 
@@ -137,7 +153,8 @@ jobs:
             printf 'java=' && java -version 2>&1 | head -n 1
             printf 'rust=' && rustc --version
             printf 'otp=' && erl -noshell -eval 'io:format("~s", [erlang:system_info(otp_release)]), halt().'
-            printf '\ngleam=' && gleam --version
+            printf '\nelixir=' && elixir --version | tail -n 1
+            printf 'gleam=' && gleam --version
             sha256sum \
               formal/fm.toml \
               formal/opto_sync_protocol.qnt \
@@ -146,7 +163,8 @@ jobs:
               clients/gleam/src/opto_sync_formal_projection.gleam \
               clients/gleam/src/opto_sync_formal_adapter.gleam \
               clients/gleam/src/opto_sync_formal_replay.gleam \
-              clients/gleam/src/opto_sync_formal_replay_ffi.erl
+              clients/gleam/src/opto_sync_formal_replay_ffi.erl \
+              syncer.c/bindings/beam/mix.lock
           } > .formal-artifacts/gleam/provenance.txt
 
       - name: Upload traces, logs, report, and provenance
