@@ -163,7 +163,12 @@ impl StreamMessage {
 
 impl StreamRequest {
     pub fn validate(&self) -> Result<(), StreamProtocolError> {
-        validate_envelope(self.common())?;
+        validate_envelope(
+            &self.protocol,
+            self.protocol_version,
+            &self.request_id,
+            &self.machine,
+        )?;
         match &self.operation {
             StreamOperation::Hello
             | StreamOperation::Observe
@@ -210,25 +215,16 @@ impl StreamRequest {
         }
         Ok(())
     }
-
-    fn common(&self) -> CommonEnvelope<'_> {
-        CommonEnvelope {
-            protocol: &self.protocol,
-            protocol_version: self.protocol_version,
-            request_id: &self.request_id,
-            machine: &self.machine,
-        }
-    }
 }
 
 impl StreamResponse {
     pub fn validate(&self) -> Result<(), StreamProtocolError> {
-        validate_envelope(CommonEnvelope {
-            protocol: &self.protocol,
-            protocol_version: self.protocol_version,
-            request_id: &self.request_id,
-            machine: &self.machine,
-        })?;
+        validate_envelope(
+            &self.protocol,
+            self.protocol_version,
+            &self.request_id,
+            &self.machine,
+        )?;
         match &self.outcome {
             StreamOutcome::Ok { value } => {
                 canonicalize_json(value)?;
@@ -261,6 +257,7 @@ impl HelloResult {
             "canonicalStateSchemaHash",
             &self.canonical_state_schema_hash,
         )?;
+
         let required = [
             StreamOperationName::Reset,
             StreamOperationName::Apply,
@@ -338,15 +335,16 @@ fn canonicalize_object(object: &Map<String, Value>) -> Result<Value, StreamProto
     for (key, value) in object {
         sorted.insert(key.clone(), canonicalize_json(value)?);
     }
-    Ok(Value::Object(sorted.into_iter().collect()))
+    let canonical: Map<String, Value> = sorted.into_iter().collect();
+    Ok(Value::Object(canonical))
 }
 
 fn canonicalize_set(value: &Value) -> Result<Value, StreamProtocolError> {
-    let source = value
+    let values = value
         .as_array()
         .ok_or_else(|| protocol_error("ITF #set must contain an array"))?;
     let mut sorted = BTreeMap::new();
-    for value in source {
+    for value in values {
         let canonical = canonicalize_json(value)?;
         let key = serde_json::to_string(&canonical)?;
         if sorted.insert(key, canonical).is_some() {
@@ -360,11 +358,11 @@ fn canonicalize_set(value: &Value) -> Result<Value, StreamProtocolError> {
 }
 
 fn canonicalize_map(value: &Value) -> Result<Value, StreamProtocolError> {
-    let source = value
+    let entries = value
         .as_array()
         .ok_or_else(|| protocol_error("ITF #map must contain an array"))?;
     let mut sorted = BTreeMap::new();
-    for entry in source {
+    for entry in entries {
         let pair = entry
             .as_array()
             .filter(|pair| pair.len() == 2)
@@ -378,15 +376,11 @@ fn canonicalize_map(value: &Value) -> Result<Value, StreamProtocolError> {
             return invalid("ITF #map contains duplicate canonical keys");
         }
     }
-    Ok(singleton(
-        "#map",
-        Value::Array(
-            sorted
-                .into_values()
-                .map(|(key, value)| Value::Array(vec![key, value]))
-                .collect(),
-        ),
-    ))
+    let canonical = sorted
+        .into_values()
+        .map(|(key, value)| Value::Array(vec![key, value]))
+        .collect();
+    Ok(singleton("#map", Value::Array(canonical)))
 }
 
 fn singleton(key: &str, value: Value) -> Value {
@@ -435,8 +429,8 @@ impl StreamTranscriptValidator {
     pub fn accept(&mut self, message: &StreamMessage) -> Result<(), StreamProtocolError> {
         message.validate()?;
         match message {
-            StreamMessage::Request(request) => self.request(request),
-            StreamMessage::Response(response) => self.response(response),
+            StreamMessage::Request(request) => self.accept_request(request),
+            StreamMessage::Response(response) => self.accept_response(response),
         }
     }
 
@@ -453,7 +447,7 @@ impl StreamTranscriptValidator {
         Ok(())
     }
 
-    fn request(&mut self, request: &StreamRequest) -> Result<(), StreamProtocolError> {
+    fn accept_request(&mut self, request: &StreamRequest) -> Result<(), StreamProtocolError> {
         if self.phase == SessionPhase::Closed {
             return invalid("request received after the session closed");
         }
@@ -463,6 +457,7 @@ impl StreamTranscriptValidator {
                 request.request_id, pending.request_id
             ));
         }
+
         let request_id = parse_request_id(&request.request_id)?;
         if request_id <= self.last_request_id {
             return invalid(format!(
@@ -482,16 +477,16 @@ impl StreamTranscriptValidator {
                 if operation == StreamOperationName::Hello {
                     return invalid("hello may only occur before the session is ready");
                 }
-                let expected = if operation == StreamOperationName::Reset {
+                let expected_generation = if operation == StreamOperationName::Reset {
                     self.generation
                         .checked_add(1)
                         .ok_or_else(|| protocol_error("adapter generation overflowed"))?
                 } else {
                     self.generation
                 };
-                if request.generation != expected {
+                if request.generation != expected_generation {
                     return invalid(format!(
-                        "request {} uses generation {}; expected {expected}",
+                        "request {} uses generation {}; expected {expected_generation}",
                         request.request_id, request.generation
                     ));
                 }
@@ -509,7 +504,7 @@ impl StreamTranscriptValidator {
         Ok(())
     }
 
-    fn response(&mut self, response: &StreamResponse) -> Result<(), StreamProtocolError> {
+    fn accept_response(&mut self, response: &StreamResponse) -> Result<(), StreamProtocolError> {
         let pending = self.pending.take().ok_or_else(|| {
             protocol_error(format!(
                 "response {} has no pending request",
@@ -577,26 +572,24 @@ pub fn validate_stream_transcript(source: &str) -> Result<(), StreamProtocolErro
     validator.finish()
 }
 
-struct CommonEnvelope<'a> {
-    protocol: &'a str,
+fn validate_envelope(
+    protocol: &str,
     protocol_version: u32,
-    request_id: &'a str,
-    machine: &'a str,
-}
-
-fn validate_envelope(common: CommonEnvelope<'_>) -> Result<(), StreamProtocolError> {
-    if common.protocol != STREAM_ADAPTER_PROTOCOL {
+    request_id: &str,
+    machine: &str,
+) -> Result<(), StreamProtocolError> {
+    if protocol != STREAM_ADAPTER_PROTOCOL {
         return invalid(format!(
             "protocol must be exactly {STREAM_ADAPTER_PROTOCOL:?}"
         ));
     }
-    if common.protocol_version != STREAM_ADAPTER_PROTOCOL_VERSION {
+    if protocol_version != STREAM_ADAPTER_PROTOCOL_VERSION {
         return invalid(format!(
             "protocolVersion must be {STREAM_ADAPTER_PROTOCOL_VERSION}"
         ));
     }
-    parse_request_id(common.request_id)?;
-    validate_label("machine", common.machine, 256)
+    parse_request_id(request_id)?;
+    validate_label("machine", machine, 256)
 }
 
 fn parse_request_id(value: &str) -> Result<u64, StreamProtocolError> {
@@ -710,12 +703,12 @@ mod tests {
             "map": {"#map": [["z", 1], ["a", 2]]},
             "a": {"b": 1, "a": 2}
         });
-        let encoded = String::from_utf8(canonical_json_bytes(&value).expect("canonical"))
-            .expect("UTF-8");
-        assert_eq!(
-            encoded,
-            r##"{"a":{"a":2,"b":1},"map":{"#map":[["a",2],["z",1]]},"set":{"#set":[1,2,3]},"z":2}"##
-        );
+        let actual = canonicalize_json(&value).expect("canonical");
+        let expected: Value = serde_json::from_str(
+            r##"{"a":{"a":2,"b":1},"map":{"#map":[["a",2],["z",1]]},"set":{"#set":[1,2,3]},"z":2}"##,
+        )
+        .expect("expected JSON");
+        assert_eq!(actual, expected);
     }
 
     #[test]
