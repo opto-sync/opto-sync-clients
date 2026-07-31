@@ -196,9 +196,10 @@ function abortError(message: string): Error {
  *
  * Wakes received while a cycle is running are coalesced into one trailing
  * cycle. This avoids stranding a mutation committed just after the active
- * cycle inspected its durable queue. Multiple processes still need a durable
- * `DesktopLeaseStore`; in-memory single-flight alone is not a correctness
- * boundary.
+ * cycle inspected its durable queue. The callback must observe `signal`; the
+ * runner never releases its lease behind a callback that is still executing.
+ * Multiple processes still need a durable `DesktopLeaseStore`; in-memory
+ * single-flight alone is not a correctness boundary.
  */
 export class DesktopSyncRunner<R> {
   readonly #leaseStore: DesktopLeaseStore;
@@ -344,14 +345,16 @@ export class DesktopSyncRunner<R> {
           deadlineMs,
         }),
       );
-      const deadline = new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => {
-          const error = abortError('opto-sync desktop cycle timed out');
-          controller.abort(error);
-          reject(error);
-        }, this.#timeoutMs);
-      });
-      result = await Promise.race([operation, deadline]);
+      timer = setTimeout(() => {
+        controller.abort(abortError('opto-sync desktop cycle timed out'));
+      }, this.#timeoutMs);
+      result = await operation;
+      if (controller.signal.aborted) {
+        throw (
+          controller.signal.reason ??
+          abortError('opto-sync desktop cycle was aborted')
+        );
+      }
     } catch (error) {
       cycleError = error;
     } finally {
