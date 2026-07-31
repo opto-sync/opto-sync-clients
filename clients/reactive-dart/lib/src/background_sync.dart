@@ -37,8 +37,8 @@ final class BackgroundSyncContext {
   }
 }
 
-typedef BackgroundSyncCycle<R> = Future<R> Function(
-    BackgroundSyncContext context);
+typedef BackgroundSyncCycle<R> =
+    Future<R> Function(BackgroundSyncContext context);
 
 /// One bounded, single-flight HTTP push/pull cycle for a worker isolate.
 ///
@@ -148,21 +148,21 @@ ValueStream<BackgroundSyncOutcome<R>> createBackgroundSyncOutcomes<R>({
       .flatMap<BackgroundSyncOutcome<R>>(
         (BackgroundWakeReason wake) =>
             Stream<BackgroundSyncOutcome<R>>.fromFuture(
-          runner.runOnce().then(
+              runner.runOnce().then(
                 (result) => BackgroundSyncOutcome<R>(
                   wake: wake,
                   ok: true,
                   result: result,
                 ),
               ),
-        ).onErrorReturnWith(
-          (error, stackTrace) => BackgroundSyncOutcome<R>(
-            wake: wake,
-            ok: false,
-            error: error,
-            stackTrace: stackTrace,
-          ),
-        ),
+            ).onErrorReturnWith(
+              (error, stackTrace) => BackgroundSyncOutcome<R>(
+                wake: wake,
+                ok: false,
+                error: error,
+                stackTrace: stackTrace,
+              ),
+            ),
         maxConcurrent: 1,
       )
       .shareValue();

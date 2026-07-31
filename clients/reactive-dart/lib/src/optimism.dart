@@ -32,10 +32,7 @@ final class RemoteConfirmedWrite<T, L, S>
 }
 
 final class LocalQueuedWrite<T, L, S> extends OptimisticWriteResult<T, L, S> {
-  const LocalQueuedWrite({
-    required super.partition,
-    required this.localResult,
-  });
+  const LocalQueuedWrite({required super.partition, required this.localResult});
 
   final L localResult;
 }

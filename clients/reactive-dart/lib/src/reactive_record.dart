@@ -5,11 +5,8 @@ import 'package:rxdart/rxdart.dart';
 
 import 'contracts.dart';
 
-typedef ReactiveProjector<T> = FutureOr<T?> Function(
-  T? authoritative,
-  T? localView,
-  bool localPending,
-);
+typedef ReactiveProjector<T> =
+    FutureOr<T?> Function(T? authoritative, T? localView, bool localPending);
 
 typedef SameProjectedValue<T> = bool Function(T? left, T? right);
 
@@ -18,7 +15,7 @@ final class SyncRecordSource<T> {
 
   final String name;
   final Stream<SyncRecordEvent<T>> Function(SyncSessionIdentity identity)
-      events;
+  events;
 }
 
 final class ReactiveRecordSnapshot<T> {
@@ -57,10 +54,10 @@ final class ReactiveRecordController<T> {
     SameProjectedValue<T>? sameValue,
     this.onSourceError,
     this.maxRememberedEvents = 2048,
-  })  : _sessions = sessions,
-        _sources = List<SyncRecordSource<T>>.unmodifiable(sources),
-        _project = project ?? _defaultProject,
-        _sameValue = sameValue ?? _defaultSameValue {
+  }) : _sessions = sessions,
+       _sources = List<SyncRecordSource<T>>.unmodifiable(sources),
+       _project = project ?? _defaultProject,
+       _sameValue = sameValue ?? _defaultSameValue {
     if (_sources.isEmpty) {
       throw ArgumentError.value(sources, 'sources', 'must not be empty');
     }
@@ -80,7 +77,7 @@ final class ReactiveRecordController<T> {
   final ReactiveProjector<T> _project;
   final SameProjectedValue<T> _sameValue;
   final void Function(String source, Object error, StackTrace stackTrace)?
-      onSourceError;
+  onSourceError;
   final int maxRememberedEvents;
 
   final BehaviorSubject<ReactiveRecordSnapshot<T>> _subject =
@@ -108,17 +105,21 @@ final class ReactiveRecordController<T> {
       final generation = transportSessionKey(identity);
       return MergeStream<SyncRecordEvent<T>>(
         _sources.map(
-          (source) => source.events(identity).transform(
-            StreamTransformer<SyncRecordEvent<T>,
-                SyncRecordEvent<T>>.fromHandlers(
-              handleError: (error, stackTrace, sink) {
-                onSourceError?.call(source.name, error, stackTrace);
-                // Individual transport errors are diagnostics. The transport
-                // owns reconnection; one error must not log out or terminate
-                // the complete local UI projection.
-              },
-            ),
-          ),
+          (source) => source
+              .events(identity)
+              .transform(
+                StreamTransformer<
+                  SyncRecordEvent<T>,
+                  SyncRecordEvent<T>
+                >.fromHandlers(
+                  handleError: (error, stackTrace, sink) {
+                    onSourceError?.call(source.name, error, stackTrace);
+                    // Individual transport errors are diagnostics. The transport
+                    // owns reconnection; one error must not log out or terminate
+                    // the complete local UI projection.
+                  },
+                ),
+              ),
         ),
       ).where(
         (event) =>
@@ -127,14 +128,16 @@ final class ReactiveRecordController<T> {
             event.recordId == recordId,
       );
     });
-    _subscription = switched.asyncMap(_apply).listen(
-      (snapshot) {
-        if (snapshot != null && !_subject.isClosed) _subject.add(snapshot);
-      },
-      onError: (Object error, StackTrace stackTrace) {
-        if (!_subject.isClosed) _subject.addError(error, stackTrace);
-      },
-    );
+    _subscription = switched
+        .asyncMap(_apply)
+        .listen(
+          (snapshot) {
+            if (snapshot != null && !_subject.isClosed) _subject.add(snapshot);
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            if (!_subject.isClosed) _subject.addError(error, stackTrace);
+          },
+        );
   }
 
   Future<ReactiveRecordSnapshot<T>?> _apply(SyncRecordEvent<T> event) async {
@@ -192,8 +195,7 @@ final class ReactiveRecordController<T> {
     T? authoritative,
     T? localView,
     bool localPending,
-  ) =>
-      localPending ? localView : authoritative ?? localView;
+  ) => localPending ? localView : authoritative ?? localView;
 
   static bool _defaultSameValue<T>(T? left, T? right) =>
       stableJson(left) == stableJson(right);
