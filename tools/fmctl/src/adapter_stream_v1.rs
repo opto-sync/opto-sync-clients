@@ -250,7 +250,11 @@ impl StreamError {
 
 impl HelloResult {
     fn validate(&self) -> Result<(), StreamProtocolError> {
-        validate_label("implementation language", &self.implementation.language, 128)?;
+        validate_label(
+            "implementation language",
+            &self.implementation.language,
+            128,
+        )?;
         validate_label("implementation name", &self.implementation.name, 256)?;
         validate_label("implementation version", &self.implementation.version, 256)?;
         validate_sha256(
@@ -521,11 +525,12 @@ impl StreamTranscriptValidator {
 
         match (&pending.operation, &response.outcome) {
             (StreamOperationName::Hello, StreamOutcome::Ok { value }) => {
-                let hello: HelloResult = serde_json::from_value(value.clone()).map_err(|error| {
-                    protocol_error(format!(
-                        "hello success value does not match the capability contract: {error}"
-                    ))
-                })?;
+                let hello: HelloResult =
+                    serde_json::from_value(value.clone()).map_err(|error| {
+                        protocol_error(format!(
+                            "hello success value does not match the capability contract: {error}"
+                        ))
+                    })?;
                 hello.validate()?;
                 self.capabilities = hello.capabilities;
                 self.phase = SessionPhase::Ready;
@@ -537,9 +542,7 @@ impl StreamTranscriptValidator {
             (StreamOperationName::Close, StreamOutcome::Ok { .. }) => {
                 self.phase = SessionPhase::Closed;
             }
-            (operation, StreamOutcome::Ok { .. })
-                if !self.capabilities.contains(operation) =>
-            {
+            (operation, StreamOutcome::Ok { .. }) if !self.capabilities.contains(operation) => {
                 return invalid(format!(
                     "adapter succeeded for unadvertised capability {operation:?}"
                 ));
@@ -598,9 +601,7 @@ fn parse_request_id(value: &str) -> Result<u64, StreamProtocolError> {
         .parse::<u64>()
         .map_err(|_| protocol_error("requestId exceeds the protocol integer range"))?;
     if parsed == 0 || parsed > MAX_REQUEST_ID {
-        return invalid(format!(
-            "requestId must be between 1 and {MAX_REQUEST_ID}"
-        ));
+        return invalid(format!("requestId must be between 1 and {MAX_REQUEST_ID}"));
     }
     Ok(parsed)
 }
@@ -664,16 +665,13 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    const HAPPY: &str =
-        include_str!("../../../formal/protocol-fixtures/stream/valid/happy.jsonl");
+    const HAPPY: &str = include_str!("../../../formal/protocol-fixtures/stream/valid/happy.jsonl");
     const UNSUPPORTED: &str =
         include_str!("../../../formal/protocol-fixtures/stream/valid/unsupported.jsonl");
-    const DUPLICATE_ID: &str = include_str!(
-        "../../../formal/protocol-fixtures/stream/invalid/duplicate-request-id.jsonl"
-    );
-    const STALE_GENERATION: &str = include_str!(
-        "../../../formal/protocol-fixtures/stream/invalid/stale-generation.jsonl"
-    );
+    const DUPLICATE_ID: &str =
+        include_str!("../../../formal/protocol-fixtures/stream/invalid/duplicate-request-id.jsonl");
+    const STALE_GENERATION: &str =
+        include_str!("../../../formal/protocol-fixtures/stream/invalid/stale-generation.jsonl");
     const SCHEMA: &str = include_str!("../../../formal/adapter-stream-protocol.schema.json");
 
     #[test]
