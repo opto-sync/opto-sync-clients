@@ -8,19 +8,28 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 package_dir=$(dirname -- "$script_dir")
 cd "$package_dir"
 
-# `gleam build` runs before this launcher. Add every package ebin directory to
-# the VM path without invoking the compiler here, so stdout remains one JSON
-# protocol response and human/tool logs cannot contaminate framing.
-set --
-for directory in _build/dev/erlang/*/ebin _build/default/erlang/*/ebin; do
-  if [ -d "$directory" ]; then
-    set -- "$@" -pa "$directory"
-  fi
-done
-
-if [ "$#" -eq 0 ]; then
+# `gleam build` runs before this launcher. Gleam has used more than one nested
+# Erlang output layout across releases, so discover every compiled ebin directory
+# deterministically instead of encoding one historical path. The launcher still
+# performs no compilation and writes no human output to stdout.
+if [ ! -d _build ]; then
   printf '%s\n' 'Gleam build artifacts are missing; run gleam build first.' >&2
   exit 70
 fi
+
+ebin_list=$(find _build -type d -name ebin -print | LC_ALL=C sort)
+if [ -z "$ebin_list" ]; then
+  printf '%s\n' 'Gleam build produced no BEAM ebin directories.' >&2
+  exit 70
+fi
+
+set --
+old_ifs=$IFS
+IFS='
+'
+for directory in $ebin_list; do
+  set -- "$@" -pa "$directory"
+done
+IFS=$old_ifs
 
 exec erl -noshell "$@" -s opto_sync_formal_replay_ffi main
