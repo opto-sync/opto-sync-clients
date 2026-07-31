@@ -137,7 +137,7 @@ strategy = "itf-json-driver"
 target = "clients/gleam/formal/quint-itf-replay.sh"
 working_directory = "clients/gleam"
 command = ["sh", "formal/quint-itf-replay.sh"]
-implementation = "clients/gleam production protocol state with a volatile BEAM replay store; bounded conformance only, not durable restart recovery"
+implementation = "production Gleam protocol state + volatile BEAM replay store; bounded conformance, no durable restart claim"
 observable_state = [
   "nextMutationId",
   "pendingMutationIds",
