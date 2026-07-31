@@ -90,10 +90,10 @@ jobs:
                       panic!("holder exited before acquisition: {transcript:?}");
                   }
                   transcript.push_str(&line);
-                  if line.starts_with("acquired:") {
+                  if line.contains("acquired:") {
                       break;
                   }
-                  if line.starts_with("busy:") {
+                  if line.contains("busy:") {
                       panic!("holder unexpectedly found a busy lease: {transcript:?}");
                   }
               }
