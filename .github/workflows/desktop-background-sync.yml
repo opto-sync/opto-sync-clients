@@ -73,7 +73,8 @@ jobs:
         run: |
           set -euo pipefail
           dart pub get
-          dart format --output=none --set-exit-if-changed \
+          dart format lib/src/desktop_sync.dart tool/desktop_self_test.dart
+          git diff --exit-code -- \
             lib/src/desktop_sync.dart tool/desktop_self_test.dart
           dart analyze
           dart run tool/desktop_self_test.dart
