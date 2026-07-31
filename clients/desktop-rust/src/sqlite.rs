@@ -533,6 +533,15 @@ pub struct SqliteDesktopCompleted<ResultValue> {
 }
 
 #[derive(Debug)]
+pub struct SqliteDesktopCycleFailure<CycleError> {
+    pub error: CycleError,
+    pub release_error: Option<SqliteDesktopError>,
+    pub reasons: Vec<DesktopWakeReason>,
+    pub fence: String,
+    pub wake_generation: String,
+}
+
+#[derive(Debug)]
 pub enum SqliteDesktopRunError<CycleError> {
     Coordinator(SqliteDesktopError),
     Busy {
@@ -541,13 +550,7 @@ pub enum SqliteDesktopRunError<CycleError> {
         wake_generation: String,
         handled_generation: String,
     },
-    Cycle {
-        error: CycleError,
-        release_error: Option<SqliteDesktopError>,
-        reasons: Vec<DesktopWakeReason>,
-        fence: String,
-        wake_generation: String,
-    },
+    Cycle(Box<SqliteDesktopCycleFailure<CycleError>>),
 }
 
 /// Synchronous Rust-native runner with durable wake-before-acquire ordering.
@@ -698,13 +701,15 @@ impl SqliteCoordinatedDesktopSyncRunner {
                         .coordinator
                         .release_lease(&grant.desktop_grant())
                         .err();
-                    return Err(SqliteDesktopRunError::Cycle {
-                        error,
-                        release_error,
-                        reasons,
-                        fence: grant.fence,
-                        wake_generation: grant.wake_generation,
-                    });
+                    return Err(SqliteDesktopRunError::Cycle(Box::new(
+                        SqliteDesktopCycleFailure {
+                            error,
+                            release_error,
+                            reasons,
+                            fence: grant.fence,
+                            wake_generation: grant.wake_generation,
+                        },
+                    )));
                 }
             };
             let completion = self
