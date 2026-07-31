@@ -42,10 +42,24 @@ def ignore(_directory: str, names: list[str]) -> set[str]:
     return {name for name in names if name in IGNORED}
 
 
-def copy_tree(source: Path, destination: Path) -> None:
+def copy_tree(
+    source: Path,
+    destination: Path,
+    *,
+    root_excludes: frozenset[str] = frozenset(),
+) -> None:
     if not source.is_dir():
         fail(f"required source directory is missing: {source.relative_to(ROOT)}")
-    shutil.copytree(source, destination, ignore=ignore)
+
+    source_root = source.resolve()
+
+    def copy_ignore(directory: str, names: list[str]) -> set[str]:
+        ignored = ignore(directory, names)
+        if Path(directory).resolve() == source_root:
+            ignored.update(name for name in names if name in root_excludes)
+        return ignored
+
+    shutil.copytree(source, destination, ignore=copy_ignore)
 
 
 def sha256(path: Path) -> str:
@@ -75,7 +89,14 @@ def main() -> int:
             f"gitlink={gitlink_sha} nested={nested_sha}"
         )
 
-    copy_tree(ROOT / "clients/rust", output / "clients/rust")
+    # Formal/model replay adapters under conventional examples/ remain
+    # repository-source verification assets. The isolated target deliberately
+    # excludes them and creates one package-identity probe under src/bin below.
+    copy_tree(
+        ROOT / "clients/rust",
+        output / "clients/rust",
+        root_excludes=frozenset({"examples"}),
+    )
     copy_tree(ROOT / "syncer.c/core/include", output / "syncer.c/core/include")
     copy_tree(ROOT / "syncer.c/core/src", output / "syncer.c/core/src")
     copy_tree(ROOT / "syncer.c/bindings/rust", output / "syncer.c/bindings/rust")
