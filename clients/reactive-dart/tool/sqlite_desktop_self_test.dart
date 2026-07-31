@@ -6,9 +6,9 @@ import 'package:opto_sync_reactive/opto_sync_reactive_sqlite.dart';
 
 final class _Fixture {
   _Fixture()
-      : directory = Directory.systemTemp.createTempSync(
-          'opto-sync-dart-sqlite-',
-        ) {
+    : directory = Directory.systemTemp.createTempSync(
+        'opto-sync-dart-sqlite-',
+      ) {
     path = '${directory.path}${Platform.pathSeparator}coordination.sqlite3';
   }
 
@@ -30,21 +30,21 @@ SqliteDesktopLeaseGrant _acquired(SqliteDesktopAcquireResult result) {
 }
 
 Future<ProcessResult> _runChild(List<String> arguments) {
-  return Process.run(
-    Platform.resolvedExecutable,
-    <String>['run', 'tool/sqlite_desktop_child.dart', ...arguments],
-    workingDirectory: Directory.current.path,
-  );
+  return Process.run(Platform.resolvedExecutable, <String>[
+    'run',
+    'tool/sqlite_desktop_child.dart',
+    ...arguments,
+  ], workingDirectory: Directory.current.path);
 }
 
 Future<({Process process, Future<String> stderr})> _startHolder(
   List<String> arguments,
 ) async {
-  final process = await Process.start(
-    Platform.resolvedExecutable,
-    <String>['run', 'tool/sqlite_desktop_child.dart', ...arguments],
-    workingDirectory: Directory.current.path,
-  );
+  final process = await Process.start(Platform.resolvedExecutable, <String>[
+    'run',
+    'tool/sqlite_desktop_child.dart',
+    ...arguments,
+  ], workingDirectory: Directory.current.path);
   final stderr = process.stderr.transform(utf8.decoder).join();
   return (process: process, stderr: stderr);
 }
@@ -193,16 +193,14 @@ Future<void> _multiprocessContentionTest() async {
   Process? holder;
   Future<String>? holderStderr;
   try {
-    final started = await _startHolder(
-      <String>[
-        'acquire-and-exit',
-        fixture.path,
-        'partition',
-        'holder',
-        '10000',
-        '5000',
-      ],
-    );
+    final started = await _startHolder(<String>[
+      'acquire-and-exit',
+      fixture.path,
+      'partition',
+      'holder',
+      '10000',
+      '5000',
+    ]);
     holder = started.process;
     holderStderr = started.stderr;
     final holderLine = await _firstLine(holder);
@@ -211,15 +209,13 @@ Future<void> _multiprocessContentionTest() async {
     final contenders = await Future.wait<ProcessResult>(
       List<Future<ProcessResult>>.generate(
         3,
-        (index) => _runChild(
-          <String>[
-            'contend',
-            fixture.path,
-            'partition',
-            'process-$index',
-            '0',
-          ],
-        ),
+        (index) => _runChild(<String>[
+          'contend',
+          fixture.path,
+          'partition',
+          'process-$index',
+          '0',
+        ]),
       ),
     );
     for (final contender in contenders) {
@@ -261,23 +257,24 @@ Future<void> _terminationReplayTest() async {
   Process? child;
   Future<String>? childStderr;
   try {
-    final started = await _startHolder(
-      <String>[
-        'acquire-and-exit',
-        fixture.path,
-        'partition',
-        'doomed-process',
-        '10000',
-        '1000',
-      ],
-    );
+    final started = await _startHolder(<String>[
+      'acquire-and-exit',
+      fixture.path,
+      'partition',
+      'doomed-process',
+      '10000',
+      '1000',
+    ]);
     child = started.process;
     childStderr = started.stderr;
     final firstLine = await _firstLine(child);
     _expect(firstLine == 'acquired:1', 'doomed process did not acquire');
     await _terminate(child);
     final stderr = await childStderr!;
-    _expect(stderr.isEmpty, 'doomed process failed before termination: $stderr');
+    _expect(
+      stderr.isEmpty,
+      'doomed process failed before termination: $stderr',
+    );
     child = null;
     await Future<void>.delayed(const Duration(milliseconds: 1100));
 
@@ -328,25 +325,24 @@ Future<void> _runnerHandoffTest() async {
       busyRetryCap: const Duration(milliseconds: 25),
       syncOnce: (context) async {
         seen.add(context.wakeGeneration);
-        context.coordinator.withFencedWrite<void>(
-          context.grant.desktopGrant,
-          (database) {
-            database.execute('''
+        context.coordinator.withFencedWrite<void>(context.grant.desktopGrant, (
+          database,
+        ) {
+          database.execute('''
               CREATE TABLE IF NOT EXISTS opto_sync_test_checkpoint (
                 lease_key TEXT PRIMARY KEY NOT NULL,
                 fence TEXT NOT NULL
               ) STRICT
             ''');
-            database.execute(
-              '''
+          database.execute(
+            '''
               INSERT INTO opto_sync_test_checkpoint (lease_key, fence)
               VALUES (?, ?)
               ON CONFLICT(lease_key) DO UPDATE SET fence = excluded.fence
               ''',
-              <Object?>[context.leaseKey, context.fence],
-            );
-          },
-        );
+            <Object?>[context.leaseKey, context.fence],
+          );
+        });
         if (seen.length == 1) second.signalWake('partition');
         return context.wakeGeneration;
       },
@@ -359,8 +355,7 @@ Future<void> _runnerHandoffTest() async {
     _expect(
       result.outcomes.length == 2 &&
           result.outcomes.every(
-            (outcome) =>
-                outcome.status == DesktopSyncOutcomeStatus.completed,
+            (outcome) => outcome.status == DesktopSyncOutcomeStatus.completed,
           ),
       'runner did not complete both fenced cycles',
     );
