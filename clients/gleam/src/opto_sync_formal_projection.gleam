@@ -214,12 +214,10 @@ pub fn project(
 }
 
 fn find_outcome(outcomes: List(KnownOutcome), id: Int) {
-  case
-    list.find(outcomes, fn(entry) {
-      let KnownOutcome(entry_id, _) = entry
-      entry_id == id
-    })
-  {
+  case list.find(outcomes, fn(entry) {
+    let KnownOutcome(entry_id, _) = entry
+    entry_id == id
+  }) {
     Ok(KnownOutcome(_, outcome)) -> Some(outcome)
     Error(_) -> None
   }
