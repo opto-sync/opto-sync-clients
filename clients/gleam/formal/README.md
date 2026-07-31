@@ -9,8 +9,12 @@ trace corpus shared with the Rust, TypeScript, and Dart adapters and speaks
 
 The adapter deliberately separates operational and semantic concerns:
 
-- `formal/quint-itf-replay.sh` launches a pre-built BEAM VM without invoking the
-  compiler, preserving protocol-only stdout.
+- `formal/quint-itf-replay.sh` launches pre-built BEAM VMs without invoking the
+  compiler, preserving protocol-only stdout. `fmctl.adapter.v1` submits a batch,
+  but each trace runs in a fresh BEAM process and fresh adapter state; the
+  launcher validates each one-trace result and aggregates the canonical batch
+  response. This prevents state leakage between traces without weakening
+  fmctl's exact trace-count binding.
 - `src/opto_sync_formal_replay_ffi.erl` reads files/stdin, traverses ITF states,
   and reports the first divergent trace/state/action.
 - `src/opto_sync_formal_adapter.gleam` serializes canonical observations and
