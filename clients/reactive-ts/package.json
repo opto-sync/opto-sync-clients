@@ -7,6 +7,7 @@
   "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
+    "./desktop": "./src/desktop.ts",
     "./service-worker": "./src/service-worker.ts",
     "./node-tcp": "./src/node-tcp.ts"
   },
@@ -22,6 +23,7 @@
     "rxjs",
     "offline-first",
     "service-worker",
+    "desktop",
     "indexeddb",
     "supabase",
     "websocket",
