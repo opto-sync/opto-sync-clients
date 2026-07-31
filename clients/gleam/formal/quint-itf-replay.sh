@@ -48,16 +48,15 @@ IFS=$old_ifs
 # fmctl.adapter.v1 is a batch contract. The repository-local BEAM harness has a
 # deliberately smaller isolation boundary: one fresh adapter process per trace.
 # Fan out the canonical batch into one-trace sessions, validate that each harness
-# actually reports exactly one replayed trace, and aggregate the canonical fmctl
-# response. This preserves batch correlation while preventing state leakage
-# between traces; it does not paper over an incorrect harness count.
+# reports exactly one replayed trace, and aggregate the canonical fmctl response.
+# The original ITF files are passed unchanged: the v2 harness understands the
+# model's Idle tag, derives allocated IDs from next_id, and preserves empty arrays.
 request_file=$(mktemp)
 trace_list_file=$(mktemp)
 single_request_file=$(mktemp)
 single_result_file=$(mktemp)
-normalized_trace_file=$(mktemp)
 first_failure_file=$(mktemp)
-trap 'rm -f "$request_file" "$trace_list_file" "$single_request_file" "$single_result_file" "$normalized_trace_file" "$first_failure_file"' EXIT HUP INT TERM
+trap 'rm -f "$request_file" "$trace_list_file" "$single_request_file" "$single_result_file" "$first_failure_file"' EXIT HUP INT TERM
 cat >"$request_file"
 
 trace_count=$(jq -er '.traces | arrays | length | select(. > 0)' "$request_file")
@@ -73,34 +72,14 @@ failed_trace=''
 : >"$first_failure_file"
 
 while IFS= read -r trace_path; do
-  # The current model calls the non-replacing phase `Idle` and derives allocated
-  # mutation IDs from next_id. The older BEAM observer calls that phase `Ready`
-  # and expects the derived set explicitly. Normalize only those observation
-  # aliases in a temporary copy; actions and all state values remain unchanged.
-  jq '
-    .states |= map(
-      .s.ids = {
-        "#set": [
-          range(1; (.s.next_id["#bigint"] | tonumber))
-          | {"#bigint": tostring}
-        ]
-      }
-      | if .s.reset_phase.tag == "Idle" then
-          .s.reset_phase.tag = "Ready"
-        else
-          .
-        end
-    )
-  ' "$trace_path" >"$normalized_trace_file"
-
-  jq -c --arg trace_path "$normalized_trace_file" '
+  jq -c --arg trace_path "$trace_path" '
     . + {
       traces: [$trace_path],
       tracePaths: [$trace_path]
     }
   ' "$request_file" >"$single_request_file"
 
-  erl -noshell "$@" -s opto_sync_formal_replay_ffi main \
+  erl -noshell "$@" -s opto_sync_formal_replay_ffi_v2 main \
     <"$single_request_file" >"$single_result_file"
 
   internal_status=$(jq -er '.result.status | strings' "$single_result_file")
