@@ -61,14 +61,10 @@ jobs:
         with:
           workspaces: tools/fmctl
 
-      - name: Install Erlang/OTP
+      - name: Install Erlang/OTP and Gleam
         uses: erlef/setup-beam@v1
         with:
           otp-version: '27.3.4'
-
-      - name: Install Gleam
-        uses: gleam-lang/setup-gleam@v1
-        with:
           gleam-version: '1.16.0'
 
       - name: Build fmctl
