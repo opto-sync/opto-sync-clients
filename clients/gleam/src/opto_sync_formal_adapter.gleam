@@ -36,6 +36,10 @@ pub fn reply_json(reply: projection.Reply) -> String {
   json.to_string(encoded)
 }
 
+/// Exercise the production acknowledgement validator against the exact modeled
+/// immutable request. Earlier mutations are allocated and validly acknowledged
+/// first so `request_id = 2` really produces a request for mutation 2 rather
+/// than accidentally retesting mutation 1 in a fresh queue.
 pub fn mismatched_response_rejected(
   request_id: Int,
   response_id: Int,
@@ -43,15 +47,7 @@ pub fn mismatched_response_rejected(
   checkpoint: Int,
 ) -> Bool {
   let assert Ok(queue) = opto_sync_client.new("gleam-formal-adapter")
-  let assert Ok(#(queue, _)) =
-    opto_sync_client.enqueue_upsert(
-      queue,
-      "formal_records",
-      int.to_string(request_id),
-      "{}",
-      None,
-      False,
-    )
+  let queue = prepare_request(queue, 1, request_id)
   let assert Ok(request) = opto_sync_client.build_push_request(queue, 1)
   let response =
     opto_sync_client.PushResponse(
@@ -72,6 +68,48 @@ pub fn mismatched_response_rejected(
   case opto_sync_client.acknowledge(queue, request, response) {
     Error(opto_sync_client.InvalidAcknowledgement) -> True
     _ -> False
+  }
+}
+
+fn prepare_request(
+  queue: opto_sync_client.Queue,
+  current_id: Int,
+  request_id: Int,
+) -> opto_sync_client.Queue {
+  let assert Ok(#(queue, _)) =
+    opto_sync_client.enqueue_upsert(
+      queue,
+      "formal_records",
+      int.to_string(current_id),
+      "{}",
+      None,
+      False,
+    )
+
+  case current_id < request_id {
+    False -> queue
+    True -> {
+      let assert Ok(request) = opto_sync_client.build_push_request(queue, 1)
+      let response =
+        opto_sync_client.PushResponse(
+          protocol_version: 1,
+          client_id: "gleam-formal-adapter",
+          last_mutation_id: int.to_string(current_id),
+          checkpoint: int.to_string(current_id),
+          results: [
+            opto_sync_client.MutationResult(
+              mutation_id: int.to_string(current_id),
+              status: opto_sync_client.Applied,
+              original_status: None,
+              checkpoint: None,
+              revision: None,
+            ),
+          ],
+        )
+      let assert Ok(queue) =
+        opto_sync_client.acknowledge(queue, request, response)
+      prepare_request(queue, current_id + 1, request_id)
+    }
   }
 }
 
