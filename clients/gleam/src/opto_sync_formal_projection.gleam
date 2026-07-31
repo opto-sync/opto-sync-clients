@@ -235,7 +235,10 @@ fn snapshot_next_mutation_id(
   }
 }
 
-fn result_try(value: Result(a, e), next: fn(a) -> Result(b, e)) -> Result(b, e) {
+fn result_try(
+  value: Result(a, e),
+  next: fn(a) -> Result(b, e),
+) -> Result(b, e) {
   case value {
     Ok(value) -> next(value)
     Error(error) -> Error(error)
