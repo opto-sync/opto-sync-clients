@@ -26,12 +26,11 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  QUINT_PACKAGE: '@informalsystems/quint@0.32.0'
   CARGO_TERM_COLOR: always
 
 jobs:
   replay:
-    name: Replay Quint traces through production Gleam state
+    name: Replay manifest-defined Quint traces through production Gleam state
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
@@ -52,10 +51,10 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Install Rust toolchain for fmctl
+      - name: Install manifest Rust toolchain for fmctl
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
         with:
-          toolchain: '1.85.0'
+          toolchain: '1.88.0'
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
@@ -72,53 +71,31 @@ jobs:
         with:
           gleam-version: '1.16.0'
 
-      - name: Typecheck executable specification
-        shell: bash
-        run: |
-          mkdir -p .formal-artifacts/gleam
-          set -o pipefail
-          npx --yes --package="$QUINT_PACKAGE" quint typecheck \
-            formal/opto_sync_protocol.qnt 2>&1 \
-            | tee .formal-artifacts/gleam/typecheck.log
+      - name: Build fmctl
+        run: cargo build --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl
 
-      - name: Generate fresh model-based testing traces
-        shell: bash
-        run: |
-          set -o pipefail
-          npx --yes --package="$QUINT_PACKAGE" quint run \
-            formal/opto_sync_protocol.qnt \
-            --max-samples=500 \
-            --max-steps=30 \
-            --n-traces=8 \
-            --mbt \
-            --out-itf='.formal-artifacts/gleam/opto-sync-{seq}.itf.json' 2>&1 \
-            | tee .formal-artifacts/gleam/trace-generation.log
-
-      - name: Normalize Quint MBT metadata
+      - name: Validate manifest and typecheck executable specification
         shell: bash
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          traces=(.formal-artifacts/gleam/opto-sync-*.itf.json)
-          if (( ${#traces[@]} == 0 )); then
-            printf 'no Quint ITF traces were generated\n' >&2
-            exit 1
-          fi
-          for trace in "${traces[@]}"; do
-            temporary="${trace}.normalized"
-            jq '
-              .states |= map(
-                . + {
-                  action: .["mbt::actionTaken"],
-                  nondetPicks: .["mbt::nondetPicks"]
-                }
-              )
-            ' "$trace" > "$temporary"
-            mv "$temporary" "$trace"
-          done
+          mkdir -p .formal-artifacts/gleam
+          cargo run --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl -- \
+            --manifest formal/fm.toml \
+            validate 2>&1 \
+            | tee .formal-artifacts/gleam/manifest-validation.log
+          cargo run --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl -- \
+            --manifest formal/fm.toml \
+            check 2>&1 \
+            | tee .formal-artifacts/gleam/typecheck.log
 
-      - name: Build fmctl
-        run: cargo build --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl
+      - name: Generate and validate the shared manifest-defined trace corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo run --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl -- \
+            --manifest formal/fm.toml \
+            trace 2>&1 \
+            | tee .formal-artifacts/gleam/trace-generation.log
 
       - name: Format, test, and build Gleam adapter
         working-directory: clients/gleam
@@ -131,38 +108,48 @@ jobs:
           gleam build
           sh -n formal/quint-itf-replay.sh
 
-      - name: Replay traces through production Gleam protocol state
+      - name: Replay the shared traces through the active manifest adapter
         shell: bash
         run: |
-          set -o pipefail
+          set -euo pipefail
+          shopt -s nullglob
+          traces=(.formal-artifacts/opto-sync-clients-protocol-v1-*.itf.json)
+          if (( ${#traces[@]} == 0 )); then
+            printf 'fmctl trace produced no protocol-v1 corpus\n' >&2
+            exit 1
+          fi
+          replay_args=()
+          for trace in "${traces[@]}"; do
+            replay_args+=(--trace "$trace")
+          done
           cargo run --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl -- \
-            replay \
             --manifest formal/fm.toml \
-            --trace '.formal-artifacts/gleam/opto-sync-*.itf.json' \
-            --adapter-language gleam \
-            --adapter-command 'cd clients/gleam && sh formal/quint-itf-replay.sh' \
-            --output .formal-artifacts/gleam-itf-replay.json 2>&1 \
+            replay \
+            --adapter gleam \
+            "${replay_args[@]}" 2>&1 \
             | tee .formal-artifacts/gleam/replay.log
 
       - name: Record exact verification inputs
         if: always()
         shell: bash
         run: |
+          mkdir -p .formal-artifacts/gleam
           {
             printf 'commit=%s\n' "$GITHUB_SHA"
             printf 'event=%s\n' "$GITHUB_EVENT_NAME"
-            printf 'quint_package=%s\n' "$QUINT_PACKAGE"
             printf 'node=' && node --version
             printf 'java=' && java -version 2>&1 | head -n 1
             printf 'rust=' && rustc --version
-            printf 'otp=' && erl -noshell -eval 'io:format("~s", [erlang:system_info(otp_release)]), halt().' 
+            printf 'otp=' && erl -noshell -eval 'io:format("~s", [erlang:system_info(otp_release)]), halt().'
             printf '\ngleam=' && gleam --version
             sha256sum \
               formal/fm.toml \
               formal/opto_sync_protocol.qnt \
               formal/adapter-protocol.schema.json \
+              clients/gleam/formal/quint-itf-replay.sh \
               clients/gleam/src/opto_sync_formal_projection.gleam \
               clients/gleam/src/opto_sync_formal_adapter.gleam \
+              clients/gleam/src/opto_sync_formal_replay.gleam \
               clients/gleam/src/opto_sync_formal_replay_ffi.erl
           } > .formal-artifacts/gleam/provenance.txt
 
