@@ -1,0 +1,177 @@
+name: Formal Gleam ITF conformance
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/formal-gleam-itf.yml'
+      - 'clients/gleam/**'
+      - 'formal/**'
+      - 'tools/fmctl/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/formal-gleam-itf.yml'
+      - 'clients/gleam/**'
+      - 'formal/**'
+      - 'tools/fmctl/**'
+  schedule:
+    - cron: '17 7 * * 4'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: formal-gleam-itf-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  QUINT_PACKAGE: '@informalsystems/quint@0.32.0'
+  CARGO_TERM_COLOR: always
+
+jobs:
+  replay:
+    name: Replay Quint traces through production Gleam state
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      - name: Install Java for Quint backends
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install Rust toolchain for fmctl
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: '1.85.0'
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: tools/fmctl
+
+      - name: Install Erlang/OTP
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: '27.3.4'
+
+      - name: Install Gleam
+        uses: gleam-lang/setup-gleam@v1
+        with:
+          gleam-version: '1.11.1'
+
+      - name: Typecheck executable specification
+        shell: bash
+        run: |
+          mkdir -p .formal-artifacts/gleam
+          set -o pipefail
+          npx --yes --package="$QUINT_PACKAGE" quint typecheck \
+            formal/opto_sync_protocol.qnt 2>&1 \
+            | tee .formal-artifacts/gleam/typecheck.log
+
+      - name: Generate fresh model-based testing traces
+        shell: bash
+        run: |
+          set -o pipefail
+          npx --yes --package="$QUINT_PACKAGE" quint run \
+            formal/opto_sync_protocol.qnt \
+            --max-samples=500 \
+            --max-steps=30 \
+            --n-traces=8 \
+            --mbt \
+            --out-itf='.formal-artifacts/gleam/opto-sync-{seq}.itf.json' 2>&1 \
+            | tee .formal-artifacts/gleam/trace-generation.log
+
+      - name: Normalize Quint MBT metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          traces=(.formal-artifacts/gleam/opto-sync-*.itf.json)
+          if (( ${#traces[@]} == 0 )); then
+            printf 'no Quint ITF traces were generated\n' >&2
+            exit 1
+          fi
+          for trace in "${traces[@]}"; do
+            temporary="${trace}.normalized"
+            jq '
+              .states |= map(
+                . + {
+                  action: .["mbt::actionTaken"],
+                  nondetPicks: .["mbt::nondetPicks"]
+                }
+              )
+            ' "$trace" > "$temporary"
+            mv "$temporary" "$trace"
+          done
+
+      - name: Build fmctl
+        run: cargo build --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl
+
+      - name: Format, test, and build Gleam adapter
+        working-directory: clients/gleam
+        shell: bash
+        run: |
+          set -euo pipefail
+          gleam deps download
+          gleam format --check
+          gleam test
+          gleam build
+          sh -n formal/quint-itf-replay.sh
+
+      - name: Replay traces through production Gleam protocol state
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo run --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl -- \
+            replay \
+            --manifest formal/fm.toml \
+            --trace '.formal-artifacts/gleam/opto-sync-*.itf.json' \
+            --adapter-language gleam \
+            --adapter-command 'cd clients/gleam && sh formal/quint-itf-replay.sh' \
+            --output .formal-artifacts/gleam-itf-replay.json 2>&1 \
+            | tee .formal-artifacts/gleam/replay.log
+
+      - name: Record exact verification inputs
+        if: always()
+        shell: bash
+        run: |
+          {
+            printf 'commit=%s\n' "$GITHUB_SHA"
+            printf 'event=%s\n' "$GITHUB_EVENT_NAME"
+            printf 'quint_package=%s\n' "$QUINT_PACKAGE"
+            printf 'node=' && node --version
+            printf 'java=' && java -version 2>&1 | head -n 1
+            printf 'rust=' && rustc --version
+            printf 'otp=' && erl -noshell -eval 'io:format("~s", [erlang:system_info(otp_release)]), halt().' 
+            printf '\ngleam=' && gleam --version
+            sha256sum \
+              formal/fm.toml \
+              formal/opto_sync_protocol.qnt \
+              formal/adapter-protocol.schema.json \
+              clients/gleam/src/opto_sync_formal_projection.gleam \
+              clients/gleam/src/opto_sync_formal_adapter.gleam \
+              clients/gleam/src/opto_sync_formal_replay_ffi.erl
+          } > .formal-artifacts/gleam/provenance.txt
+
+      - name: Upload traces, logs, report, and provenance
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: opto-sync-gleam-itf-conformance
+          path: .formal-artifacts/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
