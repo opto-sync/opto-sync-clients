@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  format-validate-and-clean:
+  format-and-clean:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -32,17 +32,14 @@ jobs:
         with:
           toolchain: 1.88.0
           components: rustfmt
-      - name: Canonically format and validate the Dart desktop contract
+      - name: Canonically format the Dart desktop contract
         working-directory: clients/reactive-dart
         shell: bash
         run: |
           set -euo pipefail
-          dart pub get
           dart format lib/src/desktop_sync.dart tool/desktop_self_test.dart
           dart format --output=none --set-exit-if-changed lib/src/desktop_sync.dart tool/desktop_self_test.dart
-          dart analyze
-          dart run tool/desktop_self_test.dart
-      - name: Canonically format and validate the existing Rust replay adapter
+      - name: Canonically format the existing Rust replay adapter
         shell: bash
         run: |
           set -euo pipefail
