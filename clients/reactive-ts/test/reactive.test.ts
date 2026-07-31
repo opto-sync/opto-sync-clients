@@ -111,6 +111,7 @@ test('session rotation tears down stale generations and replays the latest value
     values.push(snapshot.value?.value ?? 'deleted'),
   );
   const second = stream.subscribe();
+  await new Promise((resolve) => setTimeout(resolve, 0));
   events.next(
     event('http', 'authoritative', '1', {
       value: 'first',
