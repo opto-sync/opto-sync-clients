@@ -66,7 +66,9 @@ function abortError(message: string): DOMException {
  * Service workers are event-driven and may be terminated after any event. The
  * callback must therefore use the durable queue/checkpoint and finish one HTTP
  * push/pull cycle; it must not depend on a permanent WebSocket or in-memory
- * retry timer. Concurrent sync/message events share one promise.
+ * retry timer. Concurrent sync/message events share one visible promise. If a
+ * callback ignores cancellation, that settled timeout remains installed until
+ * the underlying callback actually returns so a later event cannot overlap it.
  */
 export function installOptoSyncServiceWorker<R>(
   options: ServiceWorkerSyncOptions<R>,
@@ -80,9 +82,22 @@ export function installOptoSyncServiceWorker<R>(
   ) {
     throw new RangeError('timeoutMs must be from 1000 through 600000');
   }
-  let inFlight: Promise<R> | undefined;
+  let operation: Promise<R> | undefined;
+  let visibleResult: Promise<R> | undefined;
   let activeController: AbortController | undefined;
   let closed = false;
+
+  const clearIfCurrent = (
+    currentOperation: Promise<R>,
+    controller: AbortController,
+    timer: ReturnType<typeof setTimeout>,
+  ): void => {
+    if (operation !== currentOperation) return;
+    clearTimeout(timer);
+    operation = undefined;
+    visibleResult = undefined;
+    if (activeController === controller) activeController = undefined;
+  };
 
   const runNow = (): Promise<R> => {
     if (closed) {
@@ -90,33 +105,43 @@ export function installOptoSyncServiceWorker<R>(
         new Error('service-worker sync controller is closed'),
       );
     }
-    if (inFlight) return inFlight;
+    if (visibleResult) return visibleResult;
 
     const controller = new AbortController();
     activeController = controller;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const operation = Promise.resolve().then(() =>
+    const currentOperation = Promise.resolve().then(() =>
       options.syncOnce(controller.signal),
     );
     const deadline = new Promise<never>((_resolve, reject) => {
+      const timerError = () => {
+        const error = abortError('opto-sync background timeout');
+        controller.abort(error);
+        reject(error);
+      };
+      setTimeout(timerError, timeoutMs);
+    });
+    let timer: ReturnType<typeof setTimeout>;
+    const boundedDeadline = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
         const error = abortError('opto-sync background timeout');
         controller.abort(error);
         reject(error);
       }, timeoutMs);
     });
-    const running = Promise.race([operation, deadline])
-      .catch((error) => {
+    const currentVisible = Promise.race([currentOperation, boundedDeadline]).catch(
+      (error) => {
         options.onError?.(error);
         throw error;
-      })
-      .finally(() => {
-        if (timer !== undefined) clearTimeout(timer);
-        if (activeController === controller) activeController = undefined;
-        if (inFlight === running) inFlight = undefined;
-      });
-    inFlight = running;
-    return running;
+      },
+    );
+    operation = currentOperation;
+    visibleResult = currentVisible;
+    currentOperation.then(
+      () => clearIfCurrent(currentOperation, controller, timer),
+      () => clearIfCurrent(currentOperation, controller, timer),
+    );
+    void deadline.catch(() => undefined);
+    return currentVisible;
   };
 
   const syncListener = (
