@@ -1,7 +1,6 @@
 use std::env;
 use std::fs;
 use std::io::{self, Write};
-use std::path::Path;
 use std::process::ExitCode;
 
 #[allow(dead_code)]
@@ -29,10 +28,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let command = arguments
         .next()
         .and_then(|value| value.into_string().ok())
-        .ok_or_else(usage)?;
-    let path = arguments.next().ok_or_else(usage)?;
+        .ok_or_else(usage_error)?;
+    let path = arguments.next().ok_or_else(usage_error)?;
     if arguments.next().is_some() {
-        return Err(usage().into());
+        return Err(usage_error().into());
     }
 
     match command.as_str() {
@@ -42,7 +41,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             write_json(&json!({
                 "valid": true,
                 "kind": "stream-transcript",
-                "path": Path::new(&path),
+                "path": path.to_string_lossy(),
             }))?;
         }
         "validate-message" => {
@@ -62,7 +61,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             io::stdout().write_all(&canonical)?;
             io::stdout().write_all(b"\n")?;
         }
-        _ => return Err(usage().into()),
+        _ => return Err(usage_error().into()),
     }
     Ok(())
 }
@@ -80,7 +79,9 @@ fn write_json(value: &Value) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn usage() -> String {
-    "usage: fm-adapter-protocol <validate-transcript|validate-message|canonicalize-json> <path>"
-        .to_owned()
+fn usage_error() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::InvalidInput,
+        "usage: fm-adapter-protocol <validate-transcript|validate-message|canonicalize-json> <path>",
+    )
 }
