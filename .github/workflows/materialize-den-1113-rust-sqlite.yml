@@ -42,20 +42,66 @@ jobs:
         with:
           components: rustfmt, clippy
 
-      - name: Integrate the SQLite module into the existing crate
+      - name: Integrate the module and harden the child-process handshake
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          path = Path('clients/desktop-rust/src/lib.rs')
-          content = path.read_text()
+          lib = Path('clients/desktop-rust/src/lib.rs')
+          content = lib.read_text()
           declaration = 'pub mod sqlite;\n\n'
           if declaration not in content:
               marker = 'use std::collections::BTreeMap;\n'
               if marker not in content:
                   raise SystemExit('could not locate stable lib.rs insertion point')
               content = content.replace(marker, declaration + marker, 1)
-              path.write_text(content)
+              lib.write_text(content)
+
+          tests = Path('clients/desktop-rust/tests/sqlite_coordination.rs')
+          content = tests.read_text()
+          old_command = '''    command
+                  .arg("--ignored")
+                  .arg("--nocapture")
+                  .arg("sqlite_child_process")
+          '''
+          new_command = '''    command
+                  .arg("sqlite_child_process")
+                  .arg("--exact")
+                  .arg("--ignored")
+                  .arg("--nocapture")
+                  .arg("--test-threads=1")
+          '''
+          if old_command not in content:
+              raise SystemExit('could not locate child test command')
+          content = content.replace(old_command, new_command, 1)
+
+          old_handshake = '''    let mut line = String::new();
+              reader.read_line(&mut line).expect("read holder acquisition");
+              assert!(line.starts_with("acquired:"), "holder output: {line:?}");
+              child
+          '''
+          new_handshake = '''    let mut transcript = String::new();
+              loop {
+                  let mut line = String::new();
+                  let read = reader
+                      .read_line(&mut line)
+                      .expect("read holder acquisition");
+                  if read == 0 {
+                      panic!("holder exited before acquisition: {transcript:?}");
+                  }
+                  transcript.push_str(&line);
+                  if line.starts_with("acquired:") {
+                      break;
+                  }
+                  if line.starts_with("busy:") {
+                      panic!("holder unexpectedly found a busy lease: {transcript:?}");
+                  }
+              }
+              child
+          '''
+          if old_handshake not in content:
+              raise SystemExit('could not locate child acquisition handshake')
+          tests.write_text(content.replace(old_handshake, new_handshake, 1))
           PY
 
       - name: Generate the lockfile and validate the product tree
