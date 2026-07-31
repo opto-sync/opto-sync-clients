@@ -9,6 +9,7 @@ environment:
 dependencies:
   drift: ^2.34.2
   ffi: ^2.2.0
+  rxdart: ^0.28.0
   sqlite3: ^3.5.0
   syncer:
     path: ../../syncer.c/bindings/dart
