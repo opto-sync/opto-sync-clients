@@ -239,12 +239,12 @@ fn result_try(value: Result(a, e), next: fn(a) -> Result(b, e)) -> Result(b, e) 
 }
 
 fn find_outcome(outcomes: List(KnownOutcome), id: Int) {
-  case
+  let found =
     list.find(outcomes, fn(entry) {
       let KnownOutcome(entry_id, _) = entry
       entry_id == id
     })
-  {
+  case found {
     Ok(KnownOutcome(_, outcome)) -> Some(outcome)
     Error(_) -> None
   }
