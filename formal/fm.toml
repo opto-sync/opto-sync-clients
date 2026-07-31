@@ -134,14 +134,20 @@ status = "planned"
 
 [adapters.gleam]
 strategy = "itf-json-driver"
-target = "clients/gleam/src/opto_sync_formal_projection.gleam"
-implementation = "clients/gleam production Queue APIs and versioned queue snapshot"
+target = "clients/gleam/formal/quint-itf-replay.sh"
+working_directory = "clients/gleam"
+command = ["sh", "formal/quint-itf-replay.sh"]
+implementation = "clients/gleam production protocol state with a volatile BEAM replay store; bounded conformance only, not durable restart recovery"
 observable_state = [
   "nextMutationId",
   "pendingMutationIds",
   "confirmedMutationIds",
   "allocatedMutationIds",
+  "knownOutcomes",
+  "inFlightRequest",
+  "response",
   "checkpoint",
+  "snapshotReplacementPhase",
 ]
-status = "planned"
+status = "active"
 issue = "DEN-587"
