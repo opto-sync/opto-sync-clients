@@ -224,8 +224,12 @@ fn snapshot_next_mutation_id(
   case json.parse(opto_sync_client.encode_queue(queue), decoder) {
     Ok(value) ->
       case int.parse(value) {
-        Ok(parsed) if parsed > 0 && int.to_string(parsed) == value -> Ok(parsed)
-        _ -> Error(InvalidProductionSnapshot)
+        Ok(parsed) ->
+          case parsed > 0 && int.to_string(parsed) == value {
+            True -> Ok(parsed)
+            False -> Error(InvalidProductionSnapshot)
+          }
+        Error(_) -> Error(InvalidProductionSnapshot)
       }
     Error(_) -> Error(InvalidProductionSnapshot)
   }
