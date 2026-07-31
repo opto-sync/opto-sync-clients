@@ -111,11 +111,18 @@ test('session rotation tears down stale generations and replays the latest value
     values.push(snapshot.value?.value ?? 'deleted'),
   );
   const second = stream.subscribe();
+  // The session-scoped pipeline subscribes to sources on a microtask; let it
+  // attach before the first event so the emission is observed, not replayed.
+  await new Promise((resolve) => setTimeout(resolve, 0));
   events.next(
     event('http', 'authoritative', '1', {
       value: 'first',
     }) as SyncRecordEvent<{ value: string }>,
   );
+  // Projection is serialized asynchronously (concatMap); let the 'first'
+  // snapshot emit before rotation tears the generation down, otherwise the
+  // in-flight projection is legitimately cancelled by switchMap.
+  await new Promise((resolve) => setTimeout(resolve, 0));
 
   const rotated = { ...identity, session_id: 'session-b' };
   session$.next({ status: 'authenticated', identity: rotated });

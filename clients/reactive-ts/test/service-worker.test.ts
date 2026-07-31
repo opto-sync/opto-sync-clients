@@ -111,6 +111,8 @@ test('timeout aborts a non-cooperative cycle and reports a bounded error', async
         );
       }),
   });
-  await assert.rejects(controller.runNow(), /aborted/);
+  // Either surface is a correctly bounded abort: the cycle's own listener
+  // ("aborted") or the controller's timeout AbortError, whichever wins the race.
+  await assert.rejects(controller.runNow(), /aborted|background timeout/);
   controller.close();
 });
