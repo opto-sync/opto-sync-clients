@@ -45,4 +45,47 @@ for directory in $beam_path_list; do
 done
 IFS=$old_ifs
 
-exec erl -noshell "$@" -s opto_sync_formal_replay_ffi main
+# The BEAM harness owns detailed traversal and diagnostics. Normalize its small
+# internal result into the repository-wide fmctl.adapter.v1 aggregate envelope
+# used by the Rust, TypeScript, and Dart implementations. Keeping this boundary
+# here avoids duplicating replay semantics or weakening fmctl's strict schema.
+result_file=$(mktemp)
+trap 'rm -f "$result_file"' EXIT HUP INT TERM
+erl -noshell "$@" -s opto_sync_formal_replay_ffi main >"$result_file"
+
+jq -c '
+  if .result.status == "ok" then
+    {
+      protocol: .protocol,
+      success: true,
+      traces_total: .result.traceCount,
+      traces_passed: .result.traceCount,
+      mismatches: [],
+      implementation: {
+        language: "gleam",
+        name: "opto_sync_client production protocol projection",
+        version: "0.1.0"
+      }
+    }
+  else
+    {
+      protocol: .protocol,
+      success: false,
+      traces_total: 1,
+      traces_passed: 0,
+      mismatches: [{
+        trace: (.result.tracePath // "<adapter-request>"),
+        step: .result.stateIndex,
+        action: .result.action,
+        message: .result.error,
+        expected: null,
+        actual: null
+      }],
+      implementation: {
+        language: "gleam",
+        name: "opto_sync_client production protocol projection",
+        version: "0.1.0"
+      }
+    }
+  end
+' "$result_file"
