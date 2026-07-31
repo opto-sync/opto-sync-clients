@@ -253,21 +253,46 @@ class FfiSyncer implements TimestampConfiguredSyncer {
   final int maxDepth;
   final bool detectCircularRefs;
 
+  /// The resolved native library location, remembered so derived syncers
+  /// ([overlay]) load the same core instead of re-resolving from a default
+  /// that may not apply (e.g. an explicit path in tests).
+  final String _libraryPath;
+
   /// [libraryPath] locates the native library; when omitted it is resolved
   /// via [syncer_ffi.resolveSyncerLibraryPath] (SYNCER_LIB_PATH env var, then
   /// a platform-named libsyncer next to the current directory).
   FfiSyncer({
     String? libraryPath,
-    this.resolveByTimestamp = true,
-    this.lwwKeys = 'updatedAt,syncedAt',
-    this.fwwKeys,
-    this.arrayStrategy = syncer_ffi.ArrayMergeStrategy.mergeByKey,
-    this.arrayMatchKeys = 'id',
-    this.maxDepth = 0,
-    this.detectCircularRefs = false,
-  }) : _native = syncer_ffi.Syncer(
+    bool resolveByTimestamp = true,
+    String? lwwKeys = 'updatedAt,syncedAt',
+    String? fwwKeys,
+    syncer_ffi.ArrayMergeStrategy arrayStrategy =
+        syncer_ffi.ArrayMergeStrategy.mergeByKey,
+    String? arrayMatchKeys = 'id',
+    int maxDepth = 0,
+    bool detectCircularRefs = false,
+  }) : this._resolved(
          libraryPath ?? syncer_ffi.resolveSyncerLibraryPath(),
+         resolveByTimestamp: resolveByTimestamp,
+         lwwKeys: lwwKeys,
+         fwwKeys: fwwKeys,
+         arrayStrategy: arrayStrategy,
+         arrayMatchKeys: arrayMatchKeys,
+         maxDepth: maxDepth,
+         detectCircularRefs: detectCircularRefs,
        );
+
+  FfiSyncer._resolved(
+    String libraryPath, {
+    required this.resolveByTimestamp,
+    required this.lwwKeys,
+    required this.fwwKeys,
+    required this.arrayStrategy,
+    required this.arrayMatchKeys,
+    required this.maxDepth,
+    required this.detectCircularRefs,
+  }) : _libraryPath = libraryPath,
+       _native = syncer_ffi.Syncer(libraryPath);
 
   /// Version of the loaded native core ("major.minor.patch").
   String get nativeVersion => _native.version;
