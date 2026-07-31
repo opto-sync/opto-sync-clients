@@ -1,0 +1,186 @@
+name: Formal Gleam ITF conformance
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/formal-gleam-itf.yml'
+      - 'clients/gleam/**'
+      - 'formal/**'
+      - 'tools/fmctl/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/formal-gleam-itf.yml'
+      - 'clients/gleam/**'
+      - 'formal/**'
+      - 'tools/fmctl/**'
+  schedule:
+    - cron: '17 7 * * 4'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: formal-gleam-itf-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  replay:
+    name: Replay manifest-defined Quint traces through production Gleam state
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      - name: Install Java for Quint backends
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install manifest Rust toolchain for fmctl
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: '1.88.0'
+
+      - name: Install production NIF Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: '1.91.0'
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: |
+            tools/fmctl
+            syncer.c/bindings/beam/native/syncer_nif
+
+      - name: Install Erlang/OTP, Elixir, and Gleam
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
+        with:
+          otp-version: '27.3.4'
+          elixir-version: '1.18.4'
+          gleam-version: '1.16.0'
+
+      - name: Build fmctl with its manifest toolchain
+        run: cargo +1.88.0 build --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl
+
+      - name: Build the production BEAM reconciliation NIF
+        working-directory: syncer.c/bindings/beam
+        env:
+          RUSTUP_TOOLCHAIN: '1.91.0'
+        run: |
+          set -euo pipefail
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          mix compile
+
+      - name: Validate manifest and typecheck executable specification
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .formal-artifacts/gleam
+          cargo +1.88.0 run --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl -- \
+            --manifest formal/fm.toml \
+            validate 2>&1 \
+            | tee .formal-artifacts/gleam/manifest-validation.log
+          cargo +1.88.0 run --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl -- \
+            --manifest formal/fm.toml \
+            check 2>&1 \
+            | tee .formal-artifacts/gleam/typecheck.log
+
+      - name: Generate and validate the shared manifest-defined trace corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo +1.88.0 run --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl -- \
+            --manifest formal/fm.toml \
+            trace 2>&1 \
+            | tee .formal-artifacts/gleam/trace-generation.log
+
+      - name: Format, test, and build Gleam adapter with the production NIF
+        working-directory: clients/gleam
+        shell: bash
+        env:
+          OPTO_SYNC_BEAM_EBIN: ../../syncer.c/bindings/beam/_build/dev/lib/opto_sync_nif/ebin
+        run: |
+          set -euo pipefail
+          gleam deps download
+          gleam format --check
+          OPTO_SYNC_ELIXIR_EBIN="$(
+            elixir -e 'IO.puts(Path.join(:code.lib_dir(:elixir), "ebin"))'
+          )" gleam test
+          gleam build
+          sh -n formal/quint-itf-replay.sh
+
+      - name: Replay the shared traces through the active manifest adapter
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          traces=(.formal-artifacts/opto-sync-clients-protocol-v1-*.itf.json)
+          if (( ${#traces[@]} == 0 )); then
+            printf 'fmctl trace produced no protocol-v1 corpus\n' >&2
+            exit 1
+          fi
+          replay_args=()
+          for trace in "${traces[@]}"; do
+            replay_args+=(--trace "$trace")
+          done
+          cargo +1.88.0 run --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl -- \
+            --manifest formal/fm.toml \
+            replay \
+            --adapter gleam \
+            "${replay_args[@]}" 2>&1 \
+            | tee .formal-artifacts/gleam/replay.log
+
+      - name: Record exact verification inputs
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p .formal-artifacts/gleam
+          {
+            printf 'commit=%s\n' "$GITHUB_SHA"
+            printf 'event=%s\n' "$GITHUB_EVENT_NAME"
+            printf 'node=' && node --version
+            printf 'java=' && java -version 2>&1 | head -n 1
+            printf 'fmctl-rust=' && rustc +1.88.0 --version
+            printf 'nif-rust=' && rustc +1.91.0 --version
+            printf 'otp=' && erl -noshell -eval 'io:format("~s", [erlang:system_info(otp_release)]), halt().'
+            printf '\nelixir=' && elixir --version | tail -n 1
+            printf 'gleam=' && gleam --version
+            sha256sum \
+              formal/fm.toml \
+              formal/opto_sync_protocol.qnt \
+              formal/adapter-protocol.schema.json \
+              clients/gleam/formal/quint-itf-replay.sh \
+              clients/gleam/src/opto_sync_formal_projection.gleam \
+              clients/gleam/src/opto_sync_formal_adapter.gleam \
+              clients/gleam/src/opto_sync_formal_replay.gleam \
+              clients/gleam/src/opto_sync_formal_replay_ffi_v2.erl \
+              syncer.c/bindings/beam/mix.lock
+          } > .formal-artifacts/gleam/provenance.txt
+
+      - name: Upload traces, logs, report, and provenance
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: opto-sync-gleam-itf-conformance
+          path: .formal-artifacts/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
