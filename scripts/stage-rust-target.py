@@ -42,24 +42,10 @@ def ignore(_directory: str, names: list[str]) -> set[str]:
     return {name for name in names if name in IGNORED}
 
 
-def copy_tree(
-    source: Path,
-    destination: Path,
-    *,
-    root_excludes: frozenset[str] = frozenset(),
-) -> None:
+def copy_tree(source: Path, destination: Path) -> None:
     if not source.is_dir():
         fail(f"required source directory is missing: {source.relative_to(ROOT)}")
-
-    source_root = source.resolve()
-
-    def copy_ignore(directory: str, names: list[str]) -> set[str]:
-        ignored = ignore(directory, names)
-        if Path(directory).resolve() == source_root:
-            ignored.update(name for name in names if name in root_excludes)
-        return ignored
-
-    shutil.copytree(source, destination, ignore=copy_ignore)
+    shutil.copytree(source, destination, ignore=ignore)
 
 
 def sha256(path: Path) -> str:
@@ -89,14 +75,17 @@ def main() -> int:
             f"gitlink={gitlink_sha} nested={nested_sha}"
         )
 
-    # Formal/model replay adapters under conventional examples/ remain
-    # repository-source verification assets. The isolated target deliberately
-    # excludes them and creates one package-identity probe under src/bin below.
-    copy_tree(
-        ROOT / "clients/rust",
-        output / "clients/rust",
-        root_excludes=frozenset({"examples"}),
-    )
+    copy_tree(ROOT / "clients/rust", output / "clients/rust")
+    # Formal/model replay adapters remain repository-source verification assets.
+    # Zed source packing intentionally omits conventional examples/ trees, so
+    # remove that source-only tree explicitly after copying rather than relying
+    # on callback path identity inside shutil.copytree.
+    examples = output / "clients/rust/examples"
+    if examples.exists():
+        if not examples.is_dir() or examples.is_symlink():
+            fail("clients/rust/examples must be a normal directory when present")
+        shutil.rmtree(examples)
+
     copy_tree(ROOT / "syncer.c/core/include", output / "syncer.c/core/include")
     copy_tree(ROOT / "syncer.c/core/src", output / "syncer.c/core/src")
     copy_tree(ROOT / "syncer.c/bindings/rust", output / "syncer.c/bindings/rust")
@@ -109,9 +98,8 @@ def main() -> int:
     )
     (output / "syncer.c/SOURCE_SHA").write_text(gitlink_sha + "\n", encoding="utf-8")
 
-    # Zed source packing intentionally omits conventional examples/ trees. Put
-    # the identity probe under src/bin so the exact packed artifact retains a
-    # normal executable target that Cargo can compile on every supported OS.
+    # Put the identity probe under src/bin so the exact packed artifact retains
+    # a normal executable target that Cargo can compile on every supported OS.
     identity_bin = output / "clients/rust/src/bin"
     identity_bin.mkdir(parents=True, exist_ok=True)
     (identity_bin / "core_identity.rs").write_text(
