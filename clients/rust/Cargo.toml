@@ -5,8 +5,9 @@ edition = "2021"
 description = "Client-side library for opto-sync: optimistic writes + CRDT-style reconciliation"
 
 [features]
-default = ["sqlite"]
+default = ["sqlite", "ws"]
 sqlite = ["dep:rusqlite"]
+ws = ["dep:tungstenite"]
 
 [dependencies]
 syncer-rs = { path = "../../syncer.c/bindings/rust" }
@@ -22,6 +23,11 @@ getrandom = "0.3"
 # certified by the clean-room matrix. Keep the last graph proven on Linux,
 # macOS, and Windows until the project's declared MSRV is raised deliberately.
 rusqlite = { version = "=0.39.0", features = ["bundled"], optional = true }
+# Blocking WebSocket client for the realtime sync transport (and the in-process
+# mock server in tests). Default features only — no TLS backend is pulled in;
+# the e2e stack and the reference server speak plain `ws://`. Pinned for the
+# same MSRV discipline as rusqlite above.
+tungstenite = { version = "=0.28.0", optional = true }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
