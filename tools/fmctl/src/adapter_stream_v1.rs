@@ -704,10 +704,12 @@ mod tests {
             "a": {"b": 1, "a": 2}
         });
         let actual = canonicalize_json(&value).expect("canonical");
-        let expected: Value = serde_json::from_str(
-            r##"{"a":{"a":2,"b":1},"map":{"#map":[["a",2],["z",1]]},"set":{"#set":[1,2,3]},"z":2}"##,
-        )
-        .expect("expected JSON");
+        let expected = json!({
+            "a": {"a": 2, "b": 1},
+            "map": {"#map": [["a", 2], ["z", 1]]},
+            "set": {"#set": [1, 2, 3]},
+            "z": 2
+        });
         assert_eq!(actual, expected);
     }
 
