@@ -7,6 +7,7 @@ on:
       - 'clients/reactive-dart/**'
       - 'clients/desktop-rust/**'
       - 'docs/DESKTOP_BACKGROUND_SYNC.md'
+      - 'docs/SQLITE_DESKTOP_COORDINATION.md'
       - '.github/workflows/desktop-background-sync.yml'
   push:
     branches: [main]
@@ -15,6 +16,7 @@ on:
       - 'clients/reactive-dart/**'
       - 'clients/desktop-rust/**'
       - 'docs/DESKTOP_BACKGROUND_SYNC.md'
+      - 'docs/SQLITE_DESKTOP_COORDINATION.md'
       - '.github/workflows/desktop-background-sync.yml'
   workflow_dispatch:
 
@@ -42,7 +44,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22.12.0'
+          node-version: '22.16.0'
           cache: npm
           cache-dependency-path: clients/reactive-ts/package-lock.json
 
@@ -52,7 +54,10 @@ jobs:
 
       - name: Exercise durable desktop fencing and lifecycle contracts
         working-directory: clients/reactive-ts
-        run: node --experimental-strip-types --test test/desktop.test.ts
+        run: >-
+          node --experimental-strip-types --test
+          test/desktop.test.ts
+          test/sqlite-desktop.test.ts
 
   dart-desktop:
     name: Dart desktop contracts

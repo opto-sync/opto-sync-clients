@@ -6,3 +6,4 @@ export * from './live-hints.ts';
 export * from './optimism.ts';
 export * from './reactive-record.ts';
 export * from './service-worker.ts';
+export * from './sqlite-desktop.ts';

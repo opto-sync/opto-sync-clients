@@ -5,8 +5,9 @@ edition = "2021"
 description = "Client-side library for opto-sync: optimistic writes + CRDT-style reconciliation"
 
 [features]
-default = ["sqlite"]
+default = ["sqlite", "ws"]
 sqlite = ["dep:rusqlite"]
+ws = ["dep:tungstenite"]
 
 [dependencies]
 syncer-rs = { path = "../../syncer.c/bindings/rust" }
