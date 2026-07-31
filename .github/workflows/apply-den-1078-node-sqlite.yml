@@ -37,10 +37,10 @@ jobs:
           persist-credentials: true
           show-progress: false
 
-      - name: Install Node 22
+      - name: Install Node 22.16
         uses: actions/setup-node@v4
         with:
-          node-version: '22.12.0'
+          node-version: '22.16.0'
           cache: npm
           cache-dependency-path: clients/reactive-ts/package-lock.json
 
@@ -66,6 +66,35 @@ jobs:
           }
           cp -a /tmp/den-1078-payload/. .
 
+      - name: Align the declared runtime with unflagged node:sqlite
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          package_path = Path('clients/reactive-ts/package.json')
+          package = json.loads(package_path.read_text())
+          package['engines']['node'] = '>=22.16.0'
+          package_path.write_text(json.dumps(package, indent=2) + '\n')
+
+          workflow_path = Path('.github/workflows/desktop-background-sync.yml')
+          workflow = workflow_path.read_text()
+          old = "node-version: '22.12.0'"
+          assert workflow.count(old) == 1
+          workflow_path.write_text(workflow.replace(old, "node-version: '22.16.0'", 1))
+
+          docs_path = Path('docs/SQLITE_DESKTOP_COORDINATION.md')
+          docs = docs_path.read_text()
+          old = 'The Node 22 test corpus uses real SQLite files and real operating-system child'
+          assert docs.count(old) == 1
+          docs_path.write_text(docs.replace(
+              old,
+              'The Node 22.16+ test corpus uses real SQLite files and real operating-system child',
+              1,
+          ))
+          PY
+
       - name: Validate store-authoritative coordination
         working-directory: clients/reactive-ts
         run: |
@@ -82,6 +111,7 @@ jobs:
 
           package = json.loads(Path('clients/reactive-ts/package.json').read_text())
           assert package['exports']['./sqlite-desktop'] == './src/sqlite-desktop.ts'
+          assert package['engines']['node'] == '>=22.16.0'
           index = Path('clients/reactive-ts/src/index.ts').read_text()
           assert index.count("export * from './sqlite-desktop.ts';") == 1
           source = Path('clients/reactive-ts/src/sqlite-desktop.ts').read_text()
@@ -93,6 +123,11 @@ jobs:
               'StaleDesktopFenceError',
           ):
               assert required in source, required
+          desktop_workflow = Path('.github/workflows/desktop-background-sync.yml').read_text()
+          assert desktop_workflow.count("node-version: '22.16.0'") == 1
+          assert "node-version: '22.12.0'" not in desktop_workflow
+          docs = Path('docs/SQLITE_DESKTOP_COORDINATION.md').read_text()
+          assert 'Node 22.16+ test corpus' in docs
           PY
           git diff --check
           ! grep -R -n -E '^(<<<<<<<|=======|>>>>>>>)' \
