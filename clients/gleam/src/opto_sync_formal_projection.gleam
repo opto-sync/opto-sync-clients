@@ -65,7 +65,8 @@ pub fn project(
 }
 
 fn next_mutation_id_decoder() -> decode.Decoder(String) {
-  decode.field("nextMutationId", decode.string)
+  use next_mutation_id <- decode.field("nextMutationId", decode.string)
+  decode.success(next_mutation_id)
 }
 
 fn mutation_id(mutation: opto_sync_client.Mutation) -> String {
