@@ -1,0 +1,50 @@
+name: DEN-1071 pin Dart 3.12.2 formatting
+
+on:
+  push:
+    branches:
+      - agent/den-1071-desktop-background-sync
+    paths:
+      - '.github/workflows/agent-den-1071-dart-3-12-2-format.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: den-1071-dart-3-12-2-format
+  cancel-in-progress: false
+
+jobs:
+  format-and-clean:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/den-1071-desktop-background-sync
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: '3.12.2'
+      - name: Apply the exact CI formatter and remove this repair workflow
+        shell: bash
+        run: |
+          set -euo pipefail
+          dart format clients/reactive-dart/lib/src/desktop_sync.dart
+          git rm .github/workflows/agent-den-1071-dart-3-12-2-format.yml
+          changed="$(git status --short | cut -c4- | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/agent-den-1071-dart-3-12-2-format.yml' \
+            'clients/reactive-dart/lib/src/desktop_sync.dart' | sort)"
+          test "$changed" = "$expected" || {
+            echo 'unexpected formatter change set:' >&2
+            printf '%s\n' "$changed" >&2
+            exit 1
+          }
+          git diff --check
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m 'style: apply Dart 3.12.2 desktop formatting'
+          git push origin HEAD:agent/den-1071-desktop-background-sync
