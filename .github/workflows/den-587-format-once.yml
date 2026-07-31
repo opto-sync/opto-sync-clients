@@ -1,0 +1,42 @@
+name: DEN-587 one-shot Gleam formatter
+
+on:
+  push:
+    branches:
+      - alexanderdmills/den-587-gleam-itf-adapter
+
+permissions:
+  contents: write
+
+jobs:
+  format-and-remove:
+    if: ${{ !startsWith(github.event.head_commit.message, 'style(DEN-587):') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: alexanderdmills/den-587-gleam-itf-adapter
+          persist-credentials: true
+      - name: Install pinned Gleam toolchain
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124
+        with:
+          otp-version: 27.3.4
+          gleam-version: 1.16.0
+      - name: Format exact touched files and remove finalizer
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd clients/gleam
+          gleam format src/opto_sync_formal_adapter.gleam test/opto_sync_formal_adapter_test.gleam
+          cd ../..
+          rm .github/workflows/den-587-format-once.yml
+          git diff --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add clients/gleam/src/opto_sync_formal_adapter.gleam \
+            clients/gleam/test/opto_sync_formal_adapter_test.gleam \
+            .github/workflows/den-587-format-once.yml
+          git commit -m 'style(DEN-587): format Gleam conformance adapter'
+          git push origin HEAD:alexanderdmills/den-587-gleam-itf-adapter
