@@ -274,15 +274,16 @@ impl RequestIds {
 /// their source is re-coded as `FALLBACK` with the original in the message.
 trait ErasedTransport: Send {
     fn push(&mut self, request: &PushRequest) -> Result<PushResponse, SyncTransportFailure>;
-    fn pull(&mut self, checkpoint: &str, limit: usize)
-        -> Result<PullResult, SyncTransportFailure>;
+    fn pull(&mut self, checkpoint: &str, limit: usize) -> Result<PullResult, SyncTransportFailure>;
     fn snapshot(&mut self, reset: &ResetRequired)
         -> Result<SnapshotResponse, SyncTransportFailure>;
 }
 
 struct ErasedAdapter<T>(T);
 
-fn map_fallback_failure<E: std::fmt::Display>(failure: TransportFailure<E>) -> SyncTransportFailure {
+fn map_fallback_failure<E: std::fmt::Display>(
+    failure: TransportFailure<E>,
+) -> SyncTransportFailure {
     TransportFailure {
         source: SyncTransportError::new("FALLBACK", failure.source.to_string()),
         retryable: failure.retryable,
@@ -299,11 +300,7 @@ where
         self.0.push(request).map_err(map_fallback_failure)
     }
 
-    fn pull(
-        &mut self,
-        checkpoint: &str,
-        limit: usize,
-    ) -> Result<PullResult, SyncTransportFailure> {
+    fn pull(&mut self, checkpoint: &str, limit: usize) -> Result<PullResult, SyncTransportFailure> {
         self.0.pull(checkpoint, limit).map_err(map_fallback_failure)
     }
 
@@ -453,7 +450,10 @@ impl Core {
 
     /// Reuse the live connection or dial a new one. The slot lock makes the
     /// dial single-flight: concurrent requests wait, then share the socket.
-    fn connect(&self, dial: &dyn Fn() -> Result<Link, String>) -> Result<Link, SyncTransportFailure> {
+    fn connect(
+        &self,
+        dial: &dyn Fn() -> Result<Link, String>,
+    ) -> Result<Link, SyncTransportFailure> {
         let mut slot = lock(&self.connection);
         if let Some(link) = slot.as_ref() {
             if link.alive.load(Ordering::SeqCst) {
@@ -510,9 +510,11 @@ impl Core {
         let link = lock(&self.connection).take();
         if let Some(link) = link {
             link.alive.store(false, Ordering::SeqCst);
-            link.pending.fail_all(&TransportFailure::permanent(
-                SyncTransportError::new(self.codes.disposed, "transport disposed"),
-            ));
+            link.pending
+                .fail_all(&TransportFailure::permanent(SyncTransportError::new(
+                    self.codes.disposed,
+                    "transport disposed",
+                )));
             link.sink.close();
         }
     }
@@ -522,7 +524,11 @@ impl Core {
 /* Typed response decoding                                                  */
 /* ------------------------------------------------------------------------ */
 
-fn invalid_response(codes: &FrameCodes, what: &str, error: &serde_json::Error) -> SyncTransportFailure {
+fn invalid_response(
+    codes: &FrameCodes,
+    what: &str,
+    error: &serde_json::Error,
+) -> SyncTransportFailure {
     TransportFailure::permanent(SyncTransportError::new(
         codes.invalid_response,
         format!("invalid {what} response: {error}"),
@@ -557,7 +563,8 @@ fn decode_snapshot(
     frame: Map<String, Value>,
     codes: &FrameCodes,
 ) -> Result<SnapshotResponse, SyncTransportFailure> {
-    serde_json::from_value(Value::Object(frame)).map_err(|e| invalid_response(codes, "snapshot", &e))
+    serde_json::from_value(Value::Object(frame))
+        .map_err(|e| invalid_response(codes, "snapshot", &e))
 }
 
 fn push_body(request: &PushRequest) -> Map<String, Value> {
@@ -644,7 +651,10 @@ mod tests {
             codes(),
         );
         let frame = receiver.recv().unwrap().unwrap();
-        assert_eq!(frame.get("protocolVersion").and_then(Value::as_u64), Some(1));
+        assert_eq!(
+            frame.get("protocolVersion").and_then(Value::as_u64),
+            Some(1)
+        );
     }
 
     #[test]

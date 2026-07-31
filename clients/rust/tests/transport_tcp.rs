@@ -89,7 +89,13 @@ fn pull_result_for(request: &Value, checkpoint: &str) -> Value {
 fn sample_push_request() -> PushRequest {
     let mut queue = ProtocolQueue::new("device-tcp").expect("valid client id");
     queue
-        .queue_upsert("docs", "r1", json!({"id": "r1", "title": "draft"}), None, false)
+        .queue_upsert(
+            "docs",
+            "r1",
+            json!({"id": "r1", "title": "draft"}),
+            None,
+            false,
+        )
         .expect("queue upsert");
     queue.push_request(100).expect("valid limit")
 }
@@ -336,7 +342,10 @@ fn changed_hints_reach_the_callback_out_of_band() {
     let address = spawn_tcp_server(1, |_, stream| {
         let mut reader = BufReader::new(stream.try_clone().expect("clone mock socket"));
         let mut stream = stream;
-        write_frame(&mut stream, &json!({"v": 1, "type": "changed", "watermark": 41}));
+        write_frame(
+            &mut stream,
+            &json!({"v": 1, "type": "changed", "watermark": 41}),
+        );
         let frame = read_frame(&mut reader);
         write_frame(&mut stream, &pull_result_for(&frame, "1"));
         let mut ignored = String::new();
@@ -386,14 +395,19 @@ fn socket_close_fails_the_in_flight_request_as_retryable() {
     });
 
     let mut transport = transport(address);
-    let failure = transport.pull("0", 10).expect_err("pull must fail on close");
+    let failure = transport
+        .pull("0", 10)
+        .expect_err("pull must fail on close");
     assert!(failure.retryable);
     assert_eq!(failure.source.code, "TCP_CLOSED");
 }
 
 #[test]
 fn dial_failure_reports_backoff_via_retry_after() {
-    let dead = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let dead = TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap();
     let mut options = TcpTransportOptions::new(dead.to_string());
     options.random = Some(Arc::new(|| 1.0)); // deterministic full-jitter sample
     options.reconnect_base = Duration::from_millis(500);
@@ -415,13 +429,14 @@ fn dial_failure_reports_backoff_via_retry_after() {
 
 #[test]
 fn dial_failure_falls_back_to_the_http_transport() {
-    let dead = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let dead = TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap();
     let fallback = FakeHttpTransport::default();
     let calls = fallback.calls.clone();
-    let mut transport = TcpProtocolTransport::with_fallback(
-        TcpTransportOptions::new(dead.to_string()),
-        fallback,
-    );
+    let mut transport =
+        TcpProtocolTransport::with_fallback(TcpTransportOptions::new(dead.to_string()), fallback);
 
     let request = sample_push_request();
     let response = transport.push(&request).expect("fallback must serve push");

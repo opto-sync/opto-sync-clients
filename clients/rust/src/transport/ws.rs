@@ -18,9 +18,9 @@
 //! e2e stack and the reference node server both speak `ws://`.
 
 use super::{
-    decode_push, decode_pull, decode_snapshot, dispatch_frame, erase, lock, push_body, pull_body,
-    AuthTokenProvider, ChangedHandler, Core, FrameCodes, FrameSink, Link, PendingMap,
-    RandomSource, RequestError, SyncTransportError, DEFAULT_RECONNECT_BASE, DEFAULT_RECONNECT_MAX,
+    decode_pull, decode_push, decode_snapshot, dispatch_frame, erase, lock, pull_body, push_body,
+    AuthTokenProvider, ChangedHandler, Core, FrameCodes, FrameSink, Link, PendingMap, RandomSource,
+    RequestError, SyncTransportError, DEFAULT_RECONNECT_BASE, DEFAULT_RECONNECT_MAX,
     DEFAULT_REQUEST_TIMEOUT,
 };
 use crate::protocol::{PushRequest, PushResponse, SnapshotResponse};
@@ -344,8 +344,14 @@ mod tests {
 
     #[test]
     fn query_component_encoding_is_byte_wise_percent_encoding() {
-        assert_eq!(encode_query_component("plain-token_1.2~3"), "plain-token_1.2~3");
-        assert_eq!(encode_query_component("a b+c/d&e=f"), "a%20b%2Bc%2Fd%26e%3Df");
+        assert_eq!(
+            encode_query_component("plain-token_1.2~3"),
+            "plain-token_1.2~3"
+        );
+        assert_eq!(
+            encode_query_component("a b+c/d&e=f"),
+            "a%20b%2Bc%2Fd%26e%3Df"
+        );
         assert_eq!(encode_query_component("ünï"), "%C3%BCn%C3%AF");
     }
 }

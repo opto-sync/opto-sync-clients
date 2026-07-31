@@ -15,10 +15,10 @@
 //! fallback — matches the WebSocket transport.
 
 use super::{
-    decode_push, decode_pull, decode_snapshot, dispatch_frame, erase, lock, push_body, pull_body,
-    AuthTokenProvider, ChangedHandler, Core, FrameCodes, FrameSink, Link, PendingMap,
-    RandomSource, RequestError, SyncTransportError, DEFAULT_CONNECT_TIMEOUT,
-    DEFAULT_RECONNECT_BASE, DEFAULT_RECONNECT_MAX, DEFAULT_REQUEST_TIMEOUT,
+    decode_pull, decode_push, decode_snapshot, dispatch_frame, erase, lock, pull_body, push_body,
+    AuthTokenProvider, ChangedHandler, Core, FrameCodes, FrameSink, Link, PendingMap, RandomSource,
+    RequestError, SyncTransportError, DEFAULT_CONNECT_TIMEOUT, DEFAULT_RECONNECT_BASE,
+    DEFAULT_RECONNECT_MAX, DEFAULT_REQUEST_TIMEOUT,
 };
 use crate::protocol::{PushRequest, PushResponse, SnapshotResponse};
 use crate::protocol_sync::{ProtocolTransport, PullResult, ResetRequired, TransportFailure};
@@ -210,7 +210,9 @@ impl FrameSink for TcpSink {
         line.push('\n');
         let result = {
             let mut stream = lock(&self.stream);
-            stream.write_all(line.as_bytes()).and_then(|()| stream.flush())
+            stream
+                .write_all(line.as_bytes())
+                .and_then(|()| stream.flush())
         };
         match result {
             Ok(()) => Ok(()),
@@ -261,7 +263,9 @@ fn dial(config: &TcpConfig) -> Result<Link, String> {
         }
     }
     let stream = stream.ok_or(last_error)?;
-    stream.set_nodelay(true).map_err(|error| error.to_string())?;
+    stream
+        .set_nodelay(true)
+        .map_err(|error| error.to_string())?;
     let reader_stream = stream.try_clone().map_err(|error| error.to_string())?;
 
     let pending = Arc::new(PendingMap::default());

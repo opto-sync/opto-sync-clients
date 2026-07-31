@@ -25,6 +25,9 @@ type ServerSocket = WebSocket<TcpStream>;
 
 /// Accept `connections` WebSocket clients in sequence; the handler gets the
 /// connection index, the socket, and the URI the client dialed.
+// The `Err` size of the `accept_hdr` callback is fixed by tungstenite's
+// `Callback` trait; there is nothing to box here.
+#[allow(clippy::result_large_err)]
 fn spawn_ws_server<F>(connections: usize, handler: F) -> SocketAddr
 where
     F: Fn(usize, &mut ServerSocket, &str) + Send + 'static,
@@ -37,10 +40,11 @@ where
                 return;
             };
             let mut uri = String::new();
-            let accepted = tungstenite::accept_hdr(stream, |request: &Request, response: Response| {
-                uri = request.uri().to_string();
-                Ok(response)
-            });
+            let accepted =
+                tungstenite::accept_hdr(stream, |request: &Request, response: Response| {
+                    uri = request.uri().to_string();
+                    Ok(response)
+                });
             let Ok(mut socket) = accepted else { return };
             handler(index, &mut socket, &uri);
         }
@@ -108,7 +112,13 @@ fn pull_result_for(request: &Value, checkpoint: &str) -> Value {
 fn sample_push_request() -> PushRequest {
     let mut queue = ProtocolQueue::new("device-ws").expect("valid client id");
     queue
-        .queue_upsert("docs", "r1", json!({"id": "r1", "title": "draft"}), None, false)
+        .queue_upsert(
+            "docs",
+            "r1",
+            json!({"id": "r1", "title": "draft"}),
+            None,
+            false,
+        )
         .expect("queue upsert");
     queue.push_request(100).expect("valid limit")
 }
@@ -315,14 +325,19 @@ fn socket_close_fails_the_in_flight_request_as_retryable() {
     });
 
     let mut transport = transport(address);
-    let failure = transport.pull("0", 10).expect_err("pull must fail on close");
+    let failure = transport
+        .pull("0", 10)
+        .expect_err("pull must fail on close");
     assert!(failure.retryable);
     assert_eq!(failure.source.code, "WS_CLOSED");
 }
 
 #[test]
 fn dial_failure_reports_backoff_via_retry_after() {
-    let dead = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let dead = TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap();
     let mut options = WebSocketTransportOptions::new(ws_url(dead));
     options.random = Some(Arc::new(|| 1.0)); // deterministic full-jitter sample
     options.reconnect_base = Duration::from_millis(500);
@@ -344,7 +359,10 @@ fn dial_failure_reports_backoff_via_retry_after() {
 
 #[test]
 fn dial_failure_falls_back_to_the_http_transport() {
-    let dead = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let dead = TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap();
     let fallback = FakeHttpTransport::default();
     let calls = fallback.calls.clone();
     let mut transport = WebSocketProtocolTransport::with_fallback(
@@ -366,7 +384,10 @@ fn dial_failure_falls_back_to_the_http_transport() {
 fn snapshot_prefers_the_fallback_without_dialing() {
     // No server exists at all: with a fallback configured, snapshot must not
     // even try the socket.
-    let dead = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let dead = TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap();
     let fallback = FakeHttpTransport::default();
     let calls = fallback.calls.clone();
     let mut transport = WebSocketProtocolTransport::with_fallback(
@@ -473,7 +494,9 @@ fn token_is_a_query_parameter_and_reread_on_every_reconnect() {
     // Give the client time to observe the server-side close, then force a
     // reconnect, which must re-read the provider.
     thread::sleep(Duration::from_millis(300));
-    transport.pull("1", 10).expect("second pull over a fresh socket");
+    transport
+        .pull("1", 10)
+        .expect("second pull over a fresh socket");
     let second_uri = dialed.recv_timeout(Duration::from_secs(2)).unwrap();
     assert!(
         second_uri.contains("token=tok-two"),
