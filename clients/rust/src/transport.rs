@@ -395,6 +395,7 @@ impl Core {
             connection: Mutex::new(None),
             consecutive_dial_failures: AtomicU32::new(0),
             disposed: AtomicBool::new(false),
+            fallback,
         }
     }
 
