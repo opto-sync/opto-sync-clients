@@ -145,23 +145,22 @@ ValueStream<BackgroundSyncOutcome<R>> createBackgroundSyncOutcomes<R>({
   return MergeStream<BackgroundWakeReason>(streams)
       .debounceTime(coalesce)
       .concatMap(
-        (wake) =>
-            Stream<BackgroundSyncOutcome<R>>.fromFuture(
-              runner.runOnce().then(
-                (result) => BackgroundSyncOutcome<R>(
-                  wake: wake,
-                  ok: true,
-                  result: result,
-                ),
-              ),
-            ).onErrorReturnWith(
-              (error, stackTrace) => BackgroundSyncOutcome<R>(
-                wake: wake,
-                ok: false,
-                error: error,
-                stackTrace: stackTrace,
-              ),
+        (wake) => Stream<BackgroundSyncOutcome<R>>.fromFuture(
+          runner.runOnce().then(
+            (result) => BackgroundSyncOutcome<R>(
+              wake: wake,
+              ok: true,
+              result: result,
             ),
+          ),
+        ).onErrorReturnWith(
+          (error, stackTrace) => BackgroundSyncOutcome<R>(
+            wake: wake,
+            ok: false,
+            error: error,
+            stackTrace: stackTrace,
+          ),
+        ),
       )
       .shareValue();
 }
