@@ -84,14 +84,12 @@ jobs:
           set -euo pipefail
           dart pub get
           dart format \
-            lib/src/desktop_sync.dart \
             lib/src/sqlite_desktop.dart \
             lib/opto_sync_reactive_sqlite.dart \
             tool/desktop_self_test.dart \
             tool/sqlite_desktop_child.dart \
             tool/sqlite_desktop_self_test.dart
           git diff --exit-code -- \
-            lib/src/desktop_sync.dart \
             lib/src/sqlite_desktop.dart \
             lib/opto_sync_reactive_sqlite.dart \
             tool/desktop_self_test.dart \
