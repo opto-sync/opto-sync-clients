@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./desktop": "./src/desktop.ts",
     "./service-worker": "./src/service-worker.ts",
+    "./sqlite-desktop": "./src/sqlite-desktop.ts",
     "./node-tcp": "./src/node-tcp.ts"
   },
   "files": [
@@ -42,6 +43,6 @@
     }
   },
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.16.0"
   }
 }
