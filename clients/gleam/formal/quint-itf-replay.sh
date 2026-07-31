@@ -45,15 +45,22 @@ for directory in $beam_path_list; do
 done
 IFS=$old_ifs
 
-# The BEAM harness owns detailed traversal and diagnostics. Normalize its small
-# internal result into the repository-wide fmctl.adapter.v1 aggregate envelope
-# used by the Rust, TypeScript, and Dart implementations. Keeping this boundary
-# here avoids duplicating replay semantics or weakening fmctl's strict schema.
+# The BEAM harness predates the finalized external field name and uses
+# `tracePaths` internally. Normalize the canonical fmctl `traces` request at the
+# process boundary; do not alter the corpus, ordering, or replay implementation.
+request_file=$(mktemp)
 result_file=$(mktemp)
-trap 'rm -f "$result_file"' EXIT HUP INT TERM
-erl -noshell "$@" -s opto_sync_formal_replay_ffi main >"$result_file"
+normalized_request_file=$(mktemp)
+trap 'rm -f "$request_file" "$result_file" "$normalized_request_file"' EXIT HUP INT TERM
+cat >"$request_file"
+trace_count=$(jq -er '.traces | arrays | length | select(. > 0)' "$request_file")
+jq -c '. + {tracePaths: .traces}' "$request_file" >"$normalized_request_file"
+erl -noshell "$@" -s opto_sync_formal_replay_ffi main \
+  <"$normalized_request_file" >"$result_file"
 
-jq -c '
+# Normalize the harness's detailed internal result into the repository-wide
+# fmctl.adapter.v1 aggregate envelope used by Rust, TypeScript, and Dart.
+jq -c --argjson trace_count "$trace_count" '
   if .result.status == "ok" then
     {
       protocol: .protocol,
@@ -71,7 +78,7 @@ jq -c '
     {
       protocol: .protocol,
       success: false,
-      traces_total: 1,
+      traces_total: $trace_count,
       traces_passed: 0,
       mismatches: [{
         trace: (.result.tracePath // "<adapter-request>"),
