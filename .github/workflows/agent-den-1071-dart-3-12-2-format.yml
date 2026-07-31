@@ -1,42 +1,53 @@
-name: DEN-1071 pin Dart 3.12.2 formatting
+name: DEN-1071 apply exact Dart 3.12.2 formatting
 
 on:
-  push:
+  pull_request:
     branches:
-      - agent/den-1071-desktop-background-sync
+      - main
     paths:
       - '.github/workflows/agent-den-1071-dart-3-12-2-format.yml'
+      - 'clients/reactive-dart/lib/src/background_sync.dart'
+      - 'clients/reactive-dart/lib/src/desktop_sync.dart'
 
 permissions:
   contents: write
 
 concurrency:
-  group: den-1071-dart-3-12-2-format
+  group: den-1071-dart-3-12-2-format-${{ github.event.pull_request.number }}
   cancel-in-progress: false
 
 jobs:
-  format-and-clean:
+  format-validate-and-commit:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: agent/den-1071-desktop-background-sync
+          ref: ${{ github.head_ref }}
           fetch-depth: 0
           persist-credentials: true
       - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
           sdk: '3.12.2'
-      - name: Apply the exact CI formatter and remove this repair workflow
+      - name: Apply the exact formatter used by permanent CI
         shell: bash
         run: |
           set -euo pipefail
-          dart format clients/reactive-dart/lib/src/desktop_sync.dart
-          git rm .github/workflows/agent-den-1071-dart-3-12-2-format.yml
+          dart format \
+            clients/reactive-dart/lib/src/background_sync.dart \
+            clients/reactive-dart/lib/src/desktop_sync.dart
+          dart format --output=none --set-exit-if-changed \
+            clients/reactive-dart/lib \
+            clients/reactive-dart/tool
           changed="$(git status --short | cut -c4- | sort)"
           expected="$(printf '%s\n' \
-            '.github/workflows/agent-den-1071-dart-3-12-2-format.yml' \
+            'clients/reactive-dart/lib/src/background_sync.dart' \
             'clients/reactive-dart/lib/src/desktop_sync.dart' | sort)"
+          if [ -z "$changed" ]; then
+            echo 'Dart sources are already canonical.'
+            exit 0
+          fi
           test "$changed" = "$expected" || {
             echo 'unexpected formatter change set:' >&2
             printf '%s\n' "$changed" >&2
@@ -45,6 +56,8 @@ jobs:
           git diff --check
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add -A
-          git commit -m 'style: apply Dart 3.12.2 desktop formatting'
-          git push origin HEAD:agent/den-1071-desktop-background-sync
+          git add \
+            clients/reactive-dart/lib/src/background_sync.dart \
+            clients/reactive-dart/lib/src/desktop_sync.dart
+          git commit -m 'style: apply Dart 3.12.2 reactive formatting'
+          git push origin HEAD:${{ github.head_ref }}
