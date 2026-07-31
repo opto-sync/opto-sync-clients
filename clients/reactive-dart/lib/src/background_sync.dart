@@ -37,8 +37,8 @@ final class BackgroundSyncContext {
   }
 }
 
-typedef BackgroundSyncCycle<R> =
-    Future<R> Function(BackgroundSyncContext context);
+typedef BackgroundSyncCycle<R> = Future<R> Function(
+    BackgroundSyncContext context);
 
 /// One bounded, single-flight HTTP push/pull cycle for a worker isolate.
 ///
