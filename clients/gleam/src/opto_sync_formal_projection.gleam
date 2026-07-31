@@ -88,7 +88,11 @@ fn allocated_ids(current: Int, before: Int, reversed: List(String)) -> List(Stri
 
 fn parse_positive_canonical_decimal(value: String) -> Result(Int, Nil) {
   case int.parse(value) {
-    Ok(number) if number > 0 && int.to_string(number) == value -> Ok(number)
+    Ok(number) if number > 0 ->
+      case int.to_string(number) == value {
+        True -> Ok(number)
+        False -> Error(Nil)
+      }
     _ -> Error(Nil)
   }
 }
