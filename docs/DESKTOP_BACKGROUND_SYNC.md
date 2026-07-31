@@ -20,19 +20,35 @@ The lease store must atomically:
 2. increment a monotonic fencing identity whenever it replaces an absent or
    expired lease;
 3. release only when both token and fence still match;
-4. persist where every process that can drain the queue can observe it.
+4. derive expiration from a store-authoritative clock rather than trusting a
+   process-supplied wall clock;
+5. persist where every process that can drain the queue can observe it.
 
-The configured lease TTL must exceed the bounded cycle budget. A deadline is a
-cooperative cancellation signal: the owner keeps its lease until the callback
-returns, even after cancellation is requested, so another process cannot begin
-draining while the first callback may still be applying work.
+The configured lease TTL must exceed the bounded cycle budget plus cleanup
+grace. A deadline is cooperative cancellation. The runner does not explicitly
+release ownership until the callback returns, but an expiring lease cannot make
+an uncooperative callback safe by itself: after TTL expiry, another process may
+acquire a newer fence. Production callbacks must stop queue/checkpoint writes
+before their grant expires. Any adapter that permits longer work must renew the
+same token and fence atomically, and every queue/checkpoint mutation must reject
+an older fence after a newer owner has been granted.
+
+A `busy` acquisition is not an acknowledgement of the wake that caused it.
+In-process trailing-wake coalescing protects mutations produced by the same
+runner, but it cannot observe a mutation committed by another process after the
+current owner inspected the queue. A production shared-store adapter must either
+persist a dirty/wake generation that the owner rechecks before release or
+schedule a durable retry no later than lease expiry. It must never simply drop
+the wake because another owner was active.
 
 The in-memory stores shipped with the TypeScript, Dart, and Rust surfaces are
-for deterministic tests only. Production desktop applications should implement
+for deterministic tests only. Their caller-supplied timestamps are test inputs,
+not a production clock model. Production desktop applications should implement
 the contract in the same SQLite database as the queue, or another
 process-shared compare-and-swap store. Server deduplication remains the final
-correctness boundary if a process dies after a remote commit but before local
-release.
+remote-commit correctness boundary if a process dies after a server commit but
+before local release; fencing and transactional checkpoint rules remain the
+local correctness boundary.
 
 ## Runtime capability model
 
@@ -62,13 +78,19 @@ main/tray process. Credentials and mutation payloads stay in secure host state
 and the durable queue; they must not be placed in IPC channel names, startup
 arguments, scheduler metadata, or logs.
 
+The Service Worker controller keeps a timed-out visible result installed until
+the underlying callback actually settles. A callback that ignores `AbortSignal`
+therefore cannot be overlapped by a later sync, periodic-sync, or message event
+within the same worker lifetime.
+
 ## Dart / Flutter desktop
 
 The Dart runner mirrors the same wake, lease, fence, deadline, and capability
 contract. The callback must observe its `BackgroundSyncContext`; the runner will
-not release a lease behind a non-cooperative callback merely to make a timeout
-look successful. A process kill is recovered through the lease expiry plus
-server mutation idempotency.
+not explicitly release a lease behind a non-cooperative callback merely to make
+a timeout look successful. The callback must still return before lease expiry
+unless the production adapter renews and enforces the fence. A process kill is
+recovered through lease expiry plus server mutation idempotency.
 
 A Flutter application may compose the runner in its foreground process, tray
 process, or an explicitly installed user-level native host. A Dart isolate does
@@ -78,9 +100,10 @@ not survive process termination and must not be advertised as an OS service.
 
 The `opto-sync-desktop` crate provides the same capability vocabulary and a
 synchronous cooperative runner over a host-supplied `DesktopLeaseStore`. The
-cycle receives a deadline and fence. Hosts should configure bounded HTTP/socket
-operations and return by the deadline; the library does not detach an
-uncooperative callback and release its lease while work may still be running.
+cycle receives a deadline and fence. Hosts must configure bounded HTTP/socket
+operations, return before lease expiry, and condition queue/checkpoint changes
+on the active fence. The library does not detach a callback and explicitly
+release ownership while work may still be running.
 
 ## OS integration boundary
 
@@ -113,6 +136,11 @@ The dedicated workflow runs:
 - Dart formatting, analysis, and a deterministic lease/wake self-test;
 - Rust formatting, Clippy, and tests on Linux, macOS, and Windows.
 
-Consuming applications still need installer/autostart, signing, real sleep/wake,
-updater handoff, process-kill, and shared-SQLite lease evidence before claiming
-production desktop completion.
+The background-reactive workflow additionally verifies that a Service Worker
+timeout cannot clear single-flight ownership while its underlying callback is
+still running, alongside the real two-tab Chromium/IndexedDB test.
+
+Consuming applications still need a store-authoritative shared-SQLite lease,
+fence-checked queue/checkpoint writes, durable busy-wake retry, optional renewal,
+installer/autostart, signing, real sleep/wake, updater handoff, and process-kill
+evidence before claiming production desktop completion.
