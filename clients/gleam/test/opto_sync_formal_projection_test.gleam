@@ -1,4 +1,4 @@
-import gleam/option.{None}
+import gleam/option.{None, Some}
 import gleeunit
 import gleeunit/should
 import opto_sync_client
@@ -70,7 +70,7 @@ pub fn projection_preserves_allocated_ids_after_compaction_test() {
 
 pub fn rejected_acknowledgement_does_not_change_projection_test() {
   let queue = queue_with_two_pending()
-  let let_before = opto_sync_formal_projection.project(queue)
+  let before = opto_sync_formal_projection.project(queue)
   let snapshot_before = opto_sync_client.encode_queue(queue)
   let assert Ok(request) = opto_sync_client.build_push_request(queue, 1)
   let forged_response =
@@ -87,7 +87,7 @@ pub fn rejected_acknowledgement_does_not_change_projection_test() {
   opto_sync_client.acknowledge(queue, request, forged_response)
   |> should.equal(Error(opto_sync_client.InvalidAcknowledgement))
   opto_sync_formal_projection.project(queue)
-  |> should.equal(let_before)
+  |> should.equal(before)
   opto_sync_client.encode_queue(queue)
   |> should.equal(snapshot_before)
 }
