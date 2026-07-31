@@ -111,11 +111,6 @@ test('timeout aborts a non-cooperative cycle and reports a bounded error', async
         );
       }),
   });
-<<<<<<< HEAD
-  // Either surface is a correctly bounded abort: the cycle's own listener
-  // ("aborted") or the controller's timeout AbortError, whichever wins the race.
-  await assert.rejects(controller.runNow(), /aborted|background timeout/);
-=======
   await assert.rejects(
     controller.runNow(),
     (error: unknown) =>
@@ -123,6 +118,5 @@ test('timeout aborts a non-cooperative cycle and reports a bounded error', async
       error.name === 'AbortError' &&
       error.message === 'opto-sync background timeout',
   );
->>>>>>> origin/agent/background-reactive-sync
   controller.close();
 });
