@@ -44,6 +44,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Dependency resolution is needed only to establish the package's
+          # language version for formatting. Preserve the reviewed lock graph.
+          if git ls-files --error-unmatch clients/reactive-dart/pubspec.lock >/dev/null 2>&1; then
+            git restore --source=HEAD -- clients/reactive-dart/pubspec.lock
+          else
+            rm -f clients/reactive-dart/pubspec.lock
+          fi
           changed="$(git status --short | cut -c4- | sort)"
           if [ -z "$changed" ]; then
             echo 'Dart package sources are already canonical.'
