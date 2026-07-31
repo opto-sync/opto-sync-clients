@@ -4,6 +4,7 @@
 /// not retain (server outcomes and snapshot replacement phase). Queue mutation,
 /// request construction, response validation, acknowledgement, and checkpoint
 /// advancement all delegate to `opto_sync_client`.
+import gleam/dynamic/decode
 import gleam/int
 import gleam/json
 import gleam/list
@@ -142,6 +143,11 @@ pub fn finish_reset(state: State, checkpoint: Int) -> State {
   State(queue:, outcomes:, reset_phase: Idle)
 }
 
+pub fn observe(state: State) -> Result(FormalProjection, ProjectionError) {
+  let State(queue, _, _) = state
+  project(queue)
+}
+
 pub fn encode_projection_json(state: State) -> String {
   let State(queue, outcomes, reset_phase) = state
   let assert Ok(projection) = project(queue)
@@ -187,6 +193,7 @@ pub type FormalProjection {
 pub fn project(
   queue: opto_sync_client.Queue,
 ) -> Result(FormalProjection, ProjectionError) {
+  use next_id <- result_try(snapshot_next_mutation_id(queue))
   let mutations = opto_sync_client.all_mutations(queue)
   let pending_mutation_ids =
     mutations
@@ -198,7 +205,6 @@ pub fn project(
       mutation.status == opto_sync_client.Confirmed
     })
     |> list.map(fn(mutation) { int.to_string(mutation.mutation_id) })
-  let next_id = list.length(mutations) + 1
   Ok(FormalProjection(
     next_mutation_id: int.to_string(next_id),
     pending_mutation_ids:,
@@ -206,6 +212,30 @@ pub fn project(
     allocated_mutation_ids: allocated_ids(1, next_id, []),
     checkpoint: opto_sync_client.checkpoint(queue),
   ))
+}
+
+fn snapshot_next_mutation_id(
+  queue: opto_sync_client.Queue,
+) -> Result(Int, ProjectionError) {
+  let decoder = {
+    use value <- decode.field("nextMutationId", decode.string)
+    decode.success(value)
+  }
+  case json.parse(opto_sync_client.encode_queue(queue), decoder) {
+    Ok(value) ->
+      case int.parse(value) {
+        Ok(parsed) if parsed > 0 && int.to_string(parsed) == value -> Ok(parsed)
+        _ -> Error(InvalidProductionSnapshot)
+      }
+    Error(_) -> Error(InvalidProductionSnapshot)
+  }
+}
+
+fn result_try(value: Result(a, e), next: fn(a) -> Result(b, e)) -> Result(b, e) {
+  case value {
+    Ok(value) -> next(value)
+    Error(error) -> Error(error)
+  }
 }
 
 fn find_outcome(outcomes: List(KnownOutcome), id: Int) {
