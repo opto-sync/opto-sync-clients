@@ -135,17 +135,16 @@ jobs:
             clients/reactive-ts/test/sqlite-desktop.test.ts \
             docs/SQLITE_DESKTOP_COORDINATION.md
 
-      - name: Remove staging and commit only product files
+      - name: Publish non-workflow product files
         run: |
           set -euo pipefail
-          rm -rf \
-            .github/den-1078-payload \
-            .github/workflows/apply-den-1078-node-sqlite.yml
+          rm -rf .github/den-1078-payload
+          git checkout -- .github/workflows/desktop-background-sync.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
           actual="$(git diff --cached --name-only | sort)"
-          expected=$'.github/den-1078-payload/part-00\n.github/den-1078-payload/part-01\n.github/den-1078-payload/part-02\n.github/den-1078-payload/part-03\n.github/den-1078-payload/part-04\n.github/den-1078-payload/part-05\n.github/den-1078-payload/part-06\n.github/den-1078-payload/part-07\n.github/workflows/apply-den-1078-node-sqlite.yml\n.github/workflows/desktop-background-sync.yml\nclients/reactive-ts/package.json\nclients/reactive-ts/src/index.ts\nclients/reactive-ts/src/sqlite-desktop.ts\nclients/reactive-ts/test/sqlite-desktop-child.mjs\nclients/reactive-ts/test/sqlite-desktop.test.ts\ndocs/SQLITE_DESKTOP_COORDINATION.md'
+          expected=$'.github/den-1078-payload/part-00\n.github/den-1078-payload/part-01\n.github/den-1078-payload/part-02\n.github/den-1078-payload/part-03\n.github/den-1078-payload/part-04\n.github/den-1078-payload/part-05\n.github/den-1078-payload/part-06\n.github/den-1078-payload/part-07\nclients/reactive-ts/package.json\nclients/reactive-ts/src/index.ts\nclients/reactive-ts/src/sqlite-desktop.ts\nclients/reactive-ts/test/sqlite-desktop-child.mjs\nclients/reactive-ts/test/sqlite-desktop.test.ts\ndocs/SQLITE_DESKTOP_COORDINATION.md'
           test "$actual" = "$expected" || {
             echo 'Unexpected staged paths:' >&2
             printf '%s\n' "$actual" >&2
