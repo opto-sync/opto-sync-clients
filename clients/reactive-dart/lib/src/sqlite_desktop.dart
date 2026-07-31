@@ -1034,7 +1034,7 @@ final class SqliteCoordinatedDesktopSyncRunner<R> {
     }
 
     absorbPendingReasons();
-    var activeGrant = grant!;
+    var activeGrant = grant;
     while (true) {
       final startedAt = _now();
       final cancellation = BackgroundSyncContext(budget);
@@ -1099,7 +1099,10 @@ final class SqliteCoordinatedDesktopSyncRunner<R> {
 
       SqliteDesktopCompletion completion;
       try {
-        completion = _coordinator.complete(activeGrant, activeGrant.wakeGeneration);
+        completion = _coordinator.complete(
+          activeGrant,
+          activeGrant.wakeGeneration,
+        );
       } catch (error, stackTrace) {
         outcomes.add(
           SqliteDesktopSyncOutcome<R>(
