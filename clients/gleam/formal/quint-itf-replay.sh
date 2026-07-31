@@ -1,6 +1,13 @@
 #!/usr/bin/env sh
 set -eu
 
+# fmctl launches adapters from the repository root, while developers may invoke
+# this script from the Gleam package. Resolve the package directory from the
+# script itself so both entry paths execute the exact same pre-built BEAM code.
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+package_dir=$(dirname -- "$script_dir")
+cd "$package_dir"
+
 # `gleam build` runs before this launcher. Add every package ebin directory to
 # the VM path without invoking the compiler here, so stdout remains one JSON
 # protocol response and human/tool logs cannot contaminate framing.
