@@ -10,7 +10,7 @@
 -module(thoas).
 -export([decode/1, encode/1]).
 
--spec decode(binary()) -> {ok, dynamic()} | {error, term()}.
+-spec decode(binary()) -> {ok, term()} | {error, term()}.
 decode(Content) when is_binary(Content) ->
     try
         {ok, json:decode(Content)}
@@ -18,7 +18,7 @@ decode(Content) when is_binary(Content) ->
         error:Reason -> {error, Reason}
     end.
 
--spec encode(dynamic()) -> {ok, binary()} | {error, term()}.
+-spec encode(term()) -> {ok, binary()} | {error, term()}.
 encode(Value) ->
     try
         {ok, iolist_to_binary(json:encode(Value))}
