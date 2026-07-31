@@ -32,7 +32,7 @@ env:
 jobs:
   replay:
     name: Replay Quint traces through production Gleam state
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
       - name: Check out repository
@@ -70,7 +70,7 @@ jobs:
       - name: Install Gleam
         uses: gleam-lang/setup-gleam@v1
         with:
-          gleam-version: '1.11.1'
+          gleam-version: '1.16.0'
 
       - name: Typecheck executable specification
         shell: bash
