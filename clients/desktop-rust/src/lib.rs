@@ -123,11 +123,9 @@ pub fn resolve_desktop_sync_capability(
         websocket_lives_for_host_process: execution_class
             == DesktopExecutionClass::PersistentNativeRunner,
         tcp,
-        survives_window_closure: execution_class
-            == DesktopExecutionClass::PersistentNativeRunner
+        survives_window_closure: execution_class == DesktopExecutionClass::PersistentNativeRunner
             || input.service_worker_available,
-        survives_host_termination: execution_class
-            == DesktopExecutionClass::PersistentNativeRunner,
+        survives_host_termination: execution_class == DesktopExecutionClass::PersistentNativeRunner,
         exact_intervals_guaranteed: false,
     })
 }
@@ -271,9 +269,7 @@ impl<Store> DesktopSyncRunner<Store> {
                 "cycle_budget_ms must be from 1000 through 600000",
             ));
         }
-        if lease_ttl_ms < cycle_budget_ms.saturating_add(1_000)
-            || lease_ttl_ms > 900_000
-        {
+        if lease_ttl_ms < cycle_budget_ms.saturating_add(1_000) || lease_ttl_ms > 900_000 {
             return Err(DesktopRunnerError::InvalidConfiguration(
                 "lease_ttl_ms must cover cycle_budget_ms plus 1000 and be at most 900000",
             ));
@@ -294,7 +290,10 @@ impl<Store> DesktopSyncRunner<Store> {
         now_ms: u64,
         token: impl Into<String>,
         cycle: Cycle,
-    ) -> Result<DesktopSyncOutcome<ResultValue, CycleError, Store::Error>, DesktopRunnerError<Store::Error>>
+    ) -> Result<
+        DesktopSyncOutcome<ResultValue, CycleError, Store::Error>,
+        DesktopRunnerError<Store::Error>,
+    >
     where
         Store: DesktopLeaseStore,
         Cycle: FnOnce(&DesktopSyncContext) -> Result<ResultValue, CycleError>,
@@ -353,10 +352,7 @@ impl<Store> DesktopSyncRunner<Store> {
         };
         let cycle_result = cycle(&context);
         let release_error = match self.store.lock() {
-            Ok(mut store) => store
-                .release(&grant)
-                .err()
-                .map(DesktopReleaseError::Store),
+            Ok(mut store) => store.release(&grant).err().map(DesktopReleaseError::Store),
             Err(_) => Some(DesktopReleaseError::StorePoisoned),
         };
 
@@ -423,9 +419,11 @@ impl DesktopLeaseStore for InMemoryDesktopLeaseStore {
     }
 
     fn release(&mut self, grant: &DesktopLeaseGrant) -> Result<(), Self::Error> {
-        if self.leases.get(&grant.key).is_some_and(|current| {
-            current.token == grant.token && current.fence == grant.fence
-        }) {
+        if self
+            .leases
+            .get(&grant.key)
+            .is_some_and(|current| current.token == grant.token && current.fence == grant.fence)
+        {
             self.leases.remove(&grant.key);
         }
         Ok(())
@@ -442,8 +440,7 @@ mod tests {
         store: Arc<Mutex<InMemoryDesktopLeaseStore>>,
         owner: &str,
     ) -> DesktopSyncRunner<InMemoryDesktopLeaseStore> {
-        DesktopSyncRunner::new(store, "account:shared", owner, 2_000, 4_000)
-            .expect("valid runner")
+        DesktopSyncRunner::new(store, "account:shared", owner, 2_000, 4_000).expect("valid runner")
     }
 
     #[test]
@@ -491,7 +488,9 @@ mod tests {
                     1_000,
                     "token-a",
                     |context| -> Result<String, &'static str> {
-                        started_tx.send(context.fence.clone()).expect("start signal");
+                        started_tx
+                            .send(context.fence.clone())
+                            .expect("start signal");
                         release_rx.recv().expect("release signal");
                         Ok("first".to_owned())
                     },
