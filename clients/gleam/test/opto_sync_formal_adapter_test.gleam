@@ -21,7 +21,20 @@ pub fn projection_json_uses_production_queue_state_test() {
   )
   let encoded = adapter.projection_json(state)
   encoded |> string.contains("\"knownOutcomes\"") |> should.be_true
-  encoded |> string.contains("\"resetPhase\":\"idle\"") |> should.be_true
+  encoded |> string.contains("\"resetPhase\":\"ready\"") |> should.be_true
+  encoded
+  |> string.contains("\"pending\":{\"#set\":[]}")
+  |> should.be_true
+  encoded
+  |> string.contains(
+    "\"confirmed\":{\"#set\":[{\"#bigint\":\"1\"}]}",
+  )
+  |> should.be_true
+  encoded
+  |> string.contains(
+    "\"allocated\":{\"#set\":[{\"#bigint\":\"1\"}]}",
+  )
+  |> should.be_true
 }
 
 pub fn reply_json_preserves_duplicate_origin_test() {
