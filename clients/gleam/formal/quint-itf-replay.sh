@@ -9,9 +9,10 @@ package_dir=$(dirname -- "$script_dir")
 cd "$package_dir"
 
 # Gleam writes generated Erlang applications below build/, while the production
-# Elixir/Rustler NIF is built below the sibling Mix _build/ tree. Discover all
-# compiled ebin directories deterministically. This launcher never compiles and
-# keeps stdout reserved for the JSON-lines adapter protocol.
+# Elixir/Rustler NIF is built below the sibling Mix _build/ tree. Gleam package
+# modules and Erlang dependencies may live in `_gleam_artefacts` rather than an
+# OTP `ebin` directory, so both compiled forms belong on the VM path. This
+# launcher never compiles and keeps stdout reserved for the JSON-lines protocol.
 search_roots=""
 for root in build _build ../../syncer.c/bindings/beam/_build; do
   if [ -d "$root" ]; then
@@ -26,9 +27,12 @@ fi
 
 # Paths in this repository contain no newlines. Sorting ensures stable VM code
 # path order across runners and local invocations.
-ebin_list=$(find $search_roots -type d -name ebin -print | LC_ALL=C sort -u)
-if [ -z "$ebin_list" ]; then
-  printf '%s\n' 'The completed builds produced no BEAM ebin directories.' >&2
+beam_path_list=$(
+  find $search_roots -type d \( -name ebin -o -name _gleam_artefacts \) -print \
+    | LC_ALL=C sort -u
+)
+if [ -z "$beam_path_list" ]; then
+  printf '%s\n' 'The completed builds produced no compiled BEAM directories.' >&2
   exit 70
 fi
 
@@ -36,7 +40,7 @@ set --
 old_ifs=$IFS
 IFS='
 '
-for directory in $ebin_list; do
+for directory in $beam_path_list; do
   set -- "$@" -pa "$directory"
 done
 IFS=$old_ifs
