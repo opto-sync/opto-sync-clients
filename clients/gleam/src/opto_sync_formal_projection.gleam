@@ -54,10 +54,7 @@ pub fn enqueue(state: State) -> #(State, Int) {
       None,
       False,
     )
-  #(
-    State(queue: next_queue, outcomes:, reset_phase:),
-    mutation.mutation_id,
-  )
+  #(State(queue: next_queue, outcomes:, reset_phase:), mutation.mutation_id)
 }
 
 pub fn server_outcome(state: State, id: Int, applied: Bool) -> #(State, Reply) {
@@ -193,9 +190,7 @@ pub fn project(
   let mutations = opto_sync_client.all_mutations(queue)
   let pending_mutation_ids =
     mutations
-    |> list.filter(fn(mutation) {
-      mutation.status == opto_sync_client.Pending
-    })
+    |> list.filter(fn(mutation) { mutation.status == opto_sync_client.Pending })
     |> list.map(fn(mutation) { int.to_string(mutation.mutation_id) })
   let confirmed_mutation_ids =
     mutations
@@ -214,10 +209,12 @@ pub fn project(
 }
 
 fn find_outcome(outcomes: List(KnownOutcome), id: Int) {
-  case list.find(outcomes, fn(entry) {
-    let KnownOutcome(entry_id, _) = entry
-    entry_id == id
-  }) {
+  case
+    list.find(outcomes, fn(entry) {
+      let KnownOutcome(entry_id, _) = entry
+      entry_id == id
+    })
+  {
     Ok(KnownOutcome(_, outcome)) -> Some(outcome)
     Error(_) -> None
   }
