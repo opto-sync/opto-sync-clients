@@ -301,7 +301,7 @@ class FfiSyncer implements TimestampConfiguredSyncer {
   /// this client's own un-confirmed writes. See [rebasePending] for why the
   /// overlay must not be timestamp-gated.
   FfiSyncer overlay({String? libraryPath}) => FfiSyncer(
-    libraryPath: libraryPath,
+    libraryPath: libraryPath ?? _libraryPath,
     resolveByTimestamp: false,
     lwwKeys: lwwKeys,
     fwwKeys: fwwKeys,
