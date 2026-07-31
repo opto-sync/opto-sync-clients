@@ -1,0 +1,121 @@
+name: Apply DEN-1078 Node SQLite coordinator
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/apply-den-1078-node-sqlite.yml'
+  push:
+    branches:
+      - 'agent/den-1078-node-sqlite-coordinator'
+    paths:
+      - '.github/workflows/apply-den-1078-node-sqlite.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-den-1078-node-sqlite
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: >-
+      github.repository == 'opto-sync/opto-sync-clients' &&
+      (github.event_name != 'pull_request' ||
+       github.head_ref == 'agent/den-1078-node-sqlite-coordinator')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout writable implementation branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: agent/den-1078-node-sqlite-coordinator
+          fetch-depth: 0
+          persist-credentials: true
+          show-progress: false
+
+      - name: Install Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.12.0'
+          cache: npm
+          cache-dependency-path: clients/reactive-ts/package-lock.json
+
+      - name: Materialize the checksum-locked product tree
+        env:
+          PAYLOAD_SHA256: b0f3f678f286f08f3f7c052cfe647dcb70b3f571041592851647e322c7fccd30
+        run: |
+          set -euo pipefail
+          test "$(find .github/den-1078-payload -maxdepth 1 -type f -name 'part-*' | wc -l)" -eq 8
+          mkdir -p /tmp/den-1078-payload
+          cat .github/den-1078-payload/part-* \
+            | tr -d '\n' \
+            | base64 --decode > /tmp/den-1078-payload.tar.gz
+          printf '%s  %s\n' "$PAYLOAD_SHA256" /tmp/den-1078-payload.tar.gz \
+            | sha256sum --check --strict
+          tar -xzf /tmp/den-1078-payload.tar.gz -C /tmp/den-1078-payload
+          actual="$(find /tmp/den-1078-payload -type f -printf '%P\n' | sort)"
+          expected=$'.github/workflows/desktop-background-sync.yml\nclients/reactive-ts/package.json\nclients/reactive-ts/src/index.ts\nclients/reactive-ts/src/sqlite-desktop.ts\nclients/reactive-ts/test/sqlite-desktop-child.mjs\nclients/reactive-ts/test/sqlite-desktop.test.ts\ndocs/SQLITE_DESKTOP_COORDINATION.md'
+          test "$actual" = "$expected" || {
+            echo 'Unexpected payload paths:' >&2
+            printf '%s\n' "$actual" >&2
+            exit 1
+          }
+          cp -a /tmp/den-1078-payload/. .
+
+      - name: Validate store-authoritative coordination
+        working-directory: clients/reactive-ts
+        run: |
+          set -euo pipefail
+          npm ci
+          npm test
+
+      - name: Verify bounded semantic changes
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          package = json.loads(Path('clients/reactive-ts/package.json').read_text())
+          assert package['exports']['./sqlite-desktop'] == './src/sqlite-desktop.ts'
+          index = Path('clients/reactive-ts/src/index.ts').read_text()
+          assert index.count("export * from './sqlite-desktop.ts';") == 1
+          source = Path('clients/reactive-ts/src/sqlite-desktop.ts').read_text()
+          for required in (
+              "unixepoch('subsec')",
+              'BEGIN IMMEDIATE',
+              'wake_generation',
+              'handled_generation',
+              'StaleDesktopFenceError',
+          ):
+              assert required in source, required
+          PY
+          git diff --check
+          ! grep -R -n -E '^(<<<<<<<|=======|>>>>>>>)' \
+            clients/reactive-ts/src/sqlite-desktop.ts \
+            clients/reactive-ts/test/sqlite-desktop.test.ts \
+            docs/SQLITE_DESKTOP_COORDINATION.md
+
+      - name: Remove staging and commit only product files
+        run: |
+          set -euo pipefail
+          rm -rf \
+            .github/den-1078-payload \
+            .github/workflows/apply-den-1078-node-sqlite.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          actual="$(git diff --cached --name-only | sort)"
+          expected=$'.github/den-1078-payload/part-00\n.github/den-1078-payload/part-01\n.github/den-1078-payload/part-02\n.github/den-1078-payload/part-03\n.github/den-1078-payload/part-04\n.github/den-1078-payload/part-05\n.github/den-1078-payload/part-06\n.github/den-1078-payload/part-07\n.github/workflows/apply-den-1078-node-sqlite.yml\n.github/workflows/desktop-background-sync.yml\nclients/reactive-ts/package.json\nclients/reactive-ts/src/index.ts\nclients/reactive-ts/src/sqlite-desktop.ts\nclients/reactive-ts/test/sqlite-desktop-child.mjs\nclients/reactive-ts/test/sqlite-desktop.test.ts\ndocs/SQLITE_DESKTOP_COORDINATION.md'
+          test "$actual" = "$expected" || {
+            echo 'Unexpected staged paths:' >&2
+            printf '%s\n' "$actual" >&2
+            exit 1
+          }
+          git diff --cached --check
+          git commit -m 'DEN-1078 add store-authoritative Node SQLite coordination'
+          git push origin HEAD:agent/den-1078-node-sqlite-coordinator
