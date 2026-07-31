@@ -22,6 +22,11 @@ The lease store must atomically:
 3. release only when both token and fence still match;
 4. persist where every process that can drain the queue can observe it.
 
+The configured lease TTL must exceed the bounded cycle budget. A deadline is a
+cooperative cancellation signal: the owner keeps its lease until the callback
+returns, even after cancellation is requested, so another process cannot begin
+draining while the first callback may still be applying work.
+
 The in-memory stores shipped with the TypeScript, Dart, and Rust surfaces are
 for deterministic tests only. Production desktop applications should implement
 the contract in the same SQLite database as the queue, or another
