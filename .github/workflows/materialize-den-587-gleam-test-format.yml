@@ -27,7 +27,7 @@ jobs:
     if: >-
       github.repository == 'opto-sync/opto-sync-clients' &&
       (github.event_name != 'pull_request' || github.head_ref == 'agent/den-587-test-format-materializer')
-    runs-on: ubuntu-latest
+    runs-on: macos-14
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
