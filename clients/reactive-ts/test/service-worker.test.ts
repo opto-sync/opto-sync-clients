@@ -111,6 +111,12 @@ test('timeout aborts a non-cooperative cycle and reports a bounded error', async
         );
       }),
   });
-  await assert.rejects(controller.runNow(), /aborted/);
+  await assert.rejects(
+    controller.runNow(),
+    (error: unknown) =>
+      error instanceof DOMException &&
+      error.name === 'AbortError' &&
+      error.message === 'opto-sync background timeout',
+  );
   controller.close();
 });
