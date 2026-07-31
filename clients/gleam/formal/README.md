@@ -15,8 +15,11 @@ The adapter deliberately separates operational and semantic concerns:
   launcher validates each one-trace result and aggregates the canonical batch
   response. This prevents state leakage between traces without weakening
   fmctl's exact trace-count binding.
-- `src/opto_sync_formal_replay_ffi.erl` reads files/stdin, traverses ITF states,
-  and reports the first divergent trace/state/action.
+- `src/opto_sync_formal_replay_ffi_v2.erl` reads the original, unmodified ITF
+  files through OTP 27's map/list JSON representation, traverses states, derives
+  allocated IDs from `next_id`, accepts the model's `Idle` representation alias,
+  and reports the first divergent trace/state/action. Empty JSON arrays remain
+  arrays; they are never reclassified as objects.
 - `src/opto_sync_formal_adapter.gleam` serializes canonical observations and
   exercises the production request/response validator.
 - `src/opto_sync_formal_projection.gleam` delegates queue mutation, request
@@ -27,13 +30,14 @@ The adapter deliberately separates operational and semantic concerns:
 The Erlang harness never reconstructs Gleam record/variant internals. It calls
 public production functions for enqueue, server outcomes, acknowledgement,
 checkpoint advancement, reset begin/crash/finish, response validation, and
-canonical observation.
+canonical observation. The retired compatibility harness that rewrote empty
+arrays and required synthetic model fields has been removed.
 
 ## Projection checked after every action
 
 - next mutation id;
 - pending and confirmed mutation-id sets;
-- contiguous allocated-id domain;
+- contiguous allocated-id domain derived from `next_id`;
 - applied/rejected known outcomes;
 - immutable in-flight request identity;
 - response mutation id, watermark, checkpoint, validity, and request binding;
@@ -80,7 +84,7 @@ cargo run --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl -- \
 `.formal-artifacts/fmctl/`. The dedicated workflow also retains the corpus,
 stdout/stderr logs, and a provenance file containing tool versions plus SHA-256
 hashes for the manifest, model, adapter protocol schema, launcher, production
-projection, Gleam adapter, replay entry point, and Erlang harness.
+projection, Gleam adapter, replay entry point, and active Erlang harness.
 
 ## Claim boundary
 
