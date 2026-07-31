@@ -119,6 +119,10 @@ test('session rotation tears down stale generations and replays the latest value
       value: 'first',
     }) as SyncRecordEvent<{ value: string }>,
   );
+  // Projection is serialized asynchronously (concatMap); let the 'first'
+  // snapshot emit before rotation tears the generation down, otherwise the
+  // in-flight projection is legitimately cancelled by switchMap.
+  await new Promise((resolve) => setTimeout(resolve, 0));
 
   const rotated = { ...identity, session_id: 'session-b' };
   session$.next({ status: 'authenticated', identity: rotated });
