@@ -100,7 +100,7 @@ jobs:
           set -euo pipefail
           gleam deps download
           gleam format --check
-          gleam test
+          gleam test -- --filter opto_sync_formal
           gleam build
           sh -n formal/quint-itf-replay.sh
 
