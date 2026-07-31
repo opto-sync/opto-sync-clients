@@ -90,10 +90,10 @@ export function installOptoSyncServiceWorker<R>(
   const clearIfCurrent = (
     currentOperation: Promise<R>,
     controller: AbortController,
-    timer: ReturnType<typeof setTimeout>,
+    timer: ReturnType<typeof setTimeout> | undefined,
   ): void => {
     if (operation !== currentOperation) return;
-    clearTimeout(timer);
+    if (timer !== undefined) clearTimeout(timer);
     operation = undefined;
     visibleResult = undefined;
     if (activeController === controller) activeController = undefined;
@@ -112,7 +112,7 @@ export function installOptoSyncServiceWorker<R>(
     const currentOperation = Promise.resolve().then(() =>
       options.syncOnce(controller.signal),
     );
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const deadline = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
         const error = abortError('opto-sync background timeout');
