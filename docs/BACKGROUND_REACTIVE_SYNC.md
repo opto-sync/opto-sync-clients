@@ -24,14 +24,37 @@ Supabase/shared-auth sessions, and the protocol-v1 queue.
 6. **Rendering includes pending work.** UI code renders the local view—the
    authoritative row with pending mutations replayed—not a bare server response.
 
-## Components added by this slice
+## Where the pieces live
+
+Two conforming implementations of these invariants coexist today and share
+the wire contract (`/sync/ws` frame protocol v1, TCP NDJSON, Background Sync
+tags):
 
 ```text
+INTEGRATED (inside each client package)
+clients/ts                 @opto-sync/client — rx/ (watchLocalView, optimism
+                           writes), transport/ws, service-worker + register-sw,
+                           cross-tab (Web Locks + BroadcastChannel), schema/
+                           ingest (zod); namespaced exports for wrapper repos
+clients/dart               opto_sync_client — rx.dart (RxDart), transport_ws.dart,
+                           schema.dart ingest validation
+clients/flutter_background opto_sync_flutter_background — WorkManager (Kotlin +
+                           plain-Java worker), BGTaskScheduler (Swift + ObjC
+                           shim) draining the same queue
+
+STANDALONE ORCHESTRATION (layered over the client)
 clients/reactive-ts        @opto-sync/reactive (RxJS 7.8.2)
 clients/reactive-dart      opto_sync_reactive (RxDart 0.28.0)
 clients/rust/tests/
   c_abi_differential.rs    safe Rust wrapper vs raw C ABI
 ```
+
+Prefer the integrated surfaces for app code (one dependency, one queue, one
+engine); `@opto-sync/reactive` remains the standalone composition layer for
+consumers that want the orchestration without adopting the client's storage.
+Consolidating the overlap into one implementation is tracked work — both
+must keep conforming to the invariants above and to the shared fixture and
+frame contracts in the meantime.
 
 ### TypeScript / browser
 
