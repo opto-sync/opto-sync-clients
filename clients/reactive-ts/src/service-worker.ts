@@ -112,23 +112,15 @@ export function installOptoSyncServiceWorker<R>(
     const currentOperation = Promise.resolve().then(() =>
       options.syncOnce(controller.signal),
     );
-    const deadline = new Promise<never>((_resolve, reject) => {
-      const timerError = () => {
-        const error = abortError('opto-sync background timeout');
-        controller.abort(error);
-        reject(error);
-      };
-      setTimeout(timerError, timeoutMs);
-    });
     let timer: ReturnType<typeof setTimeout>;
-    const boundedDeadline = new Promise<never>((_resolve, reject) => {
+    const deadline = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
         const error = abortError('opto-sync background timeout');
         controller.abort(error);
         reject(error);
       }, timeoutMs);
     });
-    const currentVisible = Promise.race([currentOperation, boundedDeadline]).catch(
+    const currentVisible = Promise.race([currentOperation, deadline]).catch(
       (error) => {
         options.onError?.(error);
         throw error;
@@ -140,7 +132,6 @@ export function installOptoSyncServiceWorker<R>(
       () => clearIfCurrent(currentOperation, controller, timer),
       () => clearIfCurrent(currentOperation, controller, timer),
     );
-    void deadline.catch(() => undefined);
     return currentVisible;
   };
 
