@@ -51,10 +51,15 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Install manifest Rust toolchain for fmctl and the production NIF
+      - name: Install manifest Rust toolchain for fmctl
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
         with:
           toolchain: '1.88.0'
+
+      - name: Install production NIF Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: '1.91.0'
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
@@ -70,11 +75,13 @@ jobs:
           elixir-version: '1.18.4'
           gleam-version: '1.16.0'
 
-      - name: Build fmctl
-        run: cargo build --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl
+      - name: Build fmctl with its manifest toolchain
+        run: cargo +1.88.0 build --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl
 
       - name: Build the production BEAM reconciliation NIF
         working-directory: syncer.c/bindings/beam
+        env:
+          RUSTUP_TOOLCHAIN: '1.91.0'
         run: |
           set -euo pipefail
           mix local.hex --force
@@ -87,11 +94,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .formal-artifacts/gleam
-          cargo run --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl -- \
+          cargo +1.88.0 run --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl -- \
             --manifest formal/fm.toml \
             validate 2>&1 \
             | tee .formal-artifacts/gleam/manifest-validation.log
-          cargo run --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl -- \
+          cargo +1.88.0 run --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl -- \
             --manifest formal/fm.toml \
             check 2>&1 \
             | tee .formal-artifacts/gleam/typecheck.log
@@ -100,7 +107,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo run --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl -- \
+          cargo +1.88.0 run --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl -- \
             --manifest formal/fm.toml \
             trace 2>&1 \
             | tee .formal-artifacts/gleam/trace-generation.log
@@ -134,7 +141,7 @@ jobs:
           for trace in "${traces[@]}"; do
             replay_args+=(--trace "$trace")
           done
-          cargo run --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl -- \
+          cargo +1.88.0 run --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl -- \
             --manifest formal/fm.toml \
             replay \
             --adapter gleam \
@@ -151,7 +158,8 @@ jobs:
             printf 'event=%s\n' "$GITHUB_EVENT_NAME"
             printf 'node=' && node --version
             printf 'java=' && java -version 2>&1 | head -n 1
-            printf 'rust=' && rustc --version
+            printf 'fmctl-rust=' && rustc +1.88.0 --version
+            printf 'nif-rust=' && rustc +1.91.0 --version
             printf 'otp=' && erl -noshell -eval 'io:format("~s", [erlang:system_info(otp_release)]), halt().'
             printf '\nelixir=' && elixir --version | tail -n 1
             printf 'gleam=' && gleam --version
