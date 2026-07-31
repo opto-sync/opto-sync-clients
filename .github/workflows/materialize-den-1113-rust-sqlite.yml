@@ -1,0 +1,90 @@
+name: DEN-1113 materialize Rust SQLite
+
+on:
+  push:
+    branches:
+      - agent/den-1113-rust-sqlite-coordinator
+    paths:
+      - 'clients/desktop-rust/**'
+      - 'docs/RUST_SQLITE_DESKTOP_COORDINATION.md'
+      - '.github/workflows/materialize-den-1113-rust-sqlite.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: den-1113-rust-sqlite-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-and-materialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+          persist-credentials: true
+
+      - uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0 # 1.88.0
+        with:
+          components: rustfmt, clippy
+
+      - name: Integrate the SQLite module into the existing crate
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('clients/desktop-rust/src/lib.rs')
+          content = path.read_text()
+          declaration = 'pub mod sqlite;\n\n'
+          if declaration not in content:
+              marker = 'use std::collections::BTreeMap;\n'
+              if marker not in content:
+                  raise SystemExit('could not locate stable lib.rs insertion point')
+              content = content.replace(marker, declaration + marker, 1)
+              path.write_text(content)
+          PY
+
+      - name: Generate the lockfile and validate the product tree
+        env:
+          RUST_BACKTRACE: '1'
+        run: |
+          set -euo pipefail
+          cargo generate-lockfile --manifest-path clients/desktop-rust/Cargo.toml
+          cargo fmt --manifest-path clients/desktop-rust/Cargo.toml
+          cargo clippy --locked --manifest-path clients/desktop-rust/Cargo.toml --all-targets -- -D warnings
+          cargo test --locked --manifest-path clients/desktop-rust/Cargo.toml
+
+      - name: Commit only validated product files and remove this one-shot workflow
+        env:
+          BRANCH_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          rm .github/workflows/materialize-den-1113-rust-sqlite.yml
+          git add -A -- \
+            .github/workflows/materialize-den-1113-rust-sqlite.yml \
+            clients/desktop-rust/Cargo.lock \
+            clients/desktop-rust/src/lib.rs \
+            clients/desktop-rust/src/sqlite.rs \
+            clients/desktop-rust/tests/sqlite_coordination.rs
+
+          changed="$(git diff --cached --name-only)"
+          printf '%s\n' "$changed"
+          unexpected="$(printf '%s\n' "$changed" | grep -Ev '^(.github/workflows/materialize-den-1113-rust-sqlite.yml|clients/desktop-rust/(Cargo.lock|src/lib.rs|src/sqlite.rs|tests/sqlite_coordination.rs))$' || true)"
+          if [ -n "$unexpected" ]; then
+            echo "unexpected materialized paths:" >&2
+            printf '%s\n' "$unexpected" >&2
+            exit 1
+          fi
+          if git diff --cached --quiet; then
+            echo 'validator produced no materialized changes' >&2
+            exit 1
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'DEN-1113 validate Rust SQLite coordinator'
+          git push origin "HEAD:${BRANCH_NAME}"
