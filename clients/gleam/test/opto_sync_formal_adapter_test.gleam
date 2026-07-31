@@ -44,7 +44,17 @@ pub fn reply_json_preserves_duplicate_origin_test() {
   |> should.be_true
 }
 
-pub fn malformed_response_uses_production_validator_test() {
-  adapter.mismatched_response_rejected(1, 2, 1, 1)
+pub fn future_response_for_first_request_is_rejected_test() {
+  adapter.mismatched_response_rejected(1, 2, 2, 1)
   |> should.be_true
+}
+
+pub fn stale_response_for_second_request_is_rejected_test() {
+  adapter.mismatched_response_rejected(2, 1, 1, 1)
+  |> should.be_true
+}
+
+pub fn exact_response_for_second_request_is_not_mismatched_test() {
+  adapter.mismatched_response_rejected(2, 2, 2, 2)
+  |> should.be_false
 }
