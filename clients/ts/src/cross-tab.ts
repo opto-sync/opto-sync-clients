@@ -71,6 +71,38 @@ function defaultLocks(): LockManagerLike | undefined {
   return nav?.locks as LockManagerLike | undefined;
 }
 
+/**
+ * Shape-check a state frame before handing it to application observers.
+ *
+ * BroadcastChannel is same-origin, but every script on the origin can post to
+ * the channel — an unrelated library, an injected third-party tag, or a stale
+ * frame from a previous version of this code. Status text is frequently
+ * rendered, so anything that fails this check is dropped rather than forwarded
+ * to `onRemoteState`.
+ */
+function isSyncState(value: unknown): value is ProtocolSyncState {
+  if (!value || typeof value !== 'object') return false;
+  const state = value as Record<string, unknown>;
+  return (
+    typeof state.status === 'string' &&
+    STATUSES.has(state.status) &&
+    typeof state.consecutiveFailures === 'number' &&
+    Number.isInteger(state.consecutiveFailures) &&
+    state.consecutiveFailures >= 0 &&
+    (state.nextRetryAt === undefined || typeof state.nextRetryAt === 'number') &&
+    (state.lastError === undefined || typeof state.lastError === 'string')
+  );
+}
+
+const STATUSES = new Set([
+  'stopped',
+  'idle',
+  'syncing',
+  'offline',
+  'backoff',
+  'error',
+]);
+
 function defaultChannelFactory(name: string): BroadcastChannelLike | undefined {
   const Ctor = (globalThis as Record<string, unknown>).BroadcastChannel as
     | (new (name: string) => BroadcastChannelLike)
