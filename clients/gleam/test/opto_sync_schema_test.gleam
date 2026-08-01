@@ -143,6 +143,32 @@ pub fn accepts_a_minimal_upsert_test() {
   dict.has_key(record.payload, "t") |> should.be_true
 }
 
+pub fn rejects_an_explicit_null_for_an_optional_field_test() {
+  // DELIBERATE, and a place the two reference validators disagree: the JSON
+  // Schema and the zod client reject `null` for an optional field (absent and
+  // null are different things), while the Dart client's `!= null` guards treat
+  // null as absent and accept all four of these. Following the schema keeps a
+  // null a producer wrote by accident from becoming a value nobody validated.
+  should_reject(
+    "{\"formatVersion\":1,\"source\":null,\"records\":["
+    <> upsert_with("{\"updatedAt\":1}")
+    <> "]}",
+  )
+  should_reject(
+    envelope_with(
+      "{\"table\":\"todos\",\"recordId\":\"t\",\"operation\":null,\"payload\":{\"updatedAt\":1}}",
+    ),
+  )
+  should_reject(
+    envelope_with(
+      "{\"table\":\"todos\",\"recordId\":\"t\",\"baseRevision\":null,\"payload\":{\"updatedAt\":1}}",
+    ),
+  )
+  should_reject(
+    envelope_with(upsert_with("{\"updatedAt\":1,\"createdAt\":null}")),
+  )
+}
+
 pub fn rejects_a_table_identifier_that_is_not_sql_safe_test() {
   should_reject(
     envelope_with(
