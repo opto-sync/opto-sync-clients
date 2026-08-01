@@ -74,15 +74,15 @@ fn is_digit(c: String) -> Bool {
 }
 
 fn is_lower_hex(c: String) -> Bool {
-  is_digit(c) || case c {
+  is_digit(c)
+  || case c {
     "a" | "b" | "c" | "d" | "e" | "f" -> True
     _ -> False
   }
 }
 
 fn is_alpha(c: String) -> Bool {
-  string.lowercase(c) != string.uppercase(c)
-  && string.byte_size(c) == 1
+  string.lowercase(c) != string.uppercase(c) && string.byte_size(c) == 1
 }
 
 fn all_chars(value: String, predicate: fn(String) -> Bool) -> Bool {
@@ -200,7 +200,13 @@ fn is_timestamp(data: Dynamic) -> Bool {
 
 const envelope_keys = ["formatVersion", "source", "records"]
 
-const record_keys = ["table", "recordId", "operation", "baseRevision", "payload"]
+const record_keys = [
+  "table",
+  "recordId",
+  "operation",
+  "baseRevision",
+  "payload",
+]
 
 fn unknown_keys(
   fields: Dict(String, Dynamic),
@@ -214,10 +220,11 @@ fn unknown_keys(
 }
 
 /// Validate a decoded JSON envelope.
-pub fn validate_envelope(data: Dynamic) -> Result(IngestEnvelope, ValidationError) {
+pub fn validate_envelope(
+  data: Dynamic,
+) -> Result(IngestEnvelope, ValidationError) {
   case as_object(data) {
-    Error(Nil) ->
-      Error(ValidationError(["<root>: expected an object"]))
+    Error(Nil) -> Error(ValidationError(["<root>: expected an object"]))
     Ok(fields) -> {
       let key_issues = unknown_keys(fields, envelope_keys, "<root>")
 

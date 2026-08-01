@@ -63,7 +63,9 @@ fn is_native_hlc(s: &str) -> bool {
     millis.len() == 13
         && millis.bytes().all(|b| b.is_ascii_digit())
         && counter.len() == 4
-        && counter.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        && counter
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
         && !node.is_empty()
         && node.len() <= 128
 }
@@ -78,7 +80,11 @@ fn is_iso8601(s: &str) -> bool {
         }
     }
     fn lit(b: &[u8], c: u8) -> Option<&[u8]> {
-        if b.first() == Some(&c) { Some(&b[1..]) } else { None }
+        if b.first() == Some(&c) {
+            Some(&b[1..])
+        } else {
+            None
+        }
     }
 
     let run = || -> Option<&[u8]> {
@@ -267,7 +273,9 @@ fn validate_record(value: &Value, index: usize) -> Result<IngestRecord, Vec<Stri
         Some(Value::String(s)) if s == "upsert" => Operation::Upsert,
         Some(Value::String(s)) if s == "delete" => Operation::Delete,
         Some(_) => {
-            issues.push(format!("{where_}.operation: must be \"upsert\" or \"delete\""));
+            issues.push(format!(
+                "{where_}.operation: must be \"upsert\" or \"delete\""
+            ));
             Operation::Upsert
         }
     };
@@ -361,13 +369,13 @@ mod tests {
     #[test]
     fn native_hlc_rejects_near_misses() {
         for bad in [
-            "175387680012-0001-devA.t1",    // 12-digit millis
-            "17538768001234-0001-devA.t1",  // 14-digit millis
-            "1753876800123-001-devA.t1",    // 3-hex counter
-            "1753876800123-000g-devA.t1",   // non-hex counter
-            "1753876800123-0001-",          // empty nodeId
-            "1753876800123-0001-dev-A",     // '-' in nodeId
-            "1753876800123-0001",           // no nodeId
+            "175387680012-0001-devA.t1",   // 12-digit millis
+            "17538768001234-0001-devA.t1", // 14-digit millis
+            "1753876800123-001-devA.t1",   // 3-hex counter
+            "1753876800123-000g-devA.t1",  // non-hex counter
+            "1753876800123-0001-",         // empty nodeId
+            "1753876800123-0001-dev-A",    // '-' in nodeId
+            "1753876800123-0001",          // no nodeId
         ] {
             assert!(!is_native_hlc(bad), "should have been rejected: {bad}");
         }
