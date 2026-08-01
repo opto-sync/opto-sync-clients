@@ -196,6 +196,125 @@ test('leader state broadcasts reach followers', async () => {
   follower.dispose();
 });
 
+/**
+ * Web Locks grants happen out of process, so `dispose()` races the grant:
+ * aborting only cancels a request that is still QUEUED, and a request the
+ * browser already decided to grant still invokes its callback afterwards.
+ *
+ * This lock manager models exactly that losing side of the race — the grant is
+ * already committed, so abort no longer applies — because the outcome is not
+ * reproducible on demand against a real browser.
+ */
+function grantWinsRaceLockManager() {
+  const holders = new Map();
+  return {
+    request(name, _options, callback) {
+      // The grant is already committed; abort no longer applies to it.
+      return new Promise((resolve, reject) => {
+        setTimeout(() => {
+          if (holders.get(name)) {
+            // Someone still holds it: this request stays queued forever.
+            return;
+          }
+          holders.set(name, true);
+          Promise.resolve()
+            .then(() => callback())
+            .then(resolve, reject)
+            .finally(() => holders.set(name, false));
+        }, 0);
+      });
+    },
+  };
+}
+
+test('a coordinator disposed before the grant releases the lease instead of stranding it', async () => {
+  const locks = grantWinsRaceLockManager();
+  const bus = fakeChannelBus();
+
+  // Mount and unmount immediately (React StrictMode, a fast route change):
+  // the grant lands after dispose() has already run.
+  const abandoned = startCrossTabCoordinator({
+    loop: fakeLoop(),
+    locks,
+    broadcastChannelFactory: bus.factory,
+  });
+  abandoned.dispose();
+  await tick();
+  await tick();
+
+  // The lease must still be grantable to the next coordinator. If the disposed
+  // one kept the lock, nothing on this origin could ever lead again and the
+  // queue would stop draining until every tab was closed.
+  const successor = startCrossTabCoordinator({
+    loop: fakeLoop(),
+    locks,
+    broadcastChannelFactory: bus.factory,
+  });
+  await tick();
+  await tick();
+
+  assert.equal(
+    successor.isLeader,
+    true,
+    'a coordinator disposed before its grant stranded the leader lease',
+  );
+  successor.dispose();
+});
+
+test('hint() and publishState() after dispose() are no-ops, not errors', async () => {
+  const locks = fakeLockManager();
+  const bus = fakeChannelBus();
+  const loop = fakeLoop();
+  const coordinator = startCrossTabCoordinator({
+    loop,
+    locks,
+    broadcastChannelFactory: bus.factory,
+  });
+  await tick();
+  assert.equal(coordinator.isLeader, true);
+  coordinator.dispose();
+
+  // An in-flight save resolving after unmount must not throw (a real
+  // BroadcastChannel raises InvalidStateError once closed).
+  coordinator.hint();
+  coordinator.publishState({ status: 'idle', consecutiveFailures: 0 });
+  coordinator.dispose(); // idempotent
+  assert.equal(loop.stopped, 1, 'dispose() must stop the loop exactly once');
+});
+
+test('malformed state frames from the origin are not forwarded to observers', async () => {
+  const locks = fakeLockManager();
+  const bus = fakeChannelBus();
+  const leader = startCrossTabCoordinator({
+    loop: fakeLoop(),
+    locks,
+    broadcastChannelFactory: bus.factory,
+  });
+  await tick();
+  const seen = [];
+  const follower = startCrossTabCoordinator({
+    loop: fakeLoop(),
+    locks,
+    broadcastChannelFactory: bus.factory,
+    onRemoteState: (state) => seen.push(state),
+  });
+  await tick();
+
+  // Anything on the origin can post to the channel; status text is rendered.
+  leader.publishState({ status: '<img src=x onerror=alert(1)>', consecutiveFailures: 0 });
+  leader.publishState({ status: 'idle', consecutiveFailures: -1 });
+  leader.publishState({ status: 'syncing', consecutiveFailures: 0 });
+  await tick();
+
+  assert.deepEqual(
+    seen,
+    [{ status: 'syncing', consecutiveFailures: 0 }],
+    'only well-formed sync states may reach onRemoteState',
+  );
+  leader.dispose();
+  follower.dispose();
+});
+
 test('without Web Locks every tab leads (single-tab baseline)', async () => {
   const loop = fakeLoop();
   const coordinator = startCrossTabCoordinator({
