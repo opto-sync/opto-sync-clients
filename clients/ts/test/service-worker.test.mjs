@@ -3,10 +3,11 @@ import test from 'node:test';
 
 import { installOptoSyncServiceWorker } from '../dist/service-worker.js';
 
-function fakeScope() {
+function fakeScope(origin) {
   const listeners = new Map();
   return {
     listeners,
+    origin,
     addEventListener(type, listener) {
       listeners.set(type, listener);
     },
@@ -179,7 +180,7 @@ test('dispose detaches every listener', () => {
 });
 
 test('a message from a foreign origin is ignored', async () => {
-  const scope = fakeScope();
+  const scope = fakeScope('https://app.example');
   let cycles = 0;
   installOptoSyncServiceWorker({
     scope,
@@ -204,7 +205,7 @@ test('a message from a foreign origin is ignored', async () => {
 });
 
 test('a message carrying the worker origin still drains', async () => {
-  const scope = fakeScope();
+  const scope = fakeScope('https://app.example');
   let cycles = 0;
   installOptoSyncServiceWorker({
     scope,
@@ -215,9 +216,7 @@ test('a message carrying the worker origin still drains', async () => {
   let waited;
   scope.emit('message', {
     data: { type: 'opto-sync:sync' },
-    // globalThis.origin is undefined under Node, which is exactly the
-    // "host does not report an origin" case: the drain must still happen.
-    origin: globalThis.origin ?? '',
+    origin: 'https://app.example',
     ports: [{ postMessage: (value) => replies.push(value) }],
     waitUntil: (promise) => {
       waited = promise;

@@ -52,6 +52,19 @@ async function loadChromium() {
 }
 
 const chromium = await loadChromium();
+
+/*
+ * A browser suite that quietly skips looks exactly like a browser suite that
+ * passes. CI sets OPTO_SYNC_REQUIRE_BROWSER=1, which turns "no Chromium" from
+ * a skip into a hard failure, so these guarantees cannot silently stop being
+ * checked. Locally, without the variable, the suite still degrades to a skip.
+ */
+if (!chromium && process.env.OPTO_SYNC_REQUIRE_BROWSER === '1') {
+  throw new Error(
+    'OPTO_SYNC_REQUIRE_BROWSER=1 but Chromium could not be launched; ' +
+      'run `npx playwright install --with-deps chromium`',
+  );
+}
 const SKIP = chromium ? false : 'headless Chromium could not be launched';
 
 /** Fail the test on any console error or uncaught exception in a page. */
