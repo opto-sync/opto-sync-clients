@@ -42,22 +42,56 @@ String _meaningfulStderr(String stderr) {
       .join('\n');
 }
 
-Future<ProcessResult> _runChild(List<String> arguments) {
-  return Process.run(Platform.resolvedExecutable, <String>[
-    'run',
+/// The child compiled to a standalone executable, set by [_buildChild].
+///
+/// `dart run` re-bundles native assets into the SHARED `.dart_tool/lib/` on
+/// every invocation, so spawning children that way makes concurrent processes
+/// fight over one directory: Windows refuses to delete a DLL the parent has
+/// loaded (PathAccessException), and macOS races re-codesigning the dylib.
+/// Neither is lease contention — the behavior under test — so the child is
+/// compiled once, with its native assets bundled into the executable, and
+/// every spawn reuses that immutable binary.
+late final String _childExecutable;
+
+Future<Directory> _buildChild() async {
+  final buildDir = Directory.systemTemp.createTempSync('opto-sync-dart-child-');
+  final output =
+      '${buildDir.path}${Platform.pathSeparator}sqlite_desktop_child'
+      '${Platform.isWindows ? '.exe' : ''}';
+  final result = await Process.run(Platform.resolvedExecutable, <String>[
+    'compile',
+    'exe',
     'tool/sqlite_desktop_child.dart',
-    ...arguments,
+    '-o',
+    output,
   ], workingDirectory: Directory.current.path);
+  if (result.exitCode != 0) {
+    buildDir.deleteSync(recursive: true);
+    throw StateError(
+      'could not compile the coordination child '
+      '(exit ${result.exitCode}): ${result.stderr}',
+    );
+  }
+  _childExecutable = output;
+  return buildDir;
+}
+
+Future<ProcessResult> _runChild(List<String> arguments) {
+  return Process.run(
+    _childExecutable,
+    arguments,
+    workingDirectory: Directory.current.path,
+  );
 }
 
 Future<({Process process, Future<String> stderr})> _startHolder(
   List<String> arguments,
 ) async {
-  final process = await Process.start(Platform.resolvedExecutable, <String>[
-    'run',
-    'tool/sqlite_desktop_child.dart',
-    ...arguments,
-  ], workingDirectory: Directory.current.path);
+  final process = await Process.start(
+    _childExecutable,
+    arguments,
+    workingDirectory: Directory.current.path,
+  );
   final stderr = process.stderr.transform(utf8.decoder).join();
   return (process: process, stderr: stderr);
 }
@@ -236,24 +270,20 @@ Future<void> _multiprocessContentionTest() async {
     final holderLine = await _firstLine(holder, holderStderr);
     _expect(holderLine == 'acquired:1', 'holder did not acquire first fence');
 
-    // Sequential on purpose: each `dart run` re-runs the native build hooks,
-    // and concurrent children race re-codesigning the shared
-    // .dart_tool/lib/libsqlite3.dylib (an SDK-level hazard, not lease
-    // contention). The holder keeps the lease for the whole loop, so every
-    // independent process still observes `busy:` — which is the claim under
-    // test; intra-process concurrency is covered by the coordinator suites.
-    final contenders = <ProcessResult>[];
-    for (var index = 0; index < 3; index += 1) {
-      contenders.add(
-        await _runChild(<String>[
+    // Genuinely concurrent: the children are one prebuilt executable, so
+    // they contend for the lease and nothing else.
+    final contenders = await Future.wait<ProcessResult>(
+      List<Future<ProcessResult>>.generate(
+        3,
+        (index) => _runChild(<String>[
           'contend',
           fixture.path,
           'partition',
           'process-$index',
           '0',
         ]),
-      );
-    }
+      ),
+    );
     for (final contender in contenders) {
       _expect(contender.exitCode == 0, contender.stderr.toString());
       _expect(
@@ -405,11 +435,19 @@ Future<void> _runnerHandoffTest() async {
 }
 
 Future<void> main() async {
-  await _storeClockTest();
-  await _trailingWakeTest();
-  await _staleFenceTest();
-  await _multiprocessContentionTest();
-  await _terminationReplayTest();
-  await _runnerHandoffTest();
+  // Build before any test opens a coordinator: compilation is the last step
+  // that may touch .dart_tool/lib/, and on Windows that directory cannot be
+  // rewritten once this process has the SQLite library loaded.
+  final childBuild = await _buildChild();
+  try {
+    await _storeClockTest();
+    await _trailingWakeTest();
+    await _staleFenceTest();
+    await _multiprocessContentionTest();
+    await _terminationReplayTest();
+    await _runnerHandoffTest();
+  } finally {
+    if (childBuild.existsSync()) childBuild.deleteSync(recursive: true);
+  }
   stdout.writeln('Dart SQLite desktop coordination self-test passed');
 }
