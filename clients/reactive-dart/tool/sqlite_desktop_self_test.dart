@@ -42,22 +42,56 @@ String _meaningfulStderr(String stderr) {
       .join('\n');
 }
 
-Future<ProcessResult> _runChild(List<String> arguments) {
-  return Process.run(Platform.resolvedExecutable, <String>[
-    'run',
+/// The child compiled to a standalone executable, set by [_buildChild].
+///
+/// `dart run` re-bundles native assets into the SHARED `.dart_tool/lib/` on
+/// every invocation, so spawning children that way makes concurrent processes
+/// fight over one directory: Windows refuses to delete a DLL the parent has
+/// loaded (PathAccessException), and macOS races re-codesigning the dylib.
+/// Neither is lease contention — the behavior under test — so the child is
+/// compiled once, with its native assets bundled into the executable, and
+/// every spawn reuses that immutable binary.
+late final String _childExecutable;
+
+Future<Directory> _buildChild() async {
+  final buildDir = Directory.systemTemp.createTempSync('opto-sync-dart-child-');
+  final output =
+      '${buildDir.path}${Platform.pathSeparator}sqlite_desktop_child'
+      '${Platform.isWindows ? '.exe' : ''}';
+  final result = await Process.run(Platform.resolvedExecutable, <String>[
+    'compile',
+    'exe',
     'tool/sqlite_desktop_child.dart',
-    ...arguments,
+    '-o',
+    output,
   ], workingDirectory: Directory.current.path);
+  if (result.exitCode != 0) {
+    buildDir.deleteSync(recursive: true);
+    throw StateError(
+      'could not compile the coordination child '
+      '(exit ${result.exitCode}): ${result.stderr}',
+    );
+  }
+  _childExecutable = output;
+  return buildDir;
+}
+
+Future<ProcessResult> _runChild(List<String> arguments) {
+  return Process.run(
+    _childExecutable,
+    arguments,
+    workingDirectory: Directory.current.path,
+  );
 }
 
 Future<({Process process, Future<String> stderr})> _startHolder(
   List<String> arguments,
 ) async {
-  final process = await Process.start(Platform.resolvedExecutable, <String>[
-    'run',
-    'tool/sqlite_desktop_child.dart',
-    ...arguments,
-  ], workingDirectory: Directory.current.path);
+  final process = await Process.start(
+    _childExecutable,
+    arguments,
+    workingDirectory: Directory.current.path,
+  );
   final stderr = process.stderr.transform(utf8.decoder).join();
   return (process: process, stderr: stderr);
 }
