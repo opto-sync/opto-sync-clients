@@ -113,11 +113,24 @@ export async function serveBundle(html, route) {
     res.writeHead(404).end('not found');
   });
 
+  // Keep-alive sockets from fetch() keep server.close() pending forever, so
+  // track and destroy them explicitly on teardown.
+  const sockets = new Set();
+  server.on('connection', (socket) => {
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+  });
+
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address();
 
   return {
     origin: `http://127.0.0.1:${port}`,
-    close: () => new Promise((resolve) => server.close(resolve)),
+    close: () =>
+      new Promise((resolve) => {
+        for (const socket of sockets) socket.destroy();
+        sockets.clear();
+        server.close(resolve);
+      }),
   };
 }
