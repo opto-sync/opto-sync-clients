@@ -244,6 +244,16 @@ pub fn rejects_a_format_version_other_than_one_test() {
     <> "]}",
   )
   should_reject("{\"records\":[" <> upsert_with("{\"updatedAt\":1}") <> "]}")
+  // DELIBERATE: `1.0` is a float, not the integer literal 1, and this validator
+  // applies that rule uniformly — the same reason it rejects a `1.0` timestamp.
+  // Both reference validators accept it here (zod because `JSON.parse`
+  // collapses `1.0` to `1`, Dart because `1.0 == 1` is numeric equality), yet
+  // Dart still rejects `"updatedAt": 1.0` because that check is a type test.
+  should_reject(
+    "{\"formatVersion\":1.0,\"records\":["
+    <> upsert_with("{\"updatedAt\":1}")
+    <> "]}",
+  )
 }
 
 pub fn rejects_an_empty_records_array_test() {
