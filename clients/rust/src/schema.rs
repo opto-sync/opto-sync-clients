@@ -342,14 +342,18 @@ pub fn parse_envelope(text: &str) -> Result<IngestEnvelope, IngestValidationErro
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::clock::format_hlc;
+    use crate::clock::{format_hlc, HlcParts};
 
     #[test]
     fn accepts_the_hlc_this_crate_emits() {
         // The regression that motivated this module: the shared schema had no
         // branch for the native HLC format, so every client rejected its own
         // stamped timestamps.
-        let stamp = format_hlc(1_753_876_800_123, 1, "devA.t1");
+        let stamp = format_hlc(&HlcParts {
+            millis: 1_753_876_800_123,
+            counter: 1,
+            node_id: "devA.t1".to_string(),
+        });
         assert!(is_native_hlc(&stamp), "not accepted: {stamp}");
         assert!(is_timestamp(&Value::String(stamp)));
     }
