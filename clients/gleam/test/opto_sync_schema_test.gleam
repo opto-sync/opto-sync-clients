@@ -4,6 +4,7 @@
 //// suites read. It is located by walking up from the package rather than
 //// copied, so a fixture added for one language immediately binds all four.
 
+import gleam/dict
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
