@@ -42,37 +42,60 @@ String _meaningfulStderr(String stderr) {
       .join('\n');
 }
 
-/// The child compiled to a standalone executable, set by [_buildChild].
+/// The child built as a standalone bundle, set by [_buildChild].
 ///
 /// `dart run` re-bundles native assets into the SHARED `.dart_tool/lib/` on
 /// every invocation, so spawning children that way makes concurrent processes
 /// fight over one directory: Windows refuses to delete a DLL the parent has
 /// loaded (PathAccessException), and macOS races re-codesigning the dylib.
 /// Neither is lease contention — the behavior under test — so the child is
-/// compiled once, with its native assets bundled into the executable, and
-/// every spawn reuses that immutable binary.
+/// built once and every spawn reuses that immutable bundle.
+///
+/// `dart build cli`, not `dart compile exe`: the sqlite3 package ships a
+/// build hook, and `dart compile` refuses those outright ("does not support
+/// build hooks, use 'dart build' instead"). `dart build cli` runs the hook and
+/// copies the resulting library into the bundle, so the child carries its own
+/// SQLite instead of resolving one from the shared directory — or, as on
+/// macOS, silently from the host system.
 late final String _childExecutable;
 
 Future<Directory> _buildChild() async {
   final buildDir = Directory.systemTemp.createTempSync('opto-sync-dart-child-');
-  final output =
-      '${buildDir.path}${Platform.pathSeparator}sqlite_desktop_child'
-      '${Platform.isWindows ? '.exe' : ''}';
   final result = await Process.run(Platform.resolvedExecutable, <String>[
-    'compile',
-    'exe',
-    'tool/sqlite_desktop_child.dart',
-    '-o',
-    output,
+    'build',
+    'cli',
+    '--target',
+    'bin/sqlite_desktop_child.dart',
+    '--output',
+    buildDir.path,
   ], workingDirectory: Directory.current.path);
   if (result.exitCode != 0) {
     buildDir.deleteSync(recursive: true);
     throw StateError(
-      'could not compile the coordination child '
+      'could not build the coordination child '
       '(exit ${result.exitCode}): ${result.stderr}',
     );
   }
-  _childExecutable = output;
+  // `--output <dir>` writes <dir>/bundle/bin/<name>, with the host's
+  // executable suffix.
+  final binDir = Directory(
+    <String>[
+      buildDir.path,
+      'bundle',
+      'bin',
+    ].join(Platform.pathSeparator),
+  );
+  final executable = binDir
+      .listSync()
+      .whereType<File>()
+      .map((entry) => entry.path)
+      .firstWhere(
+        (path) => path.contains('sqlite_desktop_child'),
+        orElse: () => throw StateError(
+          'the child bundle has no executable in ${binDir.path}',
+        ),
+      );
+  _childExecutable = executable;
   return buildDir;
 }
 
