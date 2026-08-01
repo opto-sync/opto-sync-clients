@@ -59,7 +59,9 @@ class IngestEnvelope {
 bool _isTimestamp(Object? value) {
   if (value is int) return value >= 0;
   if (value is String) {
-    return _digits.hasMatch(value) || _iso8601Hlc.hasMatch(value);
+    return _digits.hasMatch(value) ||
+        _nativeHlc.hasMatch(value) ||
+        _iso8601Hlc.hasMatch(value);
   }
   return false;
 }
