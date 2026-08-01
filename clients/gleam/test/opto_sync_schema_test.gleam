@@ -95,9 +95,9 @@ pub fn decodes_the_nested_keyed_array_fixture_test() {
   second.operation |> should.equal(Delete)
 }
 
-/* -------------------------------------------------------------------------- */
-/* Targeted rejection rules                                                   */
-/* -------------------------------------------------------------------------- */
+// --------------------------------------------------------------------------
+// Targeted rejection rules
+// --------------------------------------------------------------------------
 
 fn envelope_with(record_json: String) -> String {
   "{\"formatVersion\":1,\"records\":[" <> record_json <> "]}"
@@ -322,9 +322,9 @@ pub fn rejects_documents_that_are_not_envelopes_test() {
   should_reject("{\"formatVersion\":1,\"records\":[42]}")
 }
 
-/* -------------------------------------------------------------------------- */
-/* The timestamp union                                                        */
-/* -------------------------------------------------------------------------- */
+// --------------------------------------------------------------------------
+// The timestamp union
+// --------------------------------------------------------------------------
 
 pub fn accepts_every_timestamp_format_of_the_union_test() {
   use timestamp <- list.each([

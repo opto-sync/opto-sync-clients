@@ -600,6 +600,45 @@ mod tests {
     }
 
     #[test]
+    fn rejects_an_explicit_null_for_an_optional_field() {
+        // DELIBERATE, and a place the two reference validators disagree: the
+        // JSON Schema and the zod client reject `null` for an optional field
+        // (absent and null are different things), while the Dart client's
+        // `!= null` guards treat null as absent and accept all four of these.
+        // Following the schema keeps a null that a producer wrote by accident
+        // from becoming an untyped value nobody validated.
+        for envelope in [
+            serde_json::json!({
+                "formatVersion": 1,
+                "source": null,
+                "records": [upsert(serde_json::json!({ "updatedAt": 1 }))]
+            }),
+            serde_json::json!({
+                "formatVersion": 1,
+                "records": [{
+                    "table": "todos", "recordId": "t", "operation": null,
+                    "payload": { "updatedAt": 1 }
+                }]
+            }),
+            serde_json::json!({
+                "formatVersion": 1,
+                "records": [{
+                    "table": "todos", "recordId": "t", "baseRevision": null,
+                    "payload": { "updatedAt": 1 }
+                }]
+            }),
+            serde_json::json!({
+                "formatVersion": 1,
+                "records": [upsert(
+                    serde_json::json!({ "updatedAt": 1, "createdAt": null })
+                )]
+            }),
+        ] {
+            expect_invalid(&envelope.to_string());
+        }
+    }
+
+    #[test]
     fn rejects_a_table_identifier_that_is_not_sql_safe() {
         let error = expect_invalid(&envelope_with(serde_json::json!({
             "table": "todos; DROP TABLE users",
