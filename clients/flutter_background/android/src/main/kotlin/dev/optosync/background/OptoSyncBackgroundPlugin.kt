@@ -10,6 +10,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.WorkRequest
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -81,7 +82,7 @@ class OptoSyncBackgroundPlugin : FlutterPlugin, MethodChannel.MethodCallHandler 
                     .setConstraints(constraints(requiresNetwork))
                     .setBackoffCriteria(
                         BackoffPolicy.EXPONENTIAL,
-                        WorkManager.MIN_BACKOFF_MILLIS,
+                        WorkRequest.MIN_BACKOFF_MILLIS,
                         TimeUnit.MILLISECONDS,
                     )
                     .build()
@@ -99,7 +100,7 @@ class OptoSyncBackgroundPlugin : FlutterPlugin, MethodChannel.MethodCallHandler 
                     .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                     .setBackoffCriteria(
                         BackoffPolicy.EXPONENTIAL,
-                        WorkManager.MIN_BACKOFF_MILLIS,
+                        WorkRequest.MIN_BACKOFF_MILLIS,
                         TimeUnit.MILLISECONDS,
                     )
                     .build()

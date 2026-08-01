@@ -33,7 +33,6 @@ pub use syncer_rs::ArrayMergeStrategy as ArrayStrategy;
 pub mod clock;
 pub mod protocol;
 pub mod protocol_sync;
-pub mod schema;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 pub mod transport;
