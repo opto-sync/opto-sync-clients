@@ -95,6 +95,8 @@ export function installOptoSyncServiceWorker(
   const periodicSyncTag = options.periodicSyncTag ?? DEFAULT_PERIODIC_SYNC_TAG;
   const messageType = options.messageType ?? SYNC_MESSAGE_TYPE;
 
+  const selfOrigin = (globalThis as { origin?: unknown }).origin;
+
   let sessionPromise: Promise<ServiceWorkerSyncSession> | undefined;
   const session = () => {
     // A failed creation is not cached, so a transient failure (e.g. wasm
