@@ -33,12 +33,13 @@
         },
         "operation": { "enum": ["upsert", "delete"], "default": "upsert" },
         "baseRevision": { "$ref": "#/$defs/decimalString" },
-        "payload": { "$ref": "#/$defs/payload" }
+        "payload": { "type": "object" }
       },
       "allOf": [
         {
           "if": { "properties": { "operation": { "const": "delete" } }, "required": ["operation"] },
-          "then": { "properties": { "payload": { "type": "object", "maxProperties": 0 } } }
+          "then": { "properties": { "payload": { "type": "object", "maxProperties": 0 } } },
+          "else": { "properties": { "payload": { "$ref": "#/$defs/payload" } } }
         }
       ]
     },
