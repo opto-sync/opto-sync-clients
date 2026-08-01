@@ -46,6 +46,15 @@ async function launchChromium() {
 
 const browser = await launchChromium();
 
+/* CI sets OPTO_SYNC_REQUIRE_BROWSER=1 so an environment that cannot launch
+   Chromium fails loudly instead of reporting a green, entirely skipped run. */
+if (!browser && process.env.OPTO_SYNC_REQUIRE_BROWSER === '1') {
+  throw new Error(
+    'OPTO_SYNC_REQUIRE_BROWSER=1 but Chromium could not be launched; ' +
+      'run `npx playwright install --with-deps chromium`',
+  );
+}
+
 /* Without this the browser process keeps the event loop alive and the test
    file never exits. */
 after(async () => {
