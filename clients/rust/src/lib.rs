@@ -15,9 +15,6 @@
 //!   with `Pending` / `Synced` / `Failed` lifecycle.
 //! - [`OptoSyncClient`]: ties the two together, and stamps `updatedAt` from a
 //!   [`HybridLogicalClock`] so last-write-wins is actually ordered.
-//! - [`schema`]: validation and ingestion for the cross-language ingest
-//!   envelope, held to the same shared fixture corpus as the TypeScript, Dart,
-//!   and Gleam clients.
 
 use syncer_rs::{try_merge_json_with_options, MergeOptions};
 
@@ -36,7 +33,6 @@ pub use syncer_rs::ArrayMergeStrategy as ArrayStrategy;
 pub mod clock;
 pub mod protocol;
 pub mod protocol_sync;
-pub mod schema;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 pub mod transport;
