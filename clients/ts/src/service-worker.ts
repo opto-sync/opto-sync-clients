@@ -129,7 +129,15 @@ export function installOptoSyncServiceWorker(
 
   const onSync = (event: { tag?: string; waitUntil?: (p: Promise<unknown>) => void }) => {
     if (event.tag !== syncTag) return;
-    event.waitUntil?.(drain());
+    const work = drain();
+    if (event.waitUntil) {
+      event.waitUntil(work);
+    } else {
+      // No waitUntil (non-standard host, or a synthetic event): `drain()`
+      // always rethrows, so leaving the promise unobserved would surface as
+      // an unhandled rejection and can terminate the worker.
+      void work.catch(() => undefined);
+    }
   };
   const onPeriodicSync = (event: {
     tag?: string;
