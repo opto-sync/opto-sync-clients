@@ -69,14 +69,16 @@ Future<({Process process, Future<String> stderr})> _startHolder(
 /// exit code and stderr, which carry the actual reason. Race the line
 /// against process exit and surface both instead.
 Future<String> _firstLine(Process process, Future<String> stderr) async {
-  final line = process.stdout
+  // When the child dies silently its stdout closes empty and `.first`
+  // REJECTS — Future.any would propagate that error before the exit code
+  // resolves, so translate the rejection into waiting for the exit code
+  // instead of racing it.
+  final winner = await process.stdout
       .transform(utf8.decoder)
       .transform(const LineSplitter())
-      .first;
-  final winner = await Future.any<Object>([
-    line,
-    process.exitCode,
-  ]).timeout(const Duration(seconds: 20));
+      .first
+      .then<Object>((line) => line, onError: (Object _) => process.exitCode)
+      .timeout(const Duration(seconds: 20));
   if (winner is String) return winner;
   final detail = _meaningfulStderr(await stderr);
   throw StateError(
@@ -231,7 +233,7 @@ Future<void> _multiprocessContentionTest() async {
     ]);
     holder = started.process;
     holderStderr = started.stderr;
-    final holderLine = await _firstLine(holder);
+    final holderLine = await _firstLine(holder, holderStderr);
     _expect(holderLine == 'acquired:1', 'holder did not acquire first fence');
 
     // Sequential on purpose: each `dart run` re-runs the native build hooks,
@@ -301,7 +303,7 @@ Future<void> _terminationReplayTest() async {
     ]);
     child = started.process;
     childStderr = started.stderr;
-    final firstLine = await _firstLine(child);
+    final firstLine = await _firstLine(child, childStderr);
     _expect(firstLine == 'acquired:1', 'doomed process did not acquire');
     await _terminate(child);
     final stderr = _meaningfulStderr(await childStderr);
