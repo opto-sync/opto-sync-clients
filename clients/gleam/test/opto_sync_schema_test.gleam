@@ -139,11 +139,7 @@ pub fn accepts_a_minimal_upsert_test() {
   record.operation |> should.equal(Upsert)
   record.base_revision |> should.equal(None)
   // The payload is the application's document; only timestamps are validated.
-  record.payload |> should.be_ok_key("t")
-}
-
-fn should_be_ok_key(payload, key) {
-  payload |> should.be_ok_key(key)
+  dict.has_key(record.payload, "t") |> should.be_true
 }
 
 pub fn rejects_a_table_identifier_that_is_not_sql_safe_test() {
