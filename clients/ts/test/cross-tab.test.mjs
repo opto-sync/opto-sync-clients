@@ -53,15 +53,24 @@ function fakeChannelBus() {
   return {
     factory: () => {
       const listeners = new Set();
+      let closed = false;
       const channel = {
         listeners,
         postMessage(data) {
+          // A real BroadcastChannel throws once closed; the fake must too, or
+          // post-dispose misuse looks harmless here and breaks in a browser.
+          if (closed) {
+            throw Object.assign(new Error('Channel is closed'), {
+              name: 'InvalidStateError',
+            });
+          }
           for (const other of subscribers) {
             if (other === channel) continue; // BroadcastChannel skips self
             for (const listener of other.listeners) listener({ data });
           }
         },
         close() {
+          closed = true;
           subscribers.delete(channel);
         },
         addEventListener(_type, listener) {
