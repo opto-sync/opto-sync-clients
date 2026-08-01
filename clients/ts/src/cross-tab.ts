@@ -111,6 +111,17 @@ export function startCrossTabCoordinator(
         { mode: 'exclusive', signal: abort.signal },
         () =>
           new Promise<void>((resolve) => {
+            // `dispose()` races the grant: aborting a Web Lock request only
+            // cancels it while it is still QUEUED, so a request the browser
+            // had already decided to grant still runs this callback after
+            // disposal. Resolving immediately hands the lock straight back.
+            // Holding it instead would strand the lease forever — no other
+            // tab could ever be promoted, and the queue would stop draining
+            // origin-wide until every tab was closed.
+            if (disposed) {
+              resolve();
+              return;
+            }
             releaseLock = resolve;
             becomeLeader();
           }),
