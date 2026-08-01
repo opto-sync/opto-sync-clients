@@ -24,7 +24,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 
-/// The only envelope version this validator accepts, so a decoded `Envelope`
+/// The only envelope version this validator accepts, so a decoded `IngestEnvelope`
 /// does not carry the field.
 pub const format_version = 1
 
@@ -49,8 +49,8 @@ pub type Operation {
 /// One validated record. `payload` is left as decoded dynamic values so an
 /// application can run its own decoder over the columns it knows about; the
 /// envelope contract only owns the timestamp keys.
-pub type Record {
-  Record(
+pub type IngestRecord {
+  IngestRecord(
     table_name: String,
     record_id: String,
     operation: Operation,
@@ -60,12 +60,12 @@ pub type Record {
 }
 
 /// A validated ingest envelope. `records` is always non-empty.
-pub type Envelope {
-  Envelope(source: Option(String), records: List(Record))
+pub type IngestEnvelope {
+  IngestEnvelope(source: Option(String), records: List(IngestRecord))
 }
 
 /// Why an envelope was refused.
-pub type ValidationError {
+pub type IngestError {
   /// The input is not valid JSON.
   InvalidJson
   /// The document parsed but violates the envelope contract. Every issue
@@ -74,7 +74,7 @@ pub type ValidationError {
 }
 
 /// Validate an envelope from its JSON text.
-pub fn parse_envelope(envelope_json: String) -> Result(Envelope, ValidationError) {
+pub fn parse_envelope(envelope_json: String) -> Result(IngestEnvelope, IngestError) {
   case json.parse(envelope_json, envelope_decoder()) {
     Ok(envelope) -> Ok(envelope)
     Error(json.UnableToDecode(issues)) -> Error(Invalid(issues))
@@ -83,7 +83,7 @@ pub fn parse_envelope(envelope_json: String) -> Result(Envelope, ValidationError
 }
 
 /// `parse_envelope` for callers that already hold decoded dynamic data.
-pub fn validate_envelope(value: Dynamic) -> Result(Envelope, ValidationError) {
+pub fn validate_envelope(value: Dynamic) -> Result(IngestEnvelope, IngestError) {
   case decode.run(value, envelope_decoder()) {
     Ok(envelope) -> Ok(envelope)
     Error(issues) -> Error(Invalid(issues))
@@ -91,21 +91,21 @@ pub fn validate_envelope(value: Dynamic) -> Result(Envelope, ValidationError) {
 }
 
 /// The envelope decoder itself, for composing into a larger document.
-pub fn envelope_decoder() -> decode.Decoder(Envelope) {
+pub fn envelope_decoder() -> decode.Decoder(IngestEnvelope) {
   use fields <- decode.then(decode.dict(decode.string, decode.dynamic))
   use <- reject_unknown_keys(fields, envelope_keys, zero_envelope())
   use _ <- decode.field("formatVersion", format_version_decoder())
   use source <- decode.optional_field("source", None, source_decoder())
   use records <- decode.field("records", records_decoder())
-  decode.success(Envelope(source:, records:))
+  decode.success(IngestEnvelope(source:, records:))
 }
 
-fn zero_envelope() -> Envelope {
-  Envelope(source: None, records: [])
+fn zero_envelope() -> IngestEnvelope {
+  IngestEnvelope(source: None, records: [])
 }
 
-fn zero_record() -> Record {
-  Record(
+fn zero_record() -> IngestRecord {
+  IngestRecord(
     table_name: "",
     record_id: "",
     operation: Upsert,
@@ -151,7 +151,7 @@ fn source_decoder() -> decode.Decoder(Option(String)) {
   }
 }
 
-fn records_decoder() -> decode.Decoder(List(Record)) {
+fn records_decoder() -> decode.Decoder(List(IngestRecord)) {
   use records <- decode.then(decode.list(record_decoder()))
   case records {
     [] -> decode.failure([], expected: "a non-empty array of records")
@@ -159,7 +159,7 @@ fn records_decoder() -> decode.Decoder(List(Record)) {
   }
 }
 
-fn record_decoder() -> decode.Decoder(Record) {
+fn record_decoder() -> decode.Decoder(IngestRecord) {
   use fields <- decode.then(decode.dict(decode.string, decode.dynamic))
   use <- reject_unknown_keys(fields, record_keys, zero_record())
   use table_name <- decode.field("table", identifier_decoder())
@@ -175,7 +175,7 @@ fn record_decoder() -> decode.Decoder(Record) {
     base_revision_decoder(),
   )
   use payload <- decode.field("payload", payload_decoder(operation))
-  decode.success(Record(
+  decode.success(IngestRecord(
     table_name:,
     record_id:,
     operation:,
