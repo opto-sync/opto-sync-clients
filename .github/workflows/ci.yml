@@ -48,6 +48,28 @@ jobs:
           python3 scripts/check-dependency-boundary.py
           python3 scripts/check-zed-packaging.py
 
+  envelope-schema:
+    name: Envelope schema agrees with the shared corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout opto-sync-clients
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4
+        with:
+          node-version: '22'
+      # Every language validator is hand-written from this schema and tested
+      # against these fixtures; this is the only check that holds the schema
+      # DOCUMENT itself to the same corpus.
+      - name: Evaluate the schema against every fixture
+        working-directory: schema
+        run: |
+          set -euo pipefail
+          npm ci
+          npm test
+
   clients:
     name: clients/${{ matrix.client }}
     runs-on: ubuntu-latest
