@@ -18,6 +18,12 @@ final _iso8601Hlc = RegExp(
   r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z(-[0-9A-Za-z._~-]+)*$',
 );
 
+/// Native HLC, as emitted by [formatHlc] in `src/clock.dart`. Not redundant
+/// with [_iso8601Hlc]: `1753876800123-0001-devA.t1` matches neither that
+/// pattern nor [_digits], so without this branch the validator rejects the
+/// timestamps this very client produces.
+final _nativeHlc = RegExp(r'^[0-9]{13}-[0-9a-f]{4}-[^-]{1,128}$');
+
 class IngestValidationException implements Exception {
   IngestValidationException(this.issues);
 
