@@ -270,24 +270,20 @@ Future<void> _multiprocessContentionTest() async {
     final holderLine = await _firstLine(holder, holderStderr);
     _expect(holderLine == 'acquired:1', 'holder did not acquire first fence');
 
-    // Sequential on purpose: each `dart run` re-runs the native build hooks,
-    // and concurrent children race re-codesigning the shared
-    // .dart_tool/lib/libsqlite3.dylib (an SDK-level hazard, not lease
-    // contention). The holder keeps the lease for the whole loop, so every
-    // independent process still observes `busy:` — which is the claim under
-    // test; intra-process concurrency is covered by the coordinator suites.
-    final contenders = <ProcessResult>[];
-    for (var index = 0; index < 3; index += 1) {
-      contenders.add(
-        await _runChild(<String>[
+    // Genuinely concurrent: the children are one prebuilt executable, so
+    // they contend for the lease and nothing else.
+    final contenders = await Future.wait<ProcessResult>(
+      List<Future<ProcessResult>>.generate(
+        3,
+        (index) => _runChild(<String>[
           'contend',
           fixture.path,
           'partition',
           'process-$index',
           '0',
         ]),
-      );
-    }
+      ),
+    );
     for (final contender in contenders) {
       _expect(contender.exitCode == 0, contender.stderr.toString());
       _expect(
