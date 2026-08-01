@@ -89,17 +89,12 @@ export async function bundleBrowserClient() {
  * origin, and an opaque origin has no IndexedDB — the very thing under test.
  *
  * @param {string} html
- * @param {(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => boolean} [route]
- *   Optional extra route handler, consulted first. Return true once it has
- *   answered the request. Lets a test mount a fixture sync backend on the SAME
- *   origin as the page, so the browser makes genuine same-origin requests.
  * @returns {Promise<{origin: string, close: () => Promise<void>}>}
  */
-export async function serveBundle(html, route) {
+export async function serveBundle(html) {
   const { code } = await bundleBrowserClient();
 
   const server = createServer((req, res) => {
-    if (route?.(req, res)) return;
     if (req.url === '/opto-sync.browser.js') {
       res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
       res.end(code);
@@ -113,24 +108,11 @@ export async function serveBundle(html, route) {
     res.writeHead(404).end('not found');
   });
 
-  // Keep-alive sockets from fetch() keep server.close() pending forever, so
-  // track and destroy them explicitly on teardown.
-  const sockets = new Set();
-  server.on('connection', (socket) => {
-    sockets.add(socket);
-    socket.on('close', () => sockets.delete(socket));
-  });
-
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address();
 
   return {
     origin: `http://127.0.0.1:${port}`,
-    close: () =>
-      new Promise((resolve) => {
-        for (const socket of sockets) socket.destroy();
-        sockets.clear();
-        server.close(resolve);
-      }),
+    close: () => new Promise((resolve) => server.close(resolve)),
   };
 }
