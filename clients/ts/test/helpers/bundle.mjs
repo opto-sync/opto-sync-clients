@@ -89,12 +89,17 @@ export async function bundleBrowserClient() {
  * origin, and an opaque origin has no IndexedDB — the very thing under test.
  *
  * @param {string} html
+ * @param {(req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => boolean} [route]
+ *   Optional extra route handler, consulted first. Return true once it has
+ *   answered the request. Lets a test mount a fixture sync backend on the SAME
+ *   origin as the page, so the browser makes genuine same-origin requests.
  * @returns {Promise<{origin: string, close: () => Promise<void>}>}
  */
-export async function serveBundle(html) {
+export async function serveBundle(html, route) {
   const { code } = await bundleBrowserClient();
 
   const server = createServer((req, res) => {
+    if (route?.(req, res)) return;
     if (req.url === '/opto-sync.browser.js') {
       res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' });
       res.end(code);
