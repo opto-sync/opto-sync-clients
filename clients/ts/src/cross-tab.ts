@@ -186,6 +186,10 @@ export function startCrossTabCoordinator(
       return leader;
     },
     hint() {
+      // After dispose() the BroadcastChannel is closed and postMessage throws
+      // InvalidStateError. A late hint (in-flight save resolving after the
+      // component unmounted) is a no-op, not an application error.
+      if (disposed) return;
       if (leader) {
         options.loop.hint();
       } else {
@@ -193,9 +197,11 @@ export function startCrossTabCoordinator(
       }
     },
     publishState(state: ProtocolSyncState) {
+      if (disposed) return;
       channel?.postMessage({ type: 'state', state });
     },
     dispose() {
+      if (disposed) return;
       disposed = true;
       abort.abort();
       if (leader) {
