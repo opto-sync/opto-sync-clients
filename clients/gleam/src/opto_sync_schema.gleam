@@ -38,7 +38,13 @@ const max_identifier_length = 63
 
 const envelope_keys = ["formatVersion", "source", "records"]
 
-const record_keys = ["table", "recordId", "operation", "baseRevision", "payload"]
+const record_keys = [
+  "table",
+  "recordId",
+  "operation",
+  "baseRevision",
+  "payload",
+]
 
 /// Absent in the file means `Upsert`.
 pub type Operation {
@@ -74,7 +80,9 @@ pub type IngestError {
 }
 
 /// Validate an envelope from its JSON text.
-pub fn parse_envelope(envelope_json: String) -> Result(IngestEnvelope, IngestError) {
+pub fn parse_envelope(
+  envelope_json: String,
+) -> Result(IngestEnvelope, IngestError) {
   case json.parse(envelope_json, envelope_decoder()) {
     Ok(envelope) -> Ok(envelope)
     Error(json.UnableToDecode(issues)) -> Error(Invalid(issues))
@@ -83,7 +91,9 @@ pub fn parse_envelope(envelope_json: String) -> Result(IngestEnvelope, IngestErr
 }
 
 /// `parse_envelope` for callers that already hold decoded dynamic data.
-pub fn validate_envelope(value: Dynamic) -> Result(IngestEnvelope, IngestError) {
+pub fn validate_envelope(
+  value: Dynamic,
+) -> Result(IngestEnvelope, IngestError) {
   case decode.run(value, envelope_decoder()) {
     Ok(envelope) -> Ok(envelope)
     Error(issues) -> Error(Invalid(issues))
@@ -197,8 +207,7 @@ fn record_id_decoder() -> decode.Decoder(String) {
   let length = code_point_length(value)
   case length >= 1 && length <= max_record_id_length {
     True -> decode.success(value)
-    False ->
-      decode.failure("", expected: "a string of 1..512 characters")
+    False -> decode.failure("", expected: "a string of 1..512 characters")
   }
 }
 
@@ -223,7 +232,9 @@ fn base_revision_decoder() -> decode.Decoder(Option(String)) {
 /// last-write-wins from being decided by ingest order. `createdAt`/`syncedAt`
 /// are optional, and deliberately not required: `createdAt` is not a default
 /// first-write-wins key.
-fn payload_decoder(operation: Operation) -> decode.Decoder(Dict(String, Dynamic)) {
+fn payload_decoder(
+  operation: Operation,
+) -> decode.Decoder(Dict(String, Dynamic)) {
   use payload <- decode.then(decode.dict(decode.string, decode.dynamic))
   case operation {
     Delete ->
@@ -270,7 +281,10 @@ fn epoch_timestamp_decoder() -> decode.Decoder(Timestamp) {
   case value >= 0 {
     True -> decode.success(EpochTimestamp(value))
     False ->
-      decode.failure(EpochTimestamp(0), expected: "a non-negative epoch integer")
+      decode.failure(
+        EpochTimestamp(0),
+        expected: "a non-negative epoch integer",
+      )
   }
 }
 
@@ -334,7 +348,9 @@ fn is_canonical_decimal(value: String) -> Bool {
 fn is_digit_timestamp(value: String) -> Bool {
   let points = code_points(value)
   let length = list.length(points)
-  length >= 1 && length <= max_digit_timestamp_length && list.all(points, is_digit)
+  length >= 1
+  && length <= max_digit_timestamp_length
+  && list.all(points, is_digit)
 }
 
 /// `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z(-[0-9A-Za-z._~-]+)*$`
