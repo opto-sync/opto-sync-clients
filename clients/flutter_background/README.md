@@ -76,6 +76,19 @@ WorkManager.getInstance(context).enqueueUniquePeriodicWork(
         .build());
 ```
 
+## Native build gate
+
+The Kotlin, Java, Swift, and Objective-C sources here are compiled in CI by
+[`.github/workflows/mobile-native-build.yml`](../../.github/workflows/mobile-native-build.yml),
+which builds a throwaway Flutter host app that depends on this plugin by path.
+No device, emulator, simulator, or signing identity is involved. Reproduce
+locally with a JDK 17 plus Android SDK, or with Xcode:
+
+```sh
+python3 scripts/build-mobile-native.py android
+python3 scripts/build-mobile-native.py ios
+```
+
 ## Semantics
 
 - The drain returning `false` (or throwing) maps to `Result.retry` (Android)
