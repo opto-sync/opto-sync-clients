@@ -22,11 +22,16 @@ import { write, writeDelete, type Optimism, type WriteReceipt } from '../rx/writ
 const timestampSchema = z.union([
   z.number().int().nonnegative(),
   z.string().regex(/^[0-9]{1,20}$/, 'pure-digit timestamp string'),
+  // Native HLC, as emitted by formatHlc in ./clock.ts. This branch is not
+  // redundant with the ISO one below: `1753876800123-0001-devA.t1` matches
+  // neither the pure-digit nor the ISO pattern, so without it the envelope
+  // validator rejects the timestamps our own clients produce.
+  z.string().regex(/^[0-9]{13}-[0-9a-f]{4}-[^-]{1,128}$/, 'native HLC timestamp'),
   z
     .string()
     .regex(
       /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z(-[0-9A-Za-z._~-]+)*$/,
-      'fixed-width ISO-8601 UTC (optionally with HLC suffixes)',
+      'fixed-width ISO-8601 UTC (optionally with suffixes)',
     ),
 ]);
 
