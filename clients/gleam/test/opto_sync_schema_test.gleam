@@ -386,8 +386,12 @@ pub fn rejects_timestamps_outside_the_union_test() {
   use timestamp <- list.each([
     "-1",
     "1.5",
-    // A float is a different scale, not an epoch integer.
+    // DELIBERATE, and a place the two reference validators disagree: a float is
+    // a different scale, not an epoch integer. The Dart client rejects these
+    // too; the zod client accepts them because `JSON.parse` has already
+    // collapsed `1.0` and `1e3` to integers by the time it looks.
     "1.0",
+    "1e3",
     "true",
     "null",
     "[1]",
