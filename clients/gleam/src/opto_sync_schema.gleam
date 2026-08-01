@@ -24,8 +24,8 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 
-/// The only envelope version this validator accepts, so a decoded `IngestEnvelope`
-/// does not carry the field.
+/// The only envelope version this validator accepts, so a decoded
+/// `IngestEnvelope` does not carry the field.
 pub const format_version = 1
 
 const max_source_length = 200
