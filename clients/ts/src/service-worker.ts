@@ -150,10 +150,24 @@ export function installOptoSyncServiceWorker(
   };
   const onMessage = (event: {
     data?: { type?: string };
+    origin?: string;
     ports?: ReadonlyArray<{ postMessage(value: unknown): void }>;
     waitUntil?: (p: Promise<unknown>) => void;
   }) => {
     if (event.data?.type !== messageType) return;
+    // Defence in depth: only a same-origin client should ever be able to reach
+    // a service worker, but a drain touches the durable queue and replies with
+    // the sync checkpoint, so the origin is checked rather than assumed.
+    // Checked only when the host actually reports one, so synthetic events and
+    // non-DOM test scopes keep working.
+    if (
+      typeof event.origin === 'string' &&
+      event.origin !== '' &&
+      typeof selfOrigin === 'string' &&
+      event.origin !== selfOrigin
+    ) {
+      return;
+    }
     const port = event.ports?.[0];
     const work = drain().then(
       (result) => port?.postMessage({ ok: true, result }),
