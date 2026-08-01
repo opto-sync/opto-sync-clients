@@ -900,9 +900,13 @@ mod tests {
         for timestamp in [
             serde_json::json!(-1),
             serde_json::json!(1.5),
-            // A float is a different scale, not an epoch integer; serde keeps
-            // the distinction that `JSON.parse` throws away.
+            // DELIBERATE, and a place the two reference validators disagree: a
+            // float is a different scale, not an epoch integer. The Dart client
+            // rejects these too; the zod client accepts them because
+            // `JSON.parse` has already collapsed `1.0` and `1e3` to integers by
+            // the time it looks, so the distinction is gone. serde keeps it.
             serde_json::json!(1.0),
+            serde_json::json!(1e3),
             serde_json::json!(true),
             serde_json::json!(null),
             serde_json::json!([1]),
