@@ -435,6 +435,9 @@ Future<void> _runnerHandoffTest() async {
 }
 
 Future<void> main() async {
+  // Build before any test opens a coordinator: compilation is the last step
+  // that may touch .dart_tool/lib/, and on Windows that directory cannot be
+  // rewritten once this process has the SQLite library loaded.
   final childBuild = await _buildChild();
   try {
     await _storeClockTest();
