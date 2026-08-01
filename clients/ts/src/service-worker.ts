@@ -95,6 +95,10 @@ export function installOptoSyncServiceWorker(
   const periodicSyncTag = options.periodicSyncTag ?? DEFAULT_PERIODIC_SYNC_TAG;
   const messageType = options.messageType ?? SYNC_MESSAGE_TYPE;
 
+  // The worker global carries its own origin; read it from `scope` so the
+  // check is exercisable with an injected scope instead of only in a browser.
+  const selfOrigin = (scope as unknown as { origin?: unknown }).origin;
+
   let sessionPromise: Promise<ServiceWorkerSyncSession> | undefined;
   const session = () => {
     // A failed creation is not cached, so a transient failure (e.g. wasm
@@ -129,7 +133,15 @@ export function installOptoSyncServiceWorker(
 
   const onSync = (event: { tag?: string; waitUntil?: (p: Promise<unknown>) => void }) => {
     if (event.tag !== syncTag) return;
-    event.waitUntil?.(drain());
+    const work = drain();
+    if (event.waitUntil) {
+      event.waitUntil(work);
+    } else {
+      // No waitUntil (non-standard host, or a synthetic event): `drain()`
+      // always rethrows, so leaving the promise unobserved would surface as
+      // an unhandled rejection and can terminate the worker.
+      void work.catch(() => undefined);
+    }
   };
   const onPeriodicSync = (event: {
     tag?: string;
@@ -142,10 +154,24 @@ export function installOptoSyncServiceWorker(
   };
   const onMessage = (event: {
     data?: { type?: string };
+    origin?: string;
     ports?: ReadonlyArray<{ postMessage(value: unknown): void }>;
     waitUntil?: (p: Promise<unknown>) => void;
   }) => {
     if (event.data?.type !== messageType) return;
+    // Defence in depth: only a same-origin client should ever be able to reach
+    // a service worker, but a drain touches the durable queue and replies with
+    // the sync checkpoint, so the origin is checked rather than assumed.
+    // Checked only when the host actually reports one, so synthetic events and
+    // non-DOM test scopes keep working.
+    if (
+      typeof event.origin === 'string' &&
+      event.origin !== '' &&
+      typeof selfOrigin === 'string' &&
+      event.origin !== selfOrigin
+    ) {
+      return;
+    }
     const port = event.ports?.[0];
     const work = drain().then(
       (result) => port?.postMessage({ ok: true, result }),

@@ -82,23 +82,6 @@ SQLite connection back into the driver's mutable queue. Immutable-byte,
 monotonic-status, and sequence checks prevent a stale sync loop from
 overwriting concurrent offline work.
 
-`schema` validates the cross-language ingest envelope defined by
-`schema/opto-sync-envelope.schema.json` and turns a validated file or blob into
-ordinary queued mutations, so an import converges through the normal
-push/reconcile path instead of a direct-to-database shortcut:
-
-```rust
-use opto_sync_client::schema::{ingest_envelope, IngestOptions};
-
-let mutation_ids = ingest_envelope(&mut queue, &json, IngestOptions::default())?;
-```
-
-Validation is all-or-nothing and the records are staged against a copy of the
-queue, so a rejected envelope leaves it byte-identical and the same file can be
-retried. `parse_envelope` alone validates without queueing. The TypeScript,
-Dart, and Gleam validators are held to the same fixture corpus in
-`schema/fixtures/`.
-
 The crate intentionally selects no HTTP client, async executor, or ORM. Disable
 the first-party database with `default-features = false` when an application
 supplies another `AtomicProtocolSyncStore`.

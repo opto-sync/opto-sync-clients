@@ -23,18 +23,6 @@ let assert Ok(#(queue, mutation)) =
   )
 ```
 
-`opto_sync_schema` validates the cross-language ingest envelope defined by
-`schema/opto-sync-envelope.schema.json`, using strict `gleam/dynamic/decode`
-decoders that reject unknown properties rather than dropping them:
-
-```gleam
-let assert Ok(envelope) = opto_sync_schema.parse_envelope(blob)
-```
-
-Each `IngestRecord` carries the table, record id, operation, base revision, and
-the payload as decoded dynamic values, ready to enqueue. The TypeScript, Dart,
-and Rust validators are held to the same fixture corpus in `schema/fixtures/`.
-
 Run the suite against the compiled NIF using the repository CI environment:
 
 ```sh

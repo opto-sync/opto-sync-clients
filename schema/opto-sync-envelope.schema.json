@@ -33,12 +33,13 @@
         },
         "operation": { "enum": ["upsert", "delete"], "default": "upsert" },
         "baseRevision": { "$ref": "#/$defs/decimalString" },
-        "payload": { "$ref": "#/$defs/payload" }
+        "payload": { "type": "object" }
       },
       "allOf": [
         {
           "if": { "properties": { "operation": { "const": "delete" } }, "required": ["operation"] },
-          "then": { "properties": { "payload": { "type": "object", "maxProperties": 0 } } }
+          "then": { "properties": { "payload": { "type": "object", "maxProperties": 0 } } },
+          "else": { "properties": { "payload": { "$ref": "#/$defs/payload" } } }
         }
       ]
     },
@@ -76,14 +77,19 @@
       ]
     },
     "timestamp": {
-      "description": "One timestamp FORMAT per key across all replicas (mixing epoch and ISO-8601 compares lexicographically and is not chronologically meaningful). Accepted: HLC string (fixed-width ISO-8601 with counter/node suffix), plain fixed-width ISO-8601 UTC, epoch integer (ms/us/ns), or pure-digit string.",
+      "description": "One timestamp FORMAT per key across all replicas (mixing formats compares lexicographically and is not chronologically meaningful — an ISO-8601 string outranks a native HLC string until the year 2286, so a client that does not stamp is a silently privileged one). Accepted: native HLC string as emitted by the clients' formatHlc, plain fixed-width ISO-8601 UTC (optionally with suffixes), epoch integer (ms/us/ns), or pure-digit string.",
       "oneOf": [
         { "type": "integer", "minimum": 0 },
         { "type": "string", "pattern": "^[0-9]+$", "minLength": 1, "maxLength": 20 },
         {
           "type": "string",
+          "pattern": "^[0-9]{13}-[0-9a-f]{4}-[^-]{1,128}$",
+          "description": "Native HLC as emitted by formatHlc/formatHlc()/format_hlc in the ts, dart, and rust clients: 13-digit millis, 4-hex counter, nodeId. Fixed width is load-bearing — it makes lexicographic order equal chronological order. nodeId cannot contain '-' because '-' delimits the wire format (the clock constructor rejects it), which is what keeps this pattern unambiguous."
+        },
+        {
+          "type": "string",
           "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{1,9})?Z(-[0-9A-Za-z._~-]+)*$",
-          "description": "Fixed-width ISO-8601 UTC, optionally with HLC counter/node suffixes appended after the Z."
+          "description": "Fixed-width ISO-8601 UTC, optionally with counter/node suffixes appended after the Z."
         }
       ]
     },
