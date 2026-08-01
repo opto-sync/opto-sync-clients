@@ -435,11 +435,16 @@ Future<void> _runnerHandoffTest() async {
 }
 
 Future<void> main() async {
-  await _storeClockTest();
-  await _trailingWakeTest();
-  await _staleFenceTest();
-  await _multiprocessContentionTest();
-  await _terminationReplayTest();
-  await _runnerHandoffTest();
+  final childBuild = await _buildChild();
+  try {
+    await _storeClockTest();
+    await _trailingWakeTest();
+    await _staleFenceTest();
+    await _multiprocessContentionTest();
+    await _terminationReplayTest();
+    await _runnerHandoffTest();
+  } finally {
+    if (childBuild.existsSync()) childBuild.deleteSync(recursive: true);
+  }
   stdout.writeln('Dart SQLite desktop coordination self-test passed');
 }
