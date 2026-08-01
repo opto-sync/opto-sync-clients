@@ -241,9 +241,11 @@ fn internal_host_allowed(host: &str) -> bool {
 
 /// Host of a cleartext `ws://` or `http://` URL, else `None`.
 fn cleartext_host(url: &str) -> Option<&str> {
-    let rest = ["ws://", "http://"]
-        .iter()
-        .find_map(|scheme| url.get(..scheme.len()).filter(|p| p.eq_ignore_ascii_case(scheme)).map(|p| &url[p.len()..]))?;
+    let rest = ["ws://", "http://"].iter().find_map(|scheme| {
+        url.get(..scheme.len())
+            .filter(|p| p.eq_ignore_ascii_case(scheme))
+            .map(|p| &url[p.len()..])
+    })?;
     let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
     let host_port = authority.rsplit('@').next().unwrap_or(authority);
     if let Some(v6) = host_port.strip_prefix('[') {

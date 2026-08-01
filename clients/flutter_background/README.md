@@ -72,7 +72,7 @@ WorkManager.getInstance(context).enqueueUniquePeriodicWork(
         .setConstraints(new Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED).build())
         .setBackoffCriteria(BackoffPolicy.EXPONENTIAL,
-            WorkRequest.MIN_BACKOFF_MILLIS, TimeUnit.MILLISECONDS)
+            WorkManager.MIN_BACKOFF_MILLIS, TimeUnit.MILLISECONDS)
         .build());
 ```
 
