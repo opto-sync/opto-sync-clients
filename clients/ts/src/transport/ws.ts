@@ -75,6 +75,52 @@ export interface WebSocketTransportOptions {
   clearTimeoutFn?: typeof clearTimeout;
 }
 
+/** Host of `url` when its scheme is cleartext `ws://` or `http://`, else null. */
+function cleartextHost(url: string): string | null {
+  const match = /^(ws|http):\/\//i.exec(url);
+  if (!match) return null;
+  const authority = url.slice(match[0].length).split(/[/?#]/, 1)[0] ?? '';
+  const hostPort = authority.includes('@')
+    ? authority.slice(authority.lastIndexOf('@') + 1)
+    : authority;
+  if (hostPort.startsWith('[')) return hostPort.slice(1, hostPort.indexOf(']')).toLowerCase();
+  const colon = hostPort.indexOf(':');
+  return (colon === -1 ? hostPort : hostPort.slice(0, colon)).toLowerCase();
+}
+
+/** Loopback, private/link-local IPs, and in-cluster names. */
+function internalHostAllowed(host: string): boolean {
+  if (host === '' || host === 'localhost' || host.endsWith('.localhost')) return true;
+  if (host === '::1' || /^f[cd]/.test(host) || /^fe[89ab]/.test(host)) return true;
+  const v4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (v4) {
+    const a = Number(v4[1]);
+    const b = Number(v4[2]);
+    return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31)
+      || (a === 192 && b === 168) || (a === 169 && b === 254);
+  }
+  return !host.includes('.') || host.endsWith('.svc.cluster.local')
+    || host.endsWith('.internal');
+}
+
+/**
+ * Refuse to dial a public host over cleartext while carrying a token.
+ *
+ * The token travels in the query string (see `AuthTokenProvider`), so over
+ * `ws://` it is readable by anyone on the path — and unlike a header it is also
+ * the kind of value that ends up in proxy and server access logs. An
+ * origin-relative URL inherits the page's scheme and is left alone.
+ */
+function requireEncryptedTransport(url: string): void {
+  const host = cleartextHost(url);
+  if (host !== null && !internalHostAllowed(host)) {
+    throw new Error(
+      `opto-sync: refusing to send a session token over cleartext to public host "${host}": ` +
+        'use wss:// (or https://), an in-cluster address, or loopback',
+    );
+  }
+}
+
 interface PendingRequest {
   resolve: (frame: Record<string, unknown>) => void;
   reject: (error: Error) => void;
@@ -250,6 +296,7 @@ export class WebSocketTransport implements ProtocolTransport {
     const token = await this.options.auth?.getToken();
     let url = this.options.url;
     if (token) {
+      requireEncryptedTransport(url);
       const separator = url.includes('?') ? '&' : '?';
       url = `${url}${separator}token=${encodeURIComponent(token)}`;
     }

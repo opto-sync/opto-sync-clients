@@ -62,12 +62,27 @@ Future<({Process process, Future<String> stderr})> _startHolder(
   return (process: process, stderr: stderr);
 }
 
-Future<String> _firstLine(Process process) {
-  return process.stdout
+/// First stdout line of [process], or a diagnosable failure.
+///
+/// A child that dies before printing closes stdout empty, and a bare
+/// `Stream.first` then throws `Bad state: No element` — hiding the child's
+/// exit code and stderr, which carry the actual reason. Race the line
+/// against process exit and surface both instead.
+Future<String> _firstLine(Process process, Future<String> stderr) async {
+  final line = process.stdout
       .transform(utf8.decoder)
       .transform(const LineSplitter())
-      .first
-      .timeout(const Duration(seconds: 20));
+      .first;
+  final winner = await Future.any<Object>([
+    line,
+    process.exitCode,
+  ]).timeout(const Duration(seconds: 20));
+  if (winner is String) return winner;
+  final detail = _meaningfulStderr(await stderr);
+  throw StateError(
+    'child exited (code $winner) before its first line'
+    '${detail.isEmpty ? '' : '; stderr: $detail'}',
+  );
 }
 
 Future<void> _terminate(Process process) async {
