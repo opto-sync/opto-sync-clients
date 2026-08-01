@@ -134,11 +134,12 @@ export function startCrossTabCoordinator(
   }
 
   const onMessage = (event: { data: unknown }) => {
+    if (disposed) return;
     const data = event.data as { type?: string; state?: ProtocolSyncState } | null;
     if (!data || typeof data !== 'object') return;
     if (data.type === 'hint' && leader) {
       options.loop.hint();
-    } else if (data.type === 'state' && !leader && data.state) {
+    } else if (data.type === 'state' && !leader && isSyncState(data.state)) {
       try {
         options.onRemoteState?.(data.state);
       } catch {
