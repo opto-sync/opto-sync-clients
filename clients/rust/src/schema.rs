@@ -716,6 +716,16 @@ mod tests {
             .to_string(),
         );
         assert_eq!(issue_paths(&error), ["formatVersion"]);
+
+        // DELIBERATE: `1.0` is a float, not the integer literal 1, and this
+        // validator applies that rule uniformly — the same reason it rejects a
+        // `1.0` timestamp. Both reference validators accept it here (zod
+        // because `JSON.parse` collapses `1.0` to `1`, Dart because `1.0 == 1`
+        // is numeric equality), yet Dart still rejects `"updatedAt": 1.0`
+        // because that check is a type test. Being consistent is worth being
+        // stricter than both on a value no encoder emits for a version field.
+        let error = expect_invalid(&r#"{"formatVersion":1.0,"records":[]}"#.to_string());
+        assert_eq!(issue_paths(&error), ["formatVersion", "records"]);
     }
 
     #[test]
