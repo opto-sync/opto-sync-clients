@@ -95,7 +95,9 @@ export function installOptoSyncServiceWorker(
   const periodicSyncTag = options.periodicSyncTag ?? DEFAULT_PERIODIC_SYNC_TAG;
   const messageType = options.messageType ?? SYNC_MESSAGE_TYPE;
 
-  const selfOrigin = (globalThis as { origin?: unknown }).origin;
+  // The worker global carries its own origin; read it from `scope` so the
+  // check is exercisable with an injected scope instead of only in a browser.
+  const selfOrigin = (scope as unknown as { origin?: unknown }).origin;
 
   let sessionPromise: Promise<ServiceWorkerSyncSession> | undefined;
   const session = () => {
