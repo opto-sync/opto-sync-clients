@@ -69,7 +69,11 @@ jobs:
 
       - name: Build reference adapter
         working-directory: formal/sdk/go
-        run: go build -trimpath -o ../../../.formal-artifacts/go/fm-go-reference ./cmd/fm-go-reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ../../../.formal-artifacts/go
+          go build -trimpath -o ../../../.formal-artifacts/go/fm-go-reference ./cmd/fm-go-reference
 
       - name: Record protocol provenance
         shell: bash
