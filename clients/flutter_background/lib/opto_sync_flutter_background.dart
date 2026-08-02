@@ -38,8 +38,9 @@ import 'package:flutter/widgets.dart';
 typedef BackgroundDrain = Future<bool> Function();
 
 class OptoSyncBackground {
-  static const MethodChannel _channel =
-      MethodChannel('dev.optosync.background/methods');
+  static const MethodChannel _channel = MethodChannel(
+    'dev.optosync.background/methods',
+  );
 
   /// Overridable for tests.
   @visibleForTesting
@@ -55,8 +56,9 @@ class OptoSyncBackground {
         "@pragma('vm:entry-point')",
       );
     }
-    final dispatcher =
-        PluginUtilities.getCallbackHandle(setupBackgroundChannel)!;
+    final dispatcher = PluginUtilities.getCallbackHandle(
+      setupBackgroundChannel,
+    )!;
     await channel.invokeMethod<void>('initialize', {
       'callbackHandle': handle.toRawHandle(),
       'dispatcherHandle': dispatcher.toRawHandle(),
@@ -71,11 +73,10 @@ class OptoSyncBackground {
   static Future<void> registerPeriodic({
     Duration frequency = const Duration(hours: 1),
     bool requiresNetwork = true,
-  }) =>
-      channel.invokeMethod<void>('registerPeriodic', {
-        'frequencySeconds': frequency.inSeconds,
-        'requiresNetwork': requiresNetwork,
-      });
+  }) => channel.invokeMethod<void>('registerPeriodic', {
+    'frequencySeconds': frequency.inSeconds,
+    'requiresNetwork': requiresNetwork,
+  });
 
   /// Schedules a one-shot drain as soon as the OS allows (Android expedited
   /// work; iOS submits the refresh task request immediately). Wire this to
@@ -97,8 +98,9 @@ class OptoSyncBackground {
   @pragma('vm:entry-point')
   static Future<void> setupBackgroundChannel() async {
     WidgetsFlutterBinding.ensureInitialized();
-    const backgroundChannel =
-        MethodChannel('dev.optosync.background/background');
+    const backgroundChannel = MethodChannel(
+      'dev.optosync.background/background',
+    );
     backgroundChannel.setMethodCallHandler((call) async {
       if (call.method != 'runDrain') return null;
       final rawHandle = (call.arguments as Map)['callbackHandle'] as int;
