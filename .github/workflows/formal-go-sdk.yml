@@ -1,0 +1,103 @@
+name: Formal Go adapter SDK
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/formal-go-sdk.yml'
+      - 'formal/ADAPTER_STREAM_PROTOCOL.md'
+      - 'formal/adapter-stream-protocol.schema.json'
+      - 'formal/protocol-fixtures/stream/**'
+      - 'formal/sdk/go/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/formal-go-sdk.yml'
+      - 'formal/ADAPTER_STREAM_PROTOCOL.md'
+      - 'formal/adapter-stream-protocol.schema.json'
+      - 'formal/protocol-fixtures/stream/**'
+      - 'formal/sdk/go/**'
+  schedule:
+    - cron: '29 8 * * 5'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: formal-go-sdk-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  conformance:
+    name: Go framing, canonicalization, race, and golden transcripts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Install Go from module contract
+        uses: actions/setup-go@c0137caad775660c0844396c52da96e560aba63d # v6
+        with:
+          go-version-file: formal/sdk/go/go.mod
+          cache: false
+
+      - name: Verify formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          unformatted="$(gofmt -l formal/sdk/go)"
+          if [[ -n "$unformatted" ]]; then
+            printf 'unformatted Go files:\n%s\n' "$unformatted" >&2
+            exit 1
+          fi
+
+      - name: Test shared golden transcripts and protocol state
+        working-directory: formal/sdk/go
+        run: go test ./...
+
+      - name: Detect data races
+        working-directory: formal/sdk/go
+        run: go test -race ./...
+
+      - name: Vet SDK and reference adapter
+        working-directory: formal/sdk/go
+        run: go vet ./...
+
+      - name: Build reference adapter
+        working-directory: formal/sdk/go
+        run: go build -trimpath -o ../../../.formal-artifacts/go/fm-go-reference ./cmd/fm-go-reference
+
+      - name: Record protocol provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .formal-artifacts/go
+          {
+            printf 'commit=%s\n' "$GITHUB_SHA"
+            printf 'go=' && go version
+            sha256sum \
+              formal/ADAPTER_STREAM_PROTOCOL.md \
+              formal/adapter-stream-protocol.schema.json \
+              formal/protocol-fixtures/stream/valid/happy.jsonl \
+              formal/protocol-fixtures/stream/valid/unsupported.jsonl \
+              formal/protocol-fixtures/stream/invalid/duplicate-request-id.jsonl \
+              formal/protocol-fixtures/stream/invalid/stale-generation.jsonl \
+              formal/sdk/go/go.mod \
+              formal/sdk/go/canonical.go \
+              formal/sdk/go/protocol.go \
+              formal/sdk/go/transcript.go \
+              formal/sdk/go/server.go \
+              formal/sdk/go/lease_machine.go
+          } > .formal-artifacts/go/provenance.txt
+
+      - name: Upload reference binary and provenance
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: formal-go-adapter-sdk
+          path: .formal-artifacts/go/
+          if-no-files-found: error
+          retention-days: 14
