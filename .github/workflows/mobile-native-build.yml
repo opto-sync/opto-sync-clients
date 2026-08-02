@@ -38,6 +38,44 @@ env:
   FLUTTER_VERSION: '3.44.2'
 
 jobs:
+  plugin-dart:
+    name: Flutter plugin Dart surface
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout clients and exact core
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install the pinned Flutter SDK
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      # The native jobs below prove the Kotlin/Java/Swift/ObjC sources compile;
+      # nothing ran the plugin's own Dart tests, so the scheduling API they
+      # cover — callback-handle registration, periodic/expedited forwarding,
+      # and the swallowing of platform scheduling failures — was unguarded.
+      - name: Analyze and test the plugin's Dart surface
+        working-directory: clients/flutter_background
+        run: |
+          set -euo pipefail
+          flutter --version
+          flutter pub get
+          dart format --output=none --set-exit-if-changed lib test
+          flutter analyze
+          flutter test
+
+      - name: Explain a failure
+        if: failure()
+        run: |
+          echo "::error title=opto-sync-clients flutter_background Dart FAILED::\
+          Reproduce with: cd clients/flutter_background && flutter pub get && flutter test"
+
   android-native:
     name: Android native (Kotlin + Java)
     runs-on: ubuntu-latest
