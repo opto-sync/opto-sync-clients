@@ -189,6 +189,14 @@ Three consequences:
 * **A guard only applies when both sides carry the key.** An element with no
   `updatedAt` on either side is a plain last-writer-wins deep merge, so arrival
   order decides.
+* **Several LWW keys form a veto, not a precedence order.** `"updatedAt,syncedAt"`
+  does not mean "compare `updatedAt`, fall back to `syncedAt`". The incoming node
+  is rejected if *any* listed key is strictly newer on the base side — so adding
+  a second LWW key makes rejection **more** likely, never less. A record whose
+  `updatedAt` says the incoming write is newer still loses if its `syncedAt` says
+  otherwise. Pinned by
+  [`clients/rust/tests/timestamp_format_skew.rs`](../clients/rust/tests/timestamp_format_skew.rs)
+  and its TypeScript twin.
 * **Explicit `createdAt` FWW rejects a *newer* incoming value and accepts an
   older one by vetoing or accepting the whole node.** This is not field
   immutability. A replica with a later creation claim can otherwise be unable
