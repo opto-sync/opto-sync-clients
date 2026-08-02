@@ -38,6 +38,11 @@ import 'package:flutter/widgets.dart';
 typedef BackgroundDrain = Future<bool> Function();
 
 class OptoSyncBackground {
+  /// WorkManager's cross-version periodic-work floor. The same floor is
+  /// applied before crossing the platform channel so Android and iOS callers
+  /// do not observe different behavior for an impossible cadence.
+  static const Duration minimumPeriodicFrequency = Duration(minutes: 15);
+
   static const MethodChannel _channel = MethodChannel(
     'dev.optosync.background/methods',
   );
@@ -58,7 +63,10 @@ class OptoSyncBackground {
     }
     final dispatcher = PluginUtilities.getCallbackHandle(
       setupBackgroundChannel,
-    )!;
+    );
+    if (dispatcher == null) {
+      throw StateError('opto-sync background dispatcher is not an entry point');
+    }
     await channel.invokeMethod<void>('initialize', {
       'callbackHandle': handle.toRawHandle(),
       'dispatcherHandle': dispatcher.toRawHandle(),
@@ -73,20 +81,30 @@ class OptoSyncBackground {
   static Future<void> registerPeriodic({
     Duration frequency = const Duration(hours: 1),
     bool requiresNetwork = true,
-  }) => channel.invokeMethod<void>('registerPeriodic', {
-    'frequencySeconds': frequency.inSeconds,
-    'requiresNetwork': requiresNetwork,
-  });
+  }) async {
+    if (frequency < minimumPeriodicFrequency) {
+      throw RangeError.value(
+        frequency,
+        'frequency',
+        'must be at least $minimumPeriodicFrequency',
+      );
+    }
+    await channel.invokeMethod<void>('registerPeriodic', {
+      'frequencySeconds': frequency.inSeconds,
+      'requiresNetwork': requiresNetwork,
+    });
+  }
 
   /// Schedules a one-shot drain as soon as the OS allows (Android expedited
-  /// work; iOS submits the refresh task request immediately). Wire this to
+  /// work; iOS submits a network-bound processing request). Wire this to
   /// `OptoSyncClient.setBackgroundSyncTrigger` for evented push-on-commit.
   static Future<void> scheduleExpedited() async {
     try {
       await channel.invokeMethod<void>('scheduleExpedited');
-    } on PlatformException {
+    } on Exception {
       // A scheduling failure must never fail the durable local write; the
-      // periodic drain (or next foreground session) still delivers.
+      // periodic drain (or next foreground session) still delivers. This also
+      // covers MissingPluginException on an unsupported desktop/test host.
     }
   }
 
@@ -103,7 +121,18 @@ class OptoSyncBackground {
     );
     backgroundChannel.setMethodCallHandler((call) async {
       if (call.method != 'runDrain') return null;
-      final rawHandle = (call.arguments as Map)['callbackHandle'] as int;
+      final arguments = call.arguments;
+      if (arguments is! Map) {
+        throw ArgumentError.value(arguments, 'arguments', 'must be a map');
+      }
+      final rawHandle = arguments['callbackHandle'];
+      if (rawHandle is! int || rawHandle <= 0) {
+        throw ArgumentError.value(
+          rawHandle,
+          'callbackHandle',
+          'must be a positive integer',
+        );
+      }
       final handle = CallbackHandle.fromRawHandle(rawHandle);
       final callback = PluginUtilities.getCallbackFromHandle(handle);
       if (callback is! BackgroundDrain) {

@@ -46,9 +46,9 @@ export interface CrossTabCoordinatorOptions {
   onLeadershipChange?: (isLeader: boolean) => void;
   /** Receives sync state broadcast by the current leader (any tab). */
   onRemoteState?: (state: ProtocolSyncState) => void;
-  /** Injectable platform hooks for tests. */
+  /** Injectable platform hooks. Set `null` to explicitly disable Web Locks. */
   broadcastChannelFactory?: (name: string) => BroadcastChannelLike;
-  locks?: LockManagerLike;
+  locks?: LockManagerLike | null;
 }
 
 export interface CrossTabCoordinator {
@@ -116,7 +116,8 @@ export function startCrossTabCoordinator(
   const channel =
     options.broadcastChannelFactory?.(options.channelName ?? DEFAULT_CHANNEL) ??
     defaultChannelFactory(options.channelName ?? DEFAULT_CHANNEL);
-  const locks = options.locks ?? defaultLocks();
+  const locks =
+    options.locks === undefined ? defaultLocks() : options.locks ?? undefined;
 
   let leader = false;
   let disposed = false;

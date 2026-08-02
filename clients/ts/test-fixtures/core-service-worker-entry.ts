@@ -1,18 +1,20 @@
 import {
-  OPTO_SYNC_BACKGROUND_TAG,
   installOptoSyncServiceWorker,
-} from '../../src/service-worker.ts';
+  type ServiceWorkerScopeLike,
+} from '../src/service-worker.ts';
+import type { ProtocolSyncCycleResult } from '../src/sync-loop.ts';
 
-const scope = self as unknown as {
-  addEventListener(type: string, listener: (event: any) => void): void;
-  removeEventListener(type: string, listener: (event: any) => void): void;
+// This entry is bundled for Chromium; keeping it outside `test/` prevents
+// Node's recursive test discovery from evaluating the `self` global.
+const databaseName = 'opto-sync-core-service-worker-e2e';
+const workerInstance = crypto.randomUUID();
+const scope = self as unknown as ServiceWorkerScopeLike & {
   clients: { matchAll(): Promise<Array<{ postMessage(value: unknown): void }>> };
 };
-const workerInstance = crypto.randomUUID();
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open('opto-sync-service-worker-e2e', 1);
+    const request = indexedDB.open(databaseName, 1);
     request.onupgradeneeded = () => {
       request.result.createObjectStore('meta', { keyPath: 'key' });
     };
@@ -22,7 +24,8 @@ function openDatabase(): Promise<IDBDatabase> {
 }
 
 async function incrementCycle(): Promise<number> {
-  // Keep the cycle open briefly so concurrent messages prove single-flight.
+  // Make concurrent tab messages overlap so the SDK's single-flight promise
+  // is exercised by the real service-worker event loop.
   await new Promise((resolve) => setTimeout(resolve, 75));
   const database = await openDatabase();
   try {
@@ -46,13 +49,23 @@ async function incrementCycle(): Promise<number> {
 
 installOptoSyncServiceWorker({
   scope,
-  tag: OPTO_SYNC_BACKGROUND_TAG,
-  timeoutMs: 5_000,
-  async syncOnce() {
-    const cycles = await incrementCycle();
-    for (const client of await scope.clients.matchAll()) {
-      client.postMessage({ type: 'opto-sync:e2e-cycle', cycles });
-    }
-    return { cycles, workerInstance };
-  },
+  createSession: () => ({
+    loop: {
+      async syncNow() {
+        const cycles = await incrementCycle();
+        for (const client of await scope.clients.matchAll()) {
+          client.postMessage({ type: 'opto-sync:core-e2e-cycle', cycles });
+        }
+        return {
+          pushedMutations: cycles,
+          acknowledgedMutations: cycles,
+          pulledChanges: 0,
+          installedSnapshots: 0,
+          checkpoint: String(cycles),
+          hasMorePending: false,
+          workerInstance,
+        } as ProtocolSyncCycleResult & { workerInstance: string };
+      },
+    },
+  }),
 });

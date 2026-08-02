@@ -16,6 +16,7 @@ on:
       - 'clients/flutter_background/**'
       - 'clients/reactive-dart/native/**'
       - 'scripts/build-mobile-native.py'
+      - 'scripts/check-mobile-background-contracts.py'
       - '.github/workflows/mobile-native-build.yml'
   push:
     branches: [main]
@@ -23,6 +24,7 @@ on:
       - 'clients/flutter_background/**'
       - 'clients/reactive-dart/native/**'
       - 'scripts/build-mobile-native.py'
+      - 'scripts/check-mobile-background-contracts.py'
       - '.github/workflows/mobile-native-build.yml'
   workflow_dispatch:
 
@@ -48,6 +50,9 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+
+      - name: Verify cross-language background safety contracts
+        run: python3 scripts/check-mobile-background-contracts.py
 
       - name: Install the pinned Flutter SDK
         uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0

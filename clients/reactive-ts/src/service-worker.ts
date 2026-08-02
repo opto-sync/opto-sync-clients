@@ -1,6 +1,10 @@
-export const OPTO_SYNC_BACKGROUND_TAG = 'opto-sync:background';
+/** Canonical tag shared with `@opto-sync/client/service-worker`. */
+export const OPTO_SYNC_BACKGROUND_TAG = 'opto-sync';
+/** Accepted so registrations created by the first reactive release survive upgrades. */
+export const OPTO_SYNC_LEGACY_BACKGROUND_TAG = 'opto-sync:background';
 export const OPTO_SYNC_WAKE_MESSAGE = 'opto-sync:sync';
 export const OPTO_SYNC_RESULT_MESSAGE = 'opto-sync:sync-result';
+export const OPTO_SYNC_FAILURE_CODE = 'SYNC_FAILED';
 
 export interface ExtendableEventLike {
   waitUntil(promise: Promise<unknown>): void;
@@ -34,6 +38,8 @@ export interface ServiceWorkerSyncOptions<R = unknown> {
   scope: ServiceWorkerScopeLike;
   syncOnce(signal: AbortSignal): Promise<R>;
   tag?: string;
+  /** Additional tags to accept. The canonical default also accepts the legacy tag. */
+  additionalTags?: readonly string[];
   timeoutMs?: number;
   runOnActivate?: boolean;
   onError?: (error: unknown) => void;
@@ -74,6 +80,12 @@ export function installOptoSyncServiceWorker<R>(
   options: ServiceWorkerSyncOptions<R>,
 ): ServiceWorkerSyncController<R> {
   const tag = options.tag ?? OPTO_SYNC_BACKGROUND_TAG;
+  const additionalTags =
+    options.additionalTags ??
+    (tag === OPTO_SYNC_BACKGROUND_TAG
+      ? [OPTO_SYNC_LEGACY_BACKGROUND_TAG]
+      : []);
+  const acceptedTags = new Set([tag, ...additionalTags]);
   const timeoutMs = options.timeoutMs ?? 25_000;
   if (
     !Number.isFinite(timeoutMs) ||
@@ -122,7 +134,12 @@ export function installOptoSyncServiceWorker<R>(
     });
     const currentVisible = Promise.race([currentOperation, deadline]).catch(
       (error) => {
-        options.onError?.(error);
+        try {
+          options.onError?.(error);
+        } catch {
+          // Observability must never replace the sync failure or leak a new
+          // exception into the service-worker event lifecycle.
+        }
         throw error;
       },
     );
@@ -139,7 +156,7 @@ export function installOptoSyncServiceWorker<R>(
     raw: SyncEventLike | MessageEventLike | ExtendableEventLike,
   ) => {
     const event = raw as SyncEventLike;
-    if (event.tag !== tag) return;
+    if (!event.tag || !acceptedTags.has(event.tag)) return;
     event.waitUntil(runNow());
   };
   const messageListener = (
@@ -148,24 +165,30 @@ export function installOptoSyncServiceWorker<R>(
     const event = raw as MessageEventLike;
     const request = wakeRequest(event.data);
     if (!request) return;
+    const reply = (value: unknown): void => {
+      try {
+        event.source?.postMessage(value);
+      } catch {
+        // A detached client is not a failed durable sync cycle.
+      }
+    };
     const result = runNow().then(
       (value) => {
-        event.source?.postMessage({
+        reply({
           type: OPTO_SYNC_RESULT_MESSAGE,
           requestId: request.requestId,
           ok: true,
           value,
         });
       },
-      (error) => {
-        event.source?.postMessage({
+      () => {
+        reply({
           type: OPTO_SYNC_RESULT_MESSAGE,
           requestId: request.requestId,
           ok: false,
-          error:
-            error instanceof Error
-              ? error.message.slice(0, 200)
-              : String(error).slice(0, 200),
+          // Never echo transport or storage exception strings: they may
+          // contain URLs, credentials, tenant ids, or payload fragments.
+          error: OPTO_SYNC_FAILURE_CODE,
         });
       },
     );
@@ -210,8 +233,13 @@ export async function registerOptoSyncBackgroundWake(
   tag = OPTO_SYNC_BACKGROUND_TAG,
 ): Promise<'background-sync' | 'message'> {
   if (registration.sync) {
-    await registration.sync.register(tag);
-    return 'background-sync';
+    try {
+      await registration.sync.register(tag);
+      return 'background-sync';
+    } catch {
+      // Permission, quota, or a transient registration failure must not
+      // strand a durable mutation when a live worker can accept a message.
+    }
   }
   const target =
     registration.active ?? registration.waiting ?? registration.installing;

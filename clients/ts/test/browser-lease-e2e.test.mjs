@@ -30,6 +30,12 @@ import { join } from 'node:path';
 import { serveBundle } from './helpers/bundle.mjs';
 import { createSyncFixture, FIXTURE_TRANSPORT_SOURCE } from './helpers/sync-fixture.mjs';
 
+const executablePath = process.env.OPTO_SYNC_CHROMIUM_PATH?.trim();
+const browserLaunchOptions = () => ({
+  headless: true,
+  ...(executablePath ? { executablePath } : {}),
+});
+
 const HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>opto-sync lease harness</title></head>
 <body>
@@ -42,7 +48,7 @@ async function loadChromium() {
   try {
     const { chromium } = await import('playwright');
     // Prove a browser can actually start before declaring the suite runnable.
-    const probe = await chromium.launch({ headless: true });
+    const probe = await chromium.launch(browserLaunchOptions());
     await probe.close();
     return chromium;
   } catch (err) {
@@ -105,7 +111,10 @@ test(
     const DB = 'opto-lease-durability';
 
     /* --- first run of the browser: queue two writes, then quit --- */
-    const first = await chromium.launchPersistentContext(userDataDir, { headless: true });
+    const first = await chromium.launchPersistentContext(
+      userDataDir,
+      browserLaunchOptions(),
+    );
     const errorsA = [];
     const pageA = await first.newPage();
     watchForErrors(pageA, errorsA);
@@ -139,7 +148,10 @@ test(
     await first.close();
 
     /* --- second run: same profile directory, brand-new process --- */
-    const second = await chromium.launchPersistentContext(userDataDir, { headless: true });
+    const second = await chromium.launchPersistentContext(
+      userDataDir,
+      browserLaunchOptions(),
+    );
     const errorsB = [];
     const pageB = await second.newPage();
     watchForErrors(pageB, errorsB);
@@ -211,7 +223,7 @@ test(
   async (t) => {
     const fixture = createSyncFixture();
     const server = await serveBundle(HTML, fixture.route);
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch(browserLaunchOptions());
     // One context = one origin = one IndexedDB, one BroadcastChannel bus and
     // one Web Locks namespace, exactly like two tabs of a real app.
     const context = await browser.newContext();
@@ -349,7 +361,7 @@ test(
   async (t) => {
     const fixture = createSyncFixture();
     const server = await serveBundle(HTML, fixture.route);
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch(browserLaunchOptions());
     t.after(async () => {
       await browser.close();
       await server.close();
@@ -504,7 +516,7 @@ test(
   { skip: SKIP, timeout: 180_000 },
   async (t) => {
     const server = await serveBundle(HTML);
-    const browser = await chromium.launch({ headless: true });
+    const browser = await chromium.launch(browserLaunchOptions());
     t.after(async () => {
       await browser.close();
       await server.close();
