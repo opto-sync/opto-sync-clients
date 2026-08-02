@@ -89,6 +89,7 @@ def main() -> int:
     copy_tree(ROOT / "syncer.c/core/include", output / "syncer.c/core/include")
     copy_tree(ROOT / "syncer.c/core/src", output / "syncer.c/core/src")
     copy_tree(ROOT / "syncer.c/bindings/rust", output / "syncer.c/bindings/rust")
+    copy_tree(ROOT / "schema/fixtures", output / "schema/fixtures")
 
     shutil.copy2(ROOT / "LICENSE", output / "LICENSE")
     (output / "scripts").mkdir()
@@ -160,8 +161,8 @@ exclude = [".zpkg.lock"]
     (output / "README.md").write_text(
         f"""# opto-sync Rust target prototype
 
-This staged source package contains only the Rust client and the exact C core
-and Rust FFI binding pinned by `opto-sync-clients`.
+This staged source package contains only the Rust client, its shared JSON fixture
+corpus, and the exact C core and Rust FFI binding pinned by `opto-sync-clients`.
 
 - Client source: `{client_sha}`
 - Core source: `{gitlink_sha}`

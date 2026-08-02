@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'clients/rust/**'
+      - 'schema/fixtures/**'
       - 'syncer.c'
       - 'targets/layouts.v1.json'
       - 'scripts/check-rust-target.py'
@@ -15,6 +16,7 @@ on:
     branches: [main]
     paths:
       - 'clients/rust/**'
+      - 'schema/fixtures/**'
       - 'syncer.c'
       - 'targets/layouts.v1.json'
       - 'scripts/check-rust-target.py'
@@ -130,6 +132,9 @@ jobs:
             'pkg/clients/rust/Cargo.lock'
             'pkg/clients/rust/src/lib.rs'
             'pkg/clients/rust/src/bin/core_identity.rs'
+            'pkg/schema/fixtures/valid/basic-upsert.json'
+            'pkg/schema/fixtures/valid/nested-keyed-arrays.json'
+            'pkg/schema/fixtures/invalid/bad-table-identifier.json'
             'pkg/syncer.c/SOURCE_SHA'
             'pkg/syncer.c/core/include/syncer.h'
             'pkg/syncer.c/core/src/syncer.c'

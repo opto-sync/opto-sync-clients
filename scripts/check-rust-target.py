@@ -85,6 +85,9 @@ def main() -> int:
         "clients/rust/Cargo.lock",
         "clients/rust/src/lib.rs",
         "clients/rust/src/bin/core_identity.rs",
+        "schema/fixtures/valid/basic-upsert.json",
+        "schema/fixtures/valid/nested-keyed-arrays.json",
+        "schema/fixtures/invalid/bad-table-identifier.json",
         "syncer.c/SOURCE_SHA",
         "syncer.c/core/include/syncer.h",
         "syncer.c/core/src/syncer.c",
@@ -97,6 +100,14 @@ def main() -> int:
         require_file(relative)
     if (ROOT / "clients/rust/examples").exists():
         fail("conventional examples/ must not carry the packed identity probe")
+    for kind in ("valid", "invalid"):
+        fixture_root = ROOT / "schema/fixtures" / kind
+        fixtures = sorted(fixture_root.iterdir())
+        if not fixtures:
+            fail(f"schema/fixtures/{kind} must contain at least one fixture")
+        for fixture in fixtures:
+            if not fixture.is_file() or fixture.suffix != ".json":
+                fail(f"unexpected shared fixture entry: {fixture.relative_to(ROOT)}")
 
     manifest = load_toml(ROOT / ".zpkg.toml")
     package = manifest.get("package", {})
