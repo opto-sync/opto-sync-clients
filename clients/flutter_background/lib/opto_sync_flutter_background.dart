@@ -128,11 +128,11 @@ class OptoSyncBackground {
         throw ArgumentError.value(arguments, 'arguments', 'must be a map');
       }
       final rawHandle = arguments['callbackHandle'];
-      if (rawHandle is! int || rawHandle <= 0) {
+      if (rawHandle is! int || rawHandle == 0) {
         throw ArgumentError.value(
           rawHandle,
           'callbackHandle',
-          'must be a positive integer',
+          'must be a non-zero integer',
         );
       }
       final handle = CallbackHandle.fromRawHandle(rawHandle);

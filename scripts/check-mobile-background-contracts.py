@@ -75,7 +75,7 @@ def main() -> int:
             "frequency.compareTo(minimumPeriodicFrequency) < 0",
             "on Exception",
             "@pragma('vm:entry-point')",
-            "rawHandle is! int || rawHandle <= 0",
+            "rawHandle is! int || rawHandle == 0",
         ),
     )
     require(
