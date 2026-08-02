@@ -37,7 +37,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Checkout opto-sync-clients and pinned core
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -47,6 +47,28 @@ jobs:
           set -euo pipefail
           python3 scripts/check-dependency-boundary.py
           python3 scripts/check-zed-packaging.py
+
+  envelope-schema:
+    name: Envelope schema agrees with the shared corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout opto-sync-clients
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4
+        with:
+          node-version: '22'
+      # Every language validator is hand-written from this schema and tested
+      # against these fixtures; this is the only check that holds the schema
+      # DOCUMENT itself to the same corpus.
+      - name: Evaluate the schema against every fixture
+        working-directory: schema
+        run: |
+          set -euo pipefail
+          npm ci
+          npm test
 
   clients:
     name: clients/${{ matrix.client }}
@@ -67,7 +89,7 @@ jobs:
             gleam: true
     steps:
       - name: Checkout opto-sync-clients and pinned core
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           path: opto-sync-clients
           fetch-depth: 0
@@ -82,7 +104,7 @@ jobs:
           test -f opto-sync-clients/syncer.c/core/include/syncer.h
           python3 opto-sync-clients/scripts/check-dependency-boundary.py
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         if: matrix.client == 'ts' || matrix.client == 'dart'
         with:
           node-version: '22'
@@ -92,14 +114,14 @@ jobs:
           cache: npm
           cache-dependency-path: opto-sync-clients/clients/ts/package-lock.json
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         if: matrix.dart
         with:
           sdk: stable
 
       - name: Install pinned OTP and Elixir for Gleam
         if: matrix.gleam
-        uses: erlef/setup-beam@v1
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
         with:
           otp-version: '27.3'
           elixir-version: '1.18.4'
@@ -112,7 +134,7 @@ jobs:
 
       - name: Cache cargo registry (downloads only, never target/)
         if: matrix.rust
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/registry/index
@@ -147,10 +169,42 @@ jobs:
         working-directory: opto-sync-clients/clients/ts
         run: npm run build
 
-      - name: clients/ts — npm test
+      # The TS suite contains real-Chromium tests (IndexedDB durability across a
+      # browser restart, multi-tab Web Locks lease fencing, consistency modes).
+      # Without the browser binaries those tests SKIP, which reads as green, so
+      # Chromium is installed here and OPTO_SYNC_REQUIRE_BROWSER makes a missing
+      # browser a hard failure below.
+      - name: Cache Playwright browsers
+        if: matrix.client == 'ts'
+        id: playwright-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('opto-sync-clients/clients/ts/package-lock.json') }}
+          restore-keys: playwright-${{ runner.os }}-
+
+      - name: Install Chromium for the TypeScript browser suites
         if: matrix.client == 'ts'
         working-directory: opto-sync-clients/clients/ts
+        run: npx playwright install --with-deps chromium
+
+      - name: clients/ts — npm test (includes real-Chromium browser suites)
+        if: matrix.client == 'ts'
+        working-directory: opto-sync-clients/clients/ts
+        env:
+          OPTO_SYNC_REQUIRE_BROWSER: '1'
         run: npm test
+
+      - name: Upload browser failure diagnostics
+        if: matrix.client == 'ts' && failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ts-browser-diagnostics-${{ github.run_id }}
+          path: |
+            opto-sync-clients/clients/ts/test/.tmp/
+            opto-sync-clients/clients/ts/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: clients/dart — analyze and native SQLite/FFI tests
         if: matrix.client == 'dart'
@@ -188,7 +242,7 @@ jobs:
 
       - name: Upload Rust default-feature diagnostics
         if: matrix.client == 'rust' && failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: rust-default-test-diagnostics-${{ github.run_id }}
           path: ${{ runner.temp }}/rust-default-tests.log

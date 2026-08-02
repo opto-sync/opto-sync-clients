@@ -56,7 +56,7 @@ public final class OptoSyncWorker extends ListenableWorker {
           engine.getDartExecutor().getBinaryMessenger(),
           CHANNEL_NAME);
 
-      final Consumer<Result> finish = workerResult -> {
+      final FinishCallback finish = workerResult -> {
         if (!completed.compareAndSet(false, true)) return;
         if (timeout[0] != null) mainHandler.removeCallbacks(timeout[0]);
         final MethodChannel active = channel;
