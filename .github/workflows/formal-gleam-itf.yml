@@ -127,6 +127,25 @@ jobs:
           gleam build
           sh -n formal/quint-itf-replay.sh
 
+      - name: Replay deterministic empty-set and batch-isolation fixture
+        working-directory: clients/gleam
+        shell: bash
+        run: |
+          set -euo pipefail
+          fixture='formal/fixtures/empty-set-init.itf.json'
+          request="$(jq -cn --arg fixture "$fixture" '{
+            protocol: "fmctl.adapter.v1",
+            traces: [$fixture, $fixture]
+          }')"
+          result="$(printf '%s\n' "$request" | sh formal/quint-itf-replay.sh)"
+          printf '%s\n' "$result" | jq -e '
+            .protocol == "fmctl.adapter.v1"
+            and .success == true
+            and .traces_total == 2
+            and .traces_passed == 2
+            and (.mismatches | length) == 0
+          '
+
       - name: Replay the shared traces through the active manifest adapter
         shell: bash
         run: |
@@ -167,6 +186,7 @@ jobs:
               formal/fm.toml \
               formal/opto_sync_protocol.qnt \
               formal/adapter-protocol.schema.json \
+              clients/gleam/formal/fixtures/empty-set-init.itf.json \
               clients/gleam/formal/quint-itf-replay.sh \
               clients/gleam/src/opto_sync_formal_projection.gleam \
               clients/gleam/src/opto_sync_formal_adapter.gleam \
