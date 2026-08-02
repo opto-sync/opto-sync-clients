@@ -11,10 +11,10 @@ import (
 )
 
 const (
-	Protocol                = "fm.adapter.stream.v1"
-	ProtocolVersion         = 1
-	MaxMessageBytes         = 1024 * 1024
-	MaxSettleSteps   uint64 = 1_000_000
+	Protocol               = "fm.adapter.stream.v1"
+	ProtocolVersion        = 1
+	MaxMessageBytes        = 1024 * 1024
+	MaxSettleSteps  uint64 = 1_000_000
 )
 
 var maxRequestID = mustBigInt("9007199254740991")
