@@ -118,7 +118,28 @@ func (machine *LeaseMachine) Apply(_ context.Context, action string, arguments a
 
 func (machine *LeaseMachine) Observe(context.Context) Outcome {
 	machine.expire()
-	return OK(map[string]any{"observation": machine.observationValue()})
+	resources := make([]string, 0, len(machine.leases))
+	for resource := range machine.leases {
+		resources = append(resources, resource)
+	}
+	sort.Strings(resources)
+	active := make([]any, 0, len(resources))
+	for _, resource := range resources {
+		value := machine.leases[resource]
+		active = append(active, map[string]any{
+			"resource":  resource,
+			"owner":     value.Owner,
+			"fence":     BigInt(value.Fence),
+			"expiresAt": BigInt(value.ExpiresAt),
+		})
+	}
+	return OK(map[string]any{
+		"observation": map[string]any{
+			"now":       BigInt(machine.now),
+			"nextFence": BigInt(machine.nextFence),
+			"leases":    active,
+		},
+	})
 }
 
 func (machine *LeaseMachine) Settle(ctx context.Context, _ uint64) Outcome {
@@ -126,7 +147,8 @@ func (machine *LeaseMachine) Settle(ctx context.Context, _ uint64) Outcome {
 }
 
 func (machine *LeaseMachine) Snapshot(context.Context) Outcome {
-	return OK(map[string]any{"schemaHash": leaseSchemaHash, "snapshot": machine.snapshotValue()})
+	value := machine.snapshotValue()
+	return OK(map[string]any{"schemaHash": leaseSchemaHash, "snapshot": value})
 }
 
 func (machine *LeaseMachine) Restore(_ context.Context, snapshot any, schemaHash string) Outcome {
@@ -232,22 +254,8 @@ func (machine *LeaseMachine) expire() {
 }
 
 func (machine *LeaseMachine) observationValue() any {
-	resources := make([]string, 0, len(machine.leases))
-	for resource := range machine.leases {
-		resources = append(resources, resource)
-	}
-	sort.Strings(resources)
-	active := make([]any, 0, len(resources))
-	for _, resource := range resources {
-		value := machine.leases[resource]
-		active = append(active, map[string]any{
-			"resource": resource,
-			"owner": value.Owner,
-			"fence": BigInt(value.Fence),
-			"expiresAt": BigInt(value.ExpiresAt),
-		})
-	}
-	return map[string]any{"now": BigInt(machine.now), "nextFence": BigInt(machine.nextFence), "leases": active}
+	outcome := machine.Observe(context.Background())
+	return outcome.Value.(map[string]any)["observation"]
 }
 
 func (machine *LeaseMachine) snapshotValue() any {
@@ -270,12 +278,12 @@ func (machine *LeaseMachine) snapshotValue() any {
 		canceled = append(canceled, request)
 	}
 	return map[string]any{
-		"version": 1,
-		"now": BigInt(machine.now),
-		"nextFence": BigInt(machine.nextFence),
+		"version":     1,
+		"now":         BigInt(machine.now),
+		"nextFence":   BigInt(machine.nextFence),
 		"observation": machine.observationValue(),
-		"grants": grants,
-		"canceled": canceled,
+		"grants":      grants,
+		"canceled":    canceled,
 	}
 }
 
@@ -285,9 +293,9 @@ func (machine *LeaseMachine) restoreValue(snapshot any) error {
 		return err
 	}
 	var raw struct {
-		Version   int               `json:"version"`
-		Now       map[string]string `json:"now"`
-		NextFence map[string]string `json:"nextFence"`
+		Version     int               `json:"version"`
+		Now         map[string]string `json:"now"`
+		NextFence   map[string]string `json:"nextFence"`
 		Observation struct {
 			Leases []struct {
 				Resource  string            `json:"resource"`
