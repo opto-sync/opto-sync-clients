@@ -28,11 +28,7 @@ fn read_fixtures(kind: &str) -> Vec<(String, String)> {
         })
         .collect();
     out.sort();
-    assert!(
-        !out.is_empty(),
-        "no {kind} fixtures found in {}",
-        dir.display()
-    );
+    assert!(!out.is_empty(), "no {kind} fixtures found in {}", dir.display());
     out
 }
 
@@ -105,9 +101,7 @@ fn reports_every_issue_not_merely_the_first() {
     let issues = parse_envelope(text).unwrap_err().issues;
     assert!(issues.len() >= 3, "expected several issues, got {issues:?}");
     assert!(issues.iter().any(|i| i.contains("records.0.table")));
-    assert!(issues
-        .iter()
-        .any(|i| i.contains("records.1.payload.updatedAt")));
+    assert!(issues.iter().any(|i| i.contains("records.1.payload.updatedAt")));
 }
 
 #[test]

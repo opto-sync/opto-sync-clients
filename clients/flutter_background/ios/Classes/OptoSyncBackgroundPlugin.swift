@@ -115,7 +115,7 @@ public class OptoSyncBackgroundPlugin: NSObject, FlutterPlugin {
     let finish: (Bool) -> Void = { success in
       guard !finished else { return }
       finished = true
-      engine.destroyContext()
+      engine.destroy()
       task.setTaskCompleted(success: success)
     }
 

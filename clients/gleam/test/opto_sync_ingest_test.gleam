@@ -41,9 +41,7 @@ pub fn accepts_every_shared_valid_fixture_test() {
         }
       Error(ValidationError(issues)) ->
         panic as {
-          name
-          <> ": should have been accepted, got "
-          <> string.join(issues, "; ")
+          name <> ": should have been accepted, got " <> string.join(issues, "; ")
         }
     }
   })
@@ -69,10 +67,7 @@ pub fn accepts_the_hlc_the_clients_emit_test() {
   // for the native HLC format, so every client rejected its own stamped
   // timestamps.
   let assert Ok(envelope) =
-    opto_sync_ingest.parse_envelope(fixture(
-      "valid",
-      "hlc-native-timestamps.json",
-    ))
+    opto_sync_ingest.parse_envelope(fixture("valid", "hlc-native-timestamps.json"))
   let assert [record] = envelope.records
   should.equal(record.table, "notes")
   should.equal(record.operation, Upsert)
@@ -144,5 +139,7 @@ pub fn unknown_top_level_keys_are_rejected_test() {
     <> "\"payload\":{\"updatedAt\":\"1753876800123\"}}]}"
   let assert Error(ValidationError(issues)) =
     opto_sync_ingest.parse_envelope(text)
-  should.be_true(list.any(issues, fn(i) { string.contains(i, "surprise") }))
+  should.be_true(
+    list.any(issues, fn(i) { string.contains(i, "surprise") }),
+  )
 }
