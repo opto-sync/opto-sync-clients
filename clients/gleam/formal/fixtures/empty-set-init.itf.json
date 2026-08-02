@@ -1,0 +1,120 @@
+{
+  "#meta": {
+    "format": "ITF",
+    "format-description": "https://apalache-mc.org/docs/adr/015adr-trace.html",
+    "source": "formal/opto_sync_protocol.qnt",
+    "status": "ok",
+    "description": "Deterministic empty-set decoder regression",
+    "timestamp": 0
+  },
+  "vars": [
+    "mbt::actionTaken",
+    "mbt::nondetPicks",
+    "s"
+  ],
+  "states": [
+    {
+      "#meta": {
+        "index": 0
+      },
+      "mbt::actionTaken": "init",
+      "mbt::nondetPicks": {
+        "id": {
+          "tag": "None",
+          "value": {
+            "#tup": []
+          }
+        }
+      },
+      "s": {
+        "acknowledged": {
+          "#set": []
+        },
+        "applied": {
+          "#set": []
+        },
+        "effect_count": {
+          "#map": [
+            [
+              {
+                "#bigint": "1"
+              },
+              {
+                "#bigint": "0"
+              }
+            ],
+            [
+              {
+                "#bigint": "2"
+              },
+              {
+                "#bigint": "0"
+              }
+            ],
+            [
+              {
+                "#bigint": "3"
+              },
+              {
+                "#bigint": "0"
+              }
+            ]
+          ]
+        },
+        "in_flight": {
+          "#bigint": "0"
+        },
+        "ledger": {
+          "#set": []
+        },
+        "local_checkpoint": {
+          "#bigint": "0"
+        },
+        "next_id": {
+          "#bigint": "1"
+        },
+        "pending": {
+          "#set": []
+        },
+        "rejected": {
+          "#set": []
+        },
+        "reset_checkpoint_before": {
+          "#bigint": "0"
+        },
+        "reset_pending_before": {
+          "#set": []
+        },
+        "reset_phase": {
+          "tag": "Idle",
+          "value": {
+            "#tup": []
+          }
+        },
+        "response_checkpoint": {
+          "#bigint": "0"
+        },
+        "response_mutation_id": {
+          "#bigint": "0"
+        },
+        "response_present": false,
+        "response_valid_for_in_flight": false,
+        "response_watermark": {
+          "#bigint": "0"
+        },
+        "retention_floor": {
+          "#bigint": "0"
+        },
+        "saw_duplicate_reply": false,
+        "saw_lost_response": false,
+        "saw_reset_crash": false,
+        "server_checkpoint": {
+          "#bigint": "0"
+        },
+        "server_watermark": {
+          "#bigint": "0"
+        }
+      }
+    }
+  ]
+}
