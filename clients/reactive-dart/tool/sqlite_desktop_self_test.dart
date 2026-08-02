@@ -24,6 +24,16 @@ void _expect(bool condition, String message) {
   if (!condition) throw StateError(message);
 }
 
+/// `dart run` writes native-asset build progress ("Running build hooks...") to
+/// the child's stderr. That chatter is toolchain output, not a child failure,
+/// so it must not be mistaken for one when asserting a clean exit.
+String _childDiagnostics(String stderr) {
+  return stderr
+      .replaceAll('Running build hooks...', '')
+      .replaceAll('\r', '')
+      .trim();
+}
+
 SqliteDesktopLeaseGrant _acquired(SqliteDesktopAcquireResult result) {
   if (result case SqliteDesktopAcquired(:final grant)) return grant;
   throw StateError('expected SQLite lease acquisition');
@@ -204,7 +214,10 @@ Future<void> _multiprocessContentionTest() async {
     holder = started.process;
     holderStderr = started.stderr;
     final holderLine = await _firstLine(holder);
-    _expect(holderLine == 'acquired:1', 'holder did not acquire first fence');
+    _expect(
+      _childDiagnostics(holderLine).endsWith('acquired:1'),
+      'holder did not acquire first fence (got "$holderLine")',
+    );
 
     final contenders = await Future.wait<ProcessResult>(
       List<Future<ProcessResult>>.generate(
@@ -219,15 +232,18 @@ Future<void> _multiprocessContentionTest() async {
       ),
     );
     for (final contender in contenders) {
-      _expect(contender.exitCode == 0, contender.stderr.toString());
       _expect(
-        contender.stdout.toString().trim().startsWith('busy:'),
+        contender.exitCode == 0,
+        _childDiagnostics(contender.stderr.toString()),
+      );
+      _expect(
+        _childDiagnostics(contender.stdout.toString()).contains('busy:'),
         'independent process bypassed the active lease',
       );
     }
 
     await _terminate(holder);
-    final stderr = await holderStderr!;
+    final stderr = _childDiagnostics(await holderStderr!);
     _expect(stderr.isEmpty, 'holder failed before termination: $stderr');
     holder = null;
 
@@ -270,7 +286,7 @@ Future<void> _terminationReplayTest() async {
     final firstLine = await _firstLine(child);
     _expect(firstLine == 'acquired:1', 'doomed process did not acquire');
     await _terminate(child);
-    final stderr = await childStderr!;
+    final stderr = _childDiagnostics(await childStderr!);
     _expect(
       stderr.isEmpty,
       'doomed process failed before termination: $stderr',
