@@ -147,9 +147,22 @@ jobs:
         working-directory: opto-sync-clients/clients/ts
         run: npm run build
 
+      # `npm test` runs the browser and service-worker e2e suites, and the
+      # `playwright` package ships no postinstall browser download — so without
+      # this step `npm ci` leaves Chromium absent, both suites SKIP, and the job
+      # still passes. That silently removed the only coverage of this package's
+      # central claim: optimistic writes to real IndexedDB in a real browser.
+      - name: Install Chromium for the clients/ts browser e2e suites
+        if: matrix.client == 'ts'
+        working-directory: opto-sync-clients/clients/ts
+        run: npx playwright install --with-deps chromium
+
       - name: clients/ts — npm test
         if: matrix.client == 'ts'
         working-directory: opto-sync-clients/clients/ts
+        # Fail rather than skip if Chromium is ever missing again.
+        env:
+          OPTO_SYNC_REQUIRE_BROWSER: '1'
         run: npm test
 
       - name: clients/dart — analyze and native SQLite/FFI tests
