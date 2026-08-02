@@ -14,15 +14,15 @@ void main() {
     calls.clear();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
-      const MethodChannel('dev.optosync.background/methods'),
-      (call) async {
-        calls.add(call);
-        if (call.method == 'scheduleExpedited' && _failExpedited) {
-          throw PlatformException(code: 'QUOTA');
-        }
-        return null;
-      },
-    );
+          const MethodChannel('dev.optosync.background/methods'),
+          (call) async {
+            calls.add(call);
+            if (call.method == 'scheduleExpedited' && _failExpedited) {
+              throw PlatformException(code: 'QUOTA');
+            }
+            return null;
+          },
+        );
   });
 
   test('initialize registers both the drain and dispatcher handles', () async {

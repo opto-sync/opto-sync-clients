@@ -1,6 +1,6 @@
 Pod::Spec.new do |s|
   s.name             = 'opto_sync_flutter_background'
-  s.version          = '0.1.0'
+  s.version          = '0.1.1'
   s.summary          = 'BGTaskScheduler background draining for opto-sync.'
   s.description      = <<-DESC
 Runs the opto-sync mutation-queue drain in a headless FlutterEngine from

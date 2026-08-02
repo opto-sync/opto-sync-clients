@@ -20,10 +20,21 @@ import io.flutter.plugin.common.MethodChannel;
 import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Consumer;
 
 /** Java/CallbackToFutureAdapter equivalent of the Kotlin CoroutineWorker. */
 public final class OptoSyncWorker extends ListenableWorker {
+  /**
+   * Settles the work exactly once.
+   *
+   * Declared here rather than using {@code java.util.function.Consumer}: that
+   * type is API 24, this module declares {@code minSdk 21}, and core library
+   * desugaring is not enabled — so a Consumer compiles and dexes cleanly and
+   * then throws NoClassDefFoundError on an API 21–23 device.
+   */
+  private interface FinishCallback {
+    void accept(Result result);
+  }
+
   public static final String UNIQUE_WORK_NAME = "opto-sync-background";
   private static final String CHANNEL_NAME = "opto-sync/background";
   private static final long BUDGET_MILLIS = 25_000L;
@@ -56,7 +67,7 @@ public final class OptoSyncWorker extends ListenableWorker {
           engine.getDartExecutor().getBinaryMessenger(),
           CHANNEL_NAME);
 
-      final Consumer<Result> finish = workerResult -> {
+      final FinishCallback finish = workerResult -> {
         if (!completed.compareAndSet(false, true)) return;
         if (timeout[0] != null) mainHandler.removeCallbacks(timeout[0]);
         final MethodChannel active = channel;

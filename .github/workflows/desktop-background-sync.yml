@@ -87,7 +87,7 @@ jobs:
             lib/src/sqlite_desktop.dart \
             lib/opto_sync_reactive_sqlite.dart \
             tool/desktop_self_test.dart \
-            tool/sqlite_desktop_child.dart \
+            bin/sqlite_desktop_child.dart \
             tool/sqlite_desktop_self_test.dart
           dart analyze
           dart run tool/desktop_self_test.dart

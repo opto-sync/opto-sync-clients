@@ -1,0 +1,158 @@
+name: Mobile native build
+
+# Compile gates only: no device farm, no emulator, no simulator, no signing
+# identity. Every Kotlin, Java, Swift, and Objective-C source that ships in
+# clients/flutter_background and clients/reactive-dart/native is fed to a real
+# Android or Xcode toolchain through a throwaway Flutter host app that depends
+# on the plugin by path, exactly like a downstream consumer.
+#
+# clients/reactive-dart/tool/check_native_background_adapters.py (run by
+# background-reactive-sync.yml) proves those sources *say* the right things.
+# This workflow proves they *compile*.
+
+on:
+  pull_request:
+    paths:
+      - 'clients/flutter_background/**'
+      - 'clients/reactive-dart/native/**'
+      - 'scripts/build-mobile-native.py'
+      - '.github/workflows/mobile-native-build.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'clients/flutter_background/**'
+      - 'clients/reactive-dart/native/**'
+      - 'scripts/build-mobile-native.py'
+      - '.github/workflows/mobile-native-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mobile-native-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned so the gate fails on our sources, never on a drifting SDK.
+  FLUTTER_VERSION: '3.44.2'
+
+jobs:
+  plugin-dart:
+    name: Flutter plugin Dart surface
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout clients and exact core
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install the pinned Flutter SDK
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      # The native jobs below prove the Kotlin/Java/Swift/ObjC sources compile;
+      # nothing ran the plugin's own Dart tests, so the scheduling API they
+      # cover — callback-handle registration, periodic/expedited forwarding,
+      # and the swallowing of platform scheduling failures — was unguarded.
+      - name: Analyze and test the plugin's Dart surface
+        working-directory: clients/flutter_background
+        run: |
+          set -euo pipefail
+          flutter --version
+          flutter pub get
+          dart format --output=none --set-exit-if-changed lib test
+          flutter analyze
+          flutter test
+
+      - name: Explain a failure
+        if: failure()
+        run: |
+          echo "::error title=opto-sync-clients flutter_background Dart FAILED::\
+          Reproduce with: cd clients/flutter_background && flutter pub get && flutter test"
+
+  android-native:
+    name: Android native (Kotlin + Java)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout clients and exact core
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install the JDK the Android Gradle Plugin requires
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install the pinned Flutter SDK
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Reuse resolved Android dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: mobile-native-gradle-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-${{ hashFiles('clients/flutter_background/android/build.gradle', 'scripts/build-mobile-native.py') }}
+          restore-keys: |
+            mobile-native-gradle-${{ runner.os }}-${{ env.FLUTTER_VERSION }}-
+
+      - name: Report the toolchain that was actually resolved
+        run: flutter doctor -v
+
+      - name: Compile the Kotlin plugin, both workers, and the reference adapters
+        run: >-
+          python3 scripts/build-mobile-native.py android
+          --workspace "$RUNNER_TEMP/mobile-native-android"
+
+      - name: Explain an Android native build failure
+        if: failure()
+        run: |
+          echo "::error title=opto-sync Android native sources FAILED to compile::A Kotlin or Java source under clients/flutter_background/android or clients/reactive-dart/native/android no longer builds against the Flutter embedding, androidx.work, or Flutter ${FLUTTER_VERSION}. Reproduce with a JDK 17, an Android SDK, and Flutter ${FLUTTER_VERSION} on PATH: python3 scripts/build-mobile-native.py android"
+
+  ios-native:
+    name: iOS native (Swift + Objective-C)
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - name: Checkout clients and exact core
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install the pinned Flutter SDK
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Report the toolchain that was actually resolved
+        run: |
+          xcodebuild -version
+          pod --version
+          flutter doctor -v
+
+      - name: Compile the Swift plugin, the Objective-C bridge, and the reference adapters
+        run: >-
+          python3 scripts/build-mobile-native.py ios
+          --workspace "$RUNNER_TEMP/mobile-native-ios"
+
+      - name: Explain an iOS native build failure
+        if: failure()
+        run: |
+          echo "::error title=opto-sync iOS native sources FAILED to compile::A Swift or Objective-C source under clients/flutter_background/ios or clients/reactive-dart/native/ios no longer builds against Flutter ${FLUTTER_VERSION}, BackgroundTasks, or the generated Swift interop header. Reproduce on macOS with Xcode and Flutter ${FLUTTER_VERSION} on PATH: python3 scripts/build-mobile-native.py ios"
