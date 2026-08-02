@@ -83,8 +83,10 @@ class OptoSyncBackground {
     bool requiresNetwork = true,
   }) async {
     if (frequency.compareTo(minimumPeriodicFrequency) < 0) {
-      throw RangeError.value(
-        frequency,
+      throw RangeError.range(
+        frequency.inSeconds,
+        minimumPeriodicFrequency.inSeconds,
+        null,
         'frequency',
         'must be at least $minimumPeriodicFrequency',
       );
