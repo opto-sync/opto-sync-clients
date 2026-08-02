@@ -101,16 +101,44 @@ test('epoch integers and HLC strings mix badly too', () => {
   );
 });
 
-test('mixing is per-key, so one bad key does not corrupt the others', () => {
-  // syncedAt is also an LWW key. A record can be consistent on updatedAt while
-  // mixed on syncedAt; the damage stays scoped to the mixed key.
+test('multiple LWW keys form a veto, not a precedence order', () => {
+  // Worth pinning because it is easy to assume `lwwKeys: "updatedAt,syncedAt"`
+  // means "compare updatedAt, fall back to syncedAt". It does not. Incoming is
+  // rejected if ANY listed key is strictly newer on the local side, so adding a
+  // second LWW key makes rejection MORE likely, never less.
+  const m = (local, incoming) =>
+    reconcileIncoming(
+      { id: 'r1', v: 'local', ...local },
+      { id: 'r1', v: 'incoming', ...incoming },
+    ).v;
+
+  // updatedAt favours local -> local, as a precedence reading also predicts.
+  assert.strictEqual(m({ updatedAt: 999, syncedAt: 1 }, { updatedAt: 1, syncedAt: 999 }), 'local');
+
+  // updatedAt favours INCOMING, but syncedAt favours local. A precedence
+  // reading predicts 'incoming'; the veto keeps 'local'.
+  assert.strictEqual(
+    m({ updatedAt: 1, syncedAt: 999 }, { updatedAt: 999, syncedAt: 1 }),
+    'local',
+    'one local-newer key vetoes the node even when another key favours incoming',
+  );
+
+  // With no key favouring local, incoming is accepted.
+  assert.strictEqual(m({ updatedAt: 500, syncedAt: 1 }, { updatedAt: 500, syncedAt: 999 }), 'incoming');
+  assert.strictEqual(m({ updatedAt: 500, syncedAt: 999 }, { updatedAt: 500, syncedAt: 1 }), 'local');
+});
+
+test('the veto is what makes format mixing dangerous on any LWW key', () => {
+  // Combining the two facts above: because ANY local-newer key vetoes, a single
+  // format-mixed key is enough to freeze a record. Here updatedAt agrees that
+  // incoming is newer, but a mixed-format syncedAt vetoes it.
   const merged = reconcileIncoming(
-    { id: 'r1', v: 'local', updatedAt: HLC_2025_LATER, syncedAt: HLC_2025 },
-    { id: 'r1', v: 'incoming', updatedAt: HLC_2025, syncedAt: HLC_2025_LATER },
+    { id: 'r1', v: 'local', updatedAt: HLC_2025, syncedAt: ISO_2026 },
+    { id: 'r1', v: 'incoming', updatedAt: HLC_2025_LATER, syncedAt: HLC_2025_LATER },
   );
   assert.strictEqual(
     merged.v,
-    'incoming',
-    'a node is resolved as a whole: the newer syncedAt carries the node',
+    'local',
+    'a mixed-format syncedAt vetoes an otherwise-newer incoming write',
   );
 });
