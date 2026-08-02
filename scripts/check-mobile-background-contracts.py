@@ -72,7 +72,7 @@ def main() -> int:
         dart_path,
         (
             "minimumPeriodicFrequency",
-            "frequency < minimumPeriodicFrequency",
+            "frequency.compareTo(minimumPeriodicFrequency) < 0",
             "on Exception",
             "@pragma('vm:entry-point')",
             "rawHandle is! int || rawHandle <= 0",

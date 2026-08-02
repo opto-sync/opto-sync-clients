@@ -82,7 +82,7 @@ class OptoSyncBackground {
     Duration frequency = const Duration(hours: 1),
     bool requiresNetwork = true,
   }) async {
-    if (frequency < minimumPeriodicFrequency) {
+    if (frequency.compareTo(minimumPeriodicFrequency) < 0) {
       throw RangeError.value(
         frequency,
         'frequency',
