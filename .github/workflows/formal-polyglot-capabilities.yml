@@ -1,0 +1,120 @@
+name: Formal polyglot capability SDKs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/formal-polyglot-capabilities.yml'
+      - 'formal/protocol-fixtures/stream/capabilities.v1.json'
+      - 'formal/sdk/typescript/**'
+      - 'formal/sdk/dart/**'
+      - 'formal/sdk/gleam/**'
+      - 'formal/sdk/check-polyglot-capabilities.mjs'
+      - 'clients/ts/package.json'
+      - 'clients/ts/package-lock.json'
+  pull_request:
+    paths:
+      - '.github/workflows/formal-polyglot-capabilities.yml'
+      - 'formal/protocol-fixtures/stream/capabilities.v1.json'
+      - 'formal/sdk/typescript/**'
+      - 'formal/sdk/dart/**'
+      - 'formal/sdk/gleam/**'
+      - 'formal/sdk/check-polyglot-capabilities.mjs'
+      - 'clients/ts/package.json'
+      - 'clients/ts/package-lock.json'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  capability-conformance:
+    name: TypeScript, Dart, and Gleam capability bytes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout the shared contract and SDKs
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: clients/ts/package-lock.json
+
+      - name: Install pinned Dart SDK
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: '3.12.1'
+
+      - name: Install pinned OTP and Elixir for Gleam
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
+        with:
+          otp-version: '27.3'
+          elixir-version: '1.18.4'
+
+      - name: Install pinned Gleam compiler
+        run: |
+          set -euo pipefail
+          curl -fsSLO https://github.com/gleam-lang/gleam/releases/download/v1.16.0/gleam-v1.16.0-x86_64-unknown-linux-musl.tar.gz
+          curl -fsSLO https://github.com/gleam-lang/gleam/releases/download/v1.16.0/gleam-v1.16.0-x86_64-unknown-linux-musl.tar.gz.sha256
+          sha256sum -c gleam-v1.16.0-x86_64-unknown-linux-musl.tar.gz.sha256
+          sudo tar -xzf gleam-v1.16.0-x86_64-unknown-linux-musl.tar.gz -C /usr/local/bin gleam
+
+      - name: Prepare normalized capability reports
+        run: mkdir -p .formal-artifacts/capabilities
+
+      - name: Install the repository-pinned TypeScript compiler
+        working-directory: clients/ts
+        run: npm ci --ignore-scripts
+
+      - name: Build and test the TypeScript capability SDK
+        run: |
+          set -euo pipefail
+          clients/ts/node_modules/.bin/tsc -p formal/sdk/typescript/tsconfig.json
+          node --test formal/sdk/typescript/test/capabilities.test.mjs
+          node formal/sdk/typescript/report.mjs \
+            > .formal-artifacts/capabilities/typescript.txt
+
+      - name: Format, analyze, and test the Dart capability SDK
+        working-directory: formal/sdk/dart
+        run: |
+          set -euo pipefail
+          dart pub get
+          dart format --output=none --set-exit-if-changed lib tool
+          dart analyze
+          dart run tool/check_capabilities.dart
+          dart run tool/report_capabilities.dart \
+            > ../../../.formal-artifacts/capabilities/dart.txt
+
+      - name: Format, compile, and test the Gleam capability SDK
+        working-directory: formal/sdk/gleam
+        shell: bash
+        run: |
+          set -euo pipefail
+          gleam deps download
+          gleam format --check src test
+          gleam test
+          gleam run -m fm_adapter_capabilities_report \
+            | grep -E $'^(protocol|protocolVersion|registry|required|sequence)\t' \
+            > ../../../.formal-artifacts/capabilities/gleam.txt
+
+      - name: Prove cross-language registry and exact array-byte parity
+        run: node formal/sdk/check-polyglot-capabilities.mjs
+
+      - name: Upload capability conformance reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: polyglot-capability-conformance
+          path: .formal-artifacts/capabilities/
+          if-no-files-found: error
+          retention-days: 14
