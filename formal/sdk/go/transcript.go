@@ -98,7 +98,10 @@ func (validator *TranscriptValidator) acceptRequest(request Request) error {
 		}
 		expectedGeneration := validator.generation
 		if operation == "reset" {
-			expectedGeneration++
+			if validator.generation == MaxSafeInteger {
+				return errors.New("adapter generation cannot advance beyond 2^53-1")
+			}
+			expectedGeneration = validator.generation + 1
 		}
 		if request.Generation != expectedGeneration {
 			return fmt.Errorf("request %s uses generation %d; expected %d", request.RequestID, request.Generation, expectedGeneration)
@@ -130,6 +133,10 @@ func (validator *TranscriptValidator) acceptResponse(response Response) error {
 		return fmt.Errorf("unadvertised operation %s returned ok", response.Operation)
 	}
 
+	nextPhase := validator.phase
+	nextGeneration := validator.generation
+	nextCapabilities := validator.capabilities
+
 	switch response.Operation {
 	case "hello":
 		if response.Outcome.Kind != "ok" {
@@ -139,32 +146,33 @@ func (validator *TranscriptValidator) acceptResponse(response Response) error {
 		if err != nil {
 			return err
 		}
-		validator.capabilities = make(map[string]bool, len(hello.Capabilities))
-		for _, capability := range hello.Capabilities {
-			if !validOperationName(capability) || capability == "hello" {
-				return fmt.Errorf("hello advertised invalid capability %q", capability)
-			}
-			validator.capabilities[capability] = true
+		validatedCapabilities, err := validateCapabilities(hello.Capabilities)
+		if err != nil {
+			return err
 		}
-		for _, mandatory := range []string{"reset", "apply", "observe", "close"} {
-			if !validator.capabilities[mandatory] {
-				return fmt.Errorf("hello result is missing required capability %s", mandatory)
-			}
-		}
-		validator.phase = phaseReady
+		nextCapabilities = validatedCapabilities
+		nextPhase = phaseReady
 	case "reset":
 		if response.Outcome.Kind == "ok" {
-			if response.Generation != validator.generation+1 {
+			if validator.generation == MaxSafeInteger {
+				return errors.New("adapter generation cannot advance beyond 2^53-1")
+			}
+			expected := validator.generation + 1
+			if response.Generation != expected {
 				return fmt.Errorf("successful reset response generation %d does not advance %d by one", response.Generation, validator.generation)
 			}
-			validator.generation = response.Generation
+			nextGeneration = response.Generation
 		}
 	case "close":
 		if response.Outcome.Kind != "ok" {
 			return errors.New("close must succeed")
 		}
-		validator.phase = phaseClosed
+		nextPhase = phaseClosed
 	}
+
+	validator.phase = nextPhase
+	validator.generation = nextGeneration
+	validator.capabilities = nextCapabilities
 	validator.pending = nil
 	return nil
 }
