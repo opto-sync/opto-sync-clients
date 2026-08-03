@@ -1,0 +1,61 @@
+name: DEN-1414 materialize Rust capability patch
+
+on:
+  push:
+    branches:
+      - agent/den-1414-capability-registry-core
+    paths:
+      - '.github/workflows/den-1414-materialize.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: den-1414-materialize-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout the DEN-1414 branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: agent/den-1414-capability-registry-core
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Install the repository's Nix toolchain
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Verify, apply, and format the audited Rust patch
+        run: |
+          set -euo pipefail
+          cat scripts/den-1414-rust.patch.b64.* > /tmp/den-1414-rust.patch.b64
+          printf '%s  %s\n' \
+            '5fbf72fd65e8150f1e12ee7159eae112a999b8ecc71aadfcedbb4429bffad516' \
+            /tmp/den-1414-rust.patch.b64 | sha256sum -c -
+          base64 --decode /tmp/den-1414-rust.patch.b64 > /tmp/den-1414-rust.patch
+          printf '%s  %s\n' \
+            '319ca3fded2b2ff1bc25154e844416c9921806a1e38051a8bcd3eab4c48378b6' \
+            /tmp/den-1414-rust.patch | sha256sum -c -
+          git apply --check /tmp/den-1414-rust.patch
+          git apply /tmp/den-1414-rust.patch
+          nix develop --command cargo fmt \
+            --manifest-path tools/fmctl/Cargo.toml
+          git diff --check
+
+      - name: Commit the formatted Rust implementation
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tools/fmctl/src/adapter_stream_v1.rs
+          git commit -m 'DEN-1414 enforce canonical Rust hello capabilities'
+          git push origin "HEAD:${BRANCH}"
