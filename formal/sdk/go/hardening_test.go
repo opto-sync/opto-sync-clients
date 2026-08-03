@@ -166,7 +166,7 @@ func validHelloValue() map[string]any {
 		"implementation": map[string]any{
 			"language": "go", "name": "test", "version": "1",
 		},
-		"capabilities": []any{"reset", "apply", "observe", "close"},
+		"capabilities":             []any{"reset", "apply", "observe", "close"},
 		"canonicalStateSchemaHash": "sha256:" + strings.Repeat("0", 64),
 	}
 }
