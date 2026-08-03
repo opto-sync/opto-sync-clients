@@ -4,8 +4,12 @@
   "title": "Formal methods streaming adapter protocol v1",
   "description": "One UTF-8 JSON object per line for deterministic model-to-implementation conformance. The legacy fmctl.adapter.v1 batch replay contract remains separately versioned.",
   "oneOf": [
-    { "$ref": "#/$defs/requestMessage" },
-    { "$ref": "#/$defs/responseMessage" }
+    {
+      "$ref": "#/$defs/requestMessage"
+    },
+    {
+      "$ref": "#/$defs/responseMessage"
+    }
   ],
   "$defs": {
     "protocol": {
@@ -37,106 +41,217 @@
     "canonicalValue": {
       "description": "Canonical JSON value. Runtime validation rejects floating-point numbers and normalizes ITF #bigint, #set, and #map values.",
       "oneOf": [
-        { "type": "null" },
-        { "type": "boolean" },
-        { "type": "string" },
-        { "type": "integer" },
+        {
+          "type": "null"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "integer"
+        },
         {
           "type": "array",
-          "items": { "$ref": "#/$defs/canonicalValue" }
+          "items": {
+            "$ref": "#/$defs/canonicalValue"
+          }
         },
         {
           "type": "object",
-          "additionalProperties": { "$ref": "#/$defs/canonicalValue" }
+          "additionalProperties": {
+            "$ref": "#/$defs/canonicalValue"
+          }
         }
       ]
     },
     "helloOperation": {
       "type": "object",
-      "properties": { "name": { "const": "hello" } },
-      "required": ["name"],
+      "properties": {
+        "name": {
+          "const": "hello"
+        }
+      },
+      "required": [
+        "name"
+      ],
       "additionalProperties": false
     },
     "resetOperation": {
       "type": "object",
       "properties": {
-        "name": { "const": "reset" },
-        "initialState": { "$ref": "#/$defs/canonicalValue" },
-        "seed": { "type": "string", "minLength": 1 },
-        "logicalTime": { "$ref": "#/$defs/canonicalValue" }
+        "name": {
+          "const": "reset"
+        },
+        "initialState": {
+          "$ref": "#/$defs/canonicalValue"
+        },
+        "seed": {
+          "type": "string",
+          "minLength": 1
+        },
+        "logicalTime": {
+          "$ref": "#/$defs/canonicalValue"
+        }
       },
-      "required": ["name", "initialState", "logicalTime"],
+      "required": [
+        "name",
+        "initialState",
+        "logicalTime"
+      ],
       "additionalProperties": false
     },
     "applyOperation": {
       "type": "object",
       "properties": {
-        "name": { "const": "apply" },
-        "action": { "type": "string", "minLength": 1, "maxLength": 256 },
-        "arguments": { "$ref": "#/$defs/canonicalValue" },
-        "logicalTime": { "$ref": "#/$defs/canonicalValue" }
+        "name": {
+          "const": "apply"
+        },
+        "action": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "arguments": {
+          "$ref": "#/$defs/canonicalValue"
+        },
+        "logicalTime": {
+          "$ref": "#/$defs/canonicalValue"
+        }
       },
-      "required": ["name", "action", "logicalTime"],
+      "required": [
+        "name",
+        "action",
+        "logicalTime"
+      ],
       "additionalProperties": false
     },
     "observeOperation": {
       "type": "object",
-      "properties": { "name": { "const": "observe" } },
-      "required": ["name"],
+      "properties": {
+        "name": {
+          "const": "observe"
+        }
+      },
+      "required": [
+        "name"
+      ],
       "additionalProperties": false
     },
     "settleOperation": {
       "type": "object",
       "properties": {
-        "name": { "const": "settle" },
-        "maxSteps": { "type": "integer", "minimum": 1, "maximum": 1000000 }
+        "name": {
+          "const": "settle"
+        },
+        "maxSteps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000000
+        }
       },
-      "required": ["name", "maxSteps"],
+      "required": [
+        "name",
+        "maxSteps"
+      ],
       "additionalProperties": false
     },
     "snapshotOperation": {
       "type": "object",
-      "properties": { "name": { "const": "snapshot" } },
-      "required": ["name"],
+      "properties": {
+        "name": {
+          "const": "snapshot"
+        }
+      },
+      "required": [
+        "name"
+      ],
       "additionalProperties": false
     },
     "restoreOperation": {
       "type": "object",
       "properties": {
-        "name": { "const": "restore" },
-        "snapshot": { "$ref": "#/$defs/canonicalValue" },
-        "schemaHash": { "$ref": "#/$defs/sha256" }
+        "name": {
+          "const": "restore"
+        },
+        "snapshot": {
+          "$ref": "#/$defs/canonicalValue"
+        },
+        "schemaHash": {
+          "$ref": "#/$defs/sha256"
+        }
       },
-      "required": ["name", "snapshot", "schemaHash"],
+      "required": [
+        "name",
+        "snapshot",
+        "schemaHash"
+      ],
       "additionalProperties": false
     },
     "faultOperation": {
       "type": "object",
       "properties": {
-        "name": { "const": "fault" },
-        "fault": { "type": "string", "minLength": 1, "maxLength": 256 },
-        "arguments": { "$ref": "#/$defs/canonicalValue" }
+        "name": {
+          "const": "fault"
+        },
+        "fault": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "arguments": {
+          "$ref": "#/$defs/canonicalValue"
+        }
       },
-      "required": ["name", "fault"],
+      "required": [
+        "name",
+        "fault"
+      ],
       "additionalProperties": false
     },
     "closeOperation": {
       "type": "object",
-      "properties": { "name": { "const": "close" } },
-      "required": ["name"],
+      "properties": {
+        "name": {
+          "const": "close"
+        }
+      },
+      "required": [
+        "name"
+      ],
       "additionalProperties": false
     },
     "operation": {
       "oneOf": [
-        { "$ref": "#/$defs/helloOperation" },
-        { "$ref": "#/$defs/resetOperation" },
-        { "$ref": "#/$defs/applyOperation" },
-        { "$ref": "#/$defs/observeOperation" },
-        { "$ref": "#/$defs/settleOperation" },
-        { "$ref": "#/$defs/snapshotOperation" },
-        { "$ref": "#/$defs/restoreOperation" },
-        { "$ref": "#/$defs/faultOperation" },
-        { "$ref": "#/$defs/closeOperation" }
+        {
+          "$ref": "#/$defs/helloOperation"
+        },
+        {
+          "$ref": "#/$defs/resetOperation"
+        },
+        {
+          "$ref": "#/$defs/applyOperation"
+        },
+        {
+          "$ref": "#/$defs/observeOperation"
+        },
+        {
+          "$ref": "#/$defs/settleOperation"
+        },
+        {
+          "$ref": "#/$defs/snapshotOperation"
+        },
+        {
+          "$ref": "#/$defs/restoreOperation"
+        },
+        {
+          "$ref": "#/$defs/faultOperation"
+        },
+        {
+          "$ref": "#/$defs/closeOperation"
+        }
       ]
     },
     "operationName": {
@@ -152,60 +267,308 @@
         "close"
       ]
     },
+    "capabilityName": {
+      "enum": [
+        "reset",
+        "apply",
+        "observe",
+        "settle",
+        "snapshot",
+        "restore",
+        "fault",
+        "close"
+      ],
+      "description": "A v1 operation that may be advertised after hello. The hello operation itself is never a capability."
+    },
+    "canonicalCapabilitiesV1": {
+      "type": "array",
+      "description": "A unique capability set encoded as a strict subsequence of reset, apply, observe, settle, snapshot, restore, fault, close. Reset, apply, observe, and close are mandatory; out-of-order input is rejected rather than silently reordered.",
+      "enum": [
+        [
+          "reset",
+          "apply",
+          "observe",
+          "close"
+        ],
+        [
+          "reset",
+          "apply",
+          "observe",
+          "settle",
+          "close"
+        ],
+        [
+          "reset",
+          "apply",
+          "observe",
+          "snapshot",
+          "close"
+        ],
+        [
+          "reset",
+          "apply",
+          "observe",
+          "settle",
+          "snapshot",
+          "close"
+        ],
+        [
+          "reset",
+          "apply",
+          "observe",
+          "restore",
+          "close"
+        ],
+        [
+          "reset",
+          "apply",
+          "observe",
+          "settle",
+          "restore",
+          "close"
+        ],
+        [
+          "reset",
+          "apply",
+          "observe",
+          "snapshot",
+          "restore",
+          "close"
+        ],
+        [
+          "reset",
+          "apply",
+          "observe",
+          "settle",
+          "snapshot",
+          "restore",
+          "close"
+        ],
+        [
+          "reset",
+          "apply",
+          "observe",
+          "fault",
+          "close"
+        ],
+        [
+          "reset",
+          "apply",
+          "observe",
+          "settle",
+          "fault",
+          "close"
+        ],
+        [
+          "reset",
+          "apply",
+          "observe",
+          "snapshot",
+          "fault",
+          "close"
+        ],
+        [
+          "reset",
+          "apply",
+          "observe",
+          "settle",
+          "snapshot",
+          "fault",
+          "close"
+        ],
+        [
+          "reset",
+          "apply",
+          "observe",
+          "restore",
+          "fault",
+          "close"
+        ],
+        [
+          "reset",
+          "apply",
+          "observe",
+          "settle",
+          "restore",
+          "fault",
+          "close"
+        ],
+        [
+          "reset",
+          "apply",
+          "observe",
+          "snapshot",
+          "restore",
+          "fault",
+          "close"
+        ],
+        [
+          "reset",
+          "apply",
+          "observe",
+          "settle",
+          "snapshot",
+          "restore",
+          "fault",
+          "close"
+        ]
+      ]
+    },
+    "streamImplementation": {
+      "type": "object",
+      "properties": {
+        "language": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "language",
+        "name",
+        "version"
+      ],
+      "additionalProperties": false
+    },
+    "helloResult": {
+      "type": "object",
+      "properties": {
+        "implementation": {
+          "$ref": "#/$defs/streamImplementation"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/canonicalCapabilitiesV1"
+        },
+        "canonicalStateSchemaHash": {
+          "$ref": "#/$defs/sha256"
+        }
+      },
+      "required": [
+        "implementation",
+        "capabilities",
+        "canonicalStateSchemaHash"
+      ],
+      "additionalProperties": false
+    },
     "streamError": {
       "type": "object",
       "properties": {
-        "code": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "message": { "type": "string", "minLength": 1, "maxLength": 4096 },
-        "retryable": { "type": "boolean" },
-        "data": { "$ref": "#/$defs/canonicalValue" }
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "data": {
+          "$ref": "#/$defs/canonicalValue"
+        }
       },
-      "required": ["code", "message", "retryable"],
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
       "additionalProperties": false
     },
     "okOutcome": {
       "type": "object",
       "properties": {
-        "kind": { "const": "ok" },
-        "value": { "$ref": "#/$defs/canonicalValue" }
+        "kind": {
+          "const": "ok"
+        },
+        "value": {
+          "$ref": "#/$defs/canonicalValue"
+        }
       },
-      "required": ["kind", "value"],
+      "required": [
+        "kind",
+        "value"
+      ],
       "additionalProperties": false
     },
     "errorOutcome": {
       "type": "object",
       "properties": {
-        "kind": { "const": "error" },
-        "error": { "$ref": "#/$defs/streamError" }
+        "kind": {
+          "const": "error"
+        },
+        "error": {
+          "$ref": "#/$defs/streamError"
+        }
       },
-      "required": ["kind", "error"],
+      "required": [
+        "kind",
+        "error"
+      ],
       "additionalProperties": false
     },
     "unsupportedOutcome": {
       "type": "object",
       "properties": {
-        "kind": { "const": "unsupported" },
-        "error": { "$ref": "#/$defs/streamError" }
+        "kind": {
+          "const": "unsupported"
+        },
+        "error": {
+          "$ref": "#/$defs/streamError"
+        }
       },
-      "required": ["kind", "error"],
+      "required": [
+        "kind",
+        "error"
+      ],
       "additionalProperties": false
     },
     "outcome": {
       "oneOf": [
-        { "$ref": "#/$defs/okOutcome" },
-        { "$ref": "#/$defs/errorOutcome" },
-        { "$ref": "#/$defs/unsupportedOutcome" }
+        {
+          "$ref": "#/$defs/okOutcome"
+        },
+        {
+          "$ref": "#/$defs/errorOutcome"
+        },
+        {
+          "$ref": "#/$defs/unsupportedOutcome"
+        }
       ]
     },
     "request": {
       "type": "object",
       "properties": {
-        "protocol": { "$ref": "#/$defs/protocol" },
-        "protocolVersion": { "$ref": "#/$defs/protocolVersion" },
-        "requestId": { "$ref": "#/$defs/requestId" },
-        "machine": { "$ref": "#/$defs/machine" },
-        "generation": { "$ref": "#/$defs/generation" },
-        "operation": { "$ref": "#/$defs/operation" }
+        "protocol": {
+          "$ref": "#/$defs/protocol"
+        },
+        "protocolVersion": {
+          "$ref": "#/$defs/protocolVersion"
+        },
+        "requestId": {
+          "$ref": "#/$defs/requestId"
+        },
+        "machine": {
+          "$ref": "#/$defs/machine"
+        },
+        "generation": {
+          "$ref": "#/$defs/generation"
+        },
+        "operation": {
+          "$ref": "#/$defs/operation"
+        }
       },
       "required": [
         "protocol",
@@ -220,13 +583,27 @@
     "response": {
       "type": "object",
       "properties": {
-        "protocol": { "$ref": "#/$defs/protocol" },
-        "protocolVersion": { "$ref": "#/$defs/protocolVersion" },
-        "requestId": { "$ref": "#/$defs/requestId" },
-        "machine": { "$ref": "#/$defs/machine" },
-        "generation": { "$ref": "#/$defs/generation" },
-        "operation": { "$ref": "#/$defs/operationName" },
-        "outcome": { "$ref": "#/$defs/outcome" }
+        "protocol": {
+          "$ref": "#/$defs/protocol"
+        },
+        "protocolVersion": {
+          "$ref": "#/$defs/protocolVersion"
+        },
+        "requestId": {
+          "$ref": "#/$defs/requestId"
+        },
+        "machine": {
+          "$ref": "#/$defs/machine"
+        },
+        "generation": {
+          "$ref": "#/$defs/generation"
+        },
+        "operation": {
+          "$ref": "#/$defs/operationName"
+        },
+        "outcome": {
+          "$ref": "#/$defs/outcome"
+        }
       },
       "required": [
         "protocol",
@@ -237,24 +614,84 @@
         "operation",
         "outcome"
       ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "hello"
+              },
+              "outcome": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "ok"
+                  }
+                },
+                "required": [
+                  "kind"
+                ]
+              }
+            },
+            "required": [
+              "operation",
+              "outcome"
+            ]
+          },
+          "then": {
+            "properties": {
+              "outcome": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "ok"
+                  },
+                  "value": {
+                    "$ref": "#/$defs/helloResult"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "value"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      ],
       "additionalProperties": false
     },
     "requestMessage": {
       "type": "object",
       "properties": {
-        "kind": { "const": "request" },
-        "message": { "$ref": "#/$defs/request" }
+        "kind": {
+          "const": "request"
+        },
+        "message": {
+          "$ref": "#/$defs/request"
+        }
       },
-      "required": ["kind", "message"],
+      "required": [
+        "kind",
+        "message"
+      ],
       "additionalProperties": false
     },
     "responseMessage": {
       "type": "object",
       "properties": {
-        "kind": { "const": "response" },
-        "message": { "$ref": "#/$defs/response" }
+        "kind": {
+          "const": "response"
+        },
+        "message": {
+          "$ref": "#/$defs/response"
+        }
       },
-      "required": ["kind", "message"],
+      "required": [
+        "kind",
+        "message"
+      ],
       "additionalProperties": false
     }
   }
