@@ -232,6 +232,7 @@ jobs:
         run: cargo fmt --check
 
       - name: clients/rust — default SQLite tests
+        id: rust-default-tests
         if: matrix.client == 'rust'
         working-directory: opto-sync-clients/clients/rust
         shell: bash
@@ -241,7 +242,7 @@ jobs:
             | tee "$RUNNER_TEMP/rust-default-tests.log"
 
       - name: Upload Rust default-feature diagnostics
-        if: matrix.client == 'rust' && failure()
+        if: matrix.client == 'rust' && steps.rust-default-tests.outcome == 'failure'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: rust-default-test-diagnostics-${{ github.run_id }}

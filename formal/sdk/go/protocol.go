@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 const (
@@ -15,6 +17,7 @@ const (
 	ProtocolVersion        = 1
 	MaxMessageBytes        = 1024 * 1024
 	MaxSettleSteps  uint64 = 1_000_000
+	MaxSafeInteger  uint64 = 9_007_199_254_740_991
 )
 
 var maxRequestID = mustBigInt("9007199254740991")
@@ -377,6 +380,9 @@ func (request Request) Validate() error {
 	if err := validateEnvelope(request.Protocol, request.ProtocolVersion, request.RequestID, request.Machine); err != nil {
 		return err
 	}
+	if err := validateGeneration(request.Generation); err != nil {
+		return err
+	}
 	return request.Operation.Validate()
 }
 
@@ -412,6 +418,9 @@ func (operation Operation) Validate() error {
 
 func (response Response) Validate() error {
 	if err := validateEnvelope(response.Protocol, response.ProtocolVersion, response.RequestID, response.Machine); err != nil {
+		return err
+	}
+	if err := validateGeneration(response.Generation); err != nil {
 		return err
 	}
 	if !validOperationName(response.Operation) {
@@ -465,6 +474,13 @@ func validateEnvelope(protocol string, version int, requestID, machine string) e
 	return validateLabel("machine", machine, 256)
 }
 
+func validateGeneration(value uint64) error {
+	if value > MaxSafeInteger {
+		return fmt.Errorf("generation exceeds 2^53-1: %d", value)
+	}
+	return nil
+}
+
 func ParseRequestID(value string) (*big.Int, error) {
 	if err := ValidateDecimal(value, false); err != nil {
 		return nil, fmt.Errorf("requestId: %w", err)
@@ -506,9 +522,7 @@ func requestObject(request Request) (map[string]any, error) {
 	case "apply":
 		operation["action"] = request.Operation.Action
 		operation["logicalTime"] = request.Operation.LogicalTime
-		if request.Operation.Arguments != nil {
-			operation["arguments"] = request.Operation.Arguments
-		}
+		operation["arguments"] = request.Operation.Arguments
 	case "settle":
 		operation["maxSteps"] = request.Operation.MaxSteps
 	case "restore":
@@ -516,9 +530,7 @@ func requestObject(request Request) (map[string]any, error) {
 		operation["schemaHash"] = request.Operation.SchemaHash
 	case "fault":
 		operation["fault"] = request.Operation.Fault
-		if request.Operation.Arguments != nil {
-			operation["arguments"] = request.Operation.Arguments
-		}
+		operation["arguments"] = request.Operation.Arguments
 	}
 	return map[string]any{"protocol": request.Protocol, "protocolVersion": request.ProtocolVersion, "requestId": request.RequestID, "machine": request.Machine, "generation": request.Generation, "operation": operation}, nil
 }
@@ -547,8 +559,11 @@ func decodeObject(raw []byte, label string) (map[string]json.RawMessage, error) 
 		return nil, fmt.Errorf("%s must be an object", label)
 	}
 	var extra any
-	if err := dec.Decode(&extra); err == nil {
-		return nil, fmt.Errorf("%s contains trailing JSON", label)
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("%s contains trailing JSON", label)
+		}
+		return nil, fmt.Errorf("%s contains trailing data: %w", label, err)
 	}
 	return object, nil
 }
@@ -559,6 +574,13 @@ func decodeCanonical(raw json.RawMessage) (any, error) {
 	var value any
 	if err := dec.Decode(&value); err != nil {
 		return nil, err
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return nil, errors.New("canonical value contains trailing JSON")
+		}
+		return nil, fmt.Errorf("canonical value contains trailing data: %w", err)
 	}
 	return Canonicalize(value)
 }
@@ -623,6 +645,9 @@ func validateLabel(label, value string, max int) error {
 	}
 	if len(value) > max {
 		return fmt.Errorf("%s exceeds %d bytes", label, max)
+	}
+	if strings.IndexFunc(value, unicode.IsControl) >= 0 {
+		return fmt.Errorf("%s must not contain control characters", label)
 	}
 	return nil
 }

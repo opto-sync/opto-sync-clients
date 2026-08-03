@@ -38,6 +38,19 @@ def require_file(relative: str) -> Path:
     return path
 
 
+def require_fixture_directory(relative: str) -> tuple[Path, list[Path]]:
+    path = ROOT / relative
+    if not path.is_dir() or path.is_symlink():
+        fail(f"required fixture directory is missing or unsafe: {relative}")
+    fixtures = sorted(candidate for candidate in path.iterdir() if candidate.suffix == ".json")
+    if not fixtures:
+        fail(f"fixture directory contains no JSON files: {relative}")
+    for fixture in fixtures:
+        if not fixture.is_file() or fixture.is_symlink():
+            fail(f"fixture must be a normal JSON file: {fixture.relative_to(ROOT)}")
+    return path, fixtures
+
+
 def load_json(path: Path) -> dict:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -98,16 +111,12 @@ def main() -> int:
     )
     for relative in required:
         require_file(relative)
+    _, valid_fixtures = require_fixture_directory("schema/fixtures/valid")
+    _, invalid_fixtures = require_fixture_directory("schema/fixtures/invalid")
+    if len(valid_fixtures) + len(invalid_fixtures) < 2:
+        fail("shared schema fixture corpus is unexpectedly small")
     if (ROOT / "clients/rust/examples").exists():
         fail("conventional examples/ must not carry the packed identity probe")
-    for kind in ("valid", "invalid"):
-        fixture_root = ROOT / "schema/fixtures" / kind
-        fixtures = sorted(fixture_root.iterdir())
-        if not fixtures:
-            fail(f"schema/fixtures/{kind} must contain at least one fixture")
-        for fixture in fixtures:
-            if not fixture.is_file() or fixture.suffix != ".json":
-                fail(f"unexpected shared fixture entry: {fixture.relative_to(ROOT)}")
 
     manifest = load_toml(ROOT / ".zpkg.toml")
     package = manifest.get("package", {})
@@ -224,7 +233,7 @@ def main() -> int:
     print(
         f"Rust target passed ({kind}): client={release['clientSourceSha'][:12]} "
         f"core={source_sha[:12]} lock={release['cargoLockSha256'][:12]} "
-        "publication=disabled"
+        f"fixtures={len(valid_fixtures) + len(invalid_fixtures)} publication=disabled"
     )
     return 0
 

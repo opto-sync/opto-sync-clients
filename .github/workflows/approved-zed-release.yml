@@ -1,0 +1,181 @@
+name: Approved Zed clients release
+
+on:
+  pull_request:
+    paths:
+      - release/zed-release-approval.v1.json
+      - .github/workflows/approved-zed-release.yml
+  push:
+    branches:
+      - main
+    paths:
+      - release/zed-release-approval.v1.json
+      - .github/workflows/approved-zed-release.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: approved-zed-clients-release-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TARGET_SHA: 38f0fcc6a471455a0a20aec5f7fa63d3f70d5f89
+  TARGET_TREE_SHA: c89cc0e08ab156bcdf9487a7c2f0515d6c88c865
+  EMBEDDED_SYNCER_SHA: 8d2b275a89062403666f4bdf196d246a07c84484
+  RELEASE_TAG: v0.2.0
+  RELEASE_VERSION: 0.2.0
+  ZED_CLI_SHA: c636fb8f6b08695c6b4fe94e2481f4d57270b2d7
+  ZED_INTERFACES_SHA: 415e871b1fb3dd97744c134351408a3224805dfb
+
+jobs:
+  validate:
+    name: Reproduce approved clean-source clients artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout approval controller
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          path: controller
+          persist-credentials: false
+
+      - name: Checkout exact untouched clients source and embedded core
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: opto-sync/opto-sync-clients
+          ref: ${{ env.TARGET_SHA }}
+          path: package
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Checkout pinned Zed CLI
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: zed-pkg/zed-cli
+          ref: ${{ env.ZED_CLI_SHA }}
+          path: zed-cli
+          persist-credentials: false
+
+      - name: Checkout pinned Zed interfaces
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: zed-pkg/zed-interfaces
+          ref: ${{ env.ZED_INTERFACES_SHA }}
+          path: zed-interfaces
+          persist-credentials: false
+
+      - name: Validate immutable clean-source approval and source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+          import pathlib
+          import re
+
+          approval = json.loads(
+              pathlib.Path('controller/release/zed-release-approval.v1.json').read_text()
+          )
+          assert approval['schemaVersion'] == 1
+          assert approval['status'] in {'pending_dependency', 'approved'}
+          assert approval['approvalRevision'] == 2
+          assert approval['cleanEvidenceMergeSha'] == '5b676acde74520db259b9b6dc6d739ab85667e57'
+          assert approval['packagingMethod'] == 'independent_untouched_checkouts_before_build'
+          assert approval['repository'] == os.environ['GITHUB_REPOSITORY']
+          assert approval['targetSha'] == os.environ['TARGET_SHA']
+          assert approval['targetTreeSha'] == os.environ['TARGET_TREE_SHA']
+          assert approval['embeddedSyncerSha'] == os.environ['EMBEDDED_SYNCER_SHA']
+          assert approval['tag'] == os.environ['RELEASE_TAG']
+          assert approval['version'] == os.environ['RELEASE_VERSION']
+          assert approval['tag'] == f"v{approval['version']}"
+          assert approval['tooling']['zedCliSha'] == os.environ['ZED_CLI_SHA']
+          assert approval['tooling']['zedInterfacesSha'] == os.environ['ZED_INTERFACES_SHA']
+          assert approval['evidence']['mergeCommit'] == approval['cleanEvidenceMergeSha']
+          assert approval['evidence']['runId'] == 30783265479
+          assert approval['evidence']['artifactId'] == 8844418512
+          assert re.fullmatch(r'sha256:[0-9a-f]{64}', approval['evidence']['artifactDigest'])
+          package = approval['zedPackages'][0]
+          assert package['name'] == 'opto-sync-clients'
+          assert re.fullmatch(r'[0-9a-f]{64}', package['sha256'])
+          assert package['size'] > 0 and package['fileCount'] > 0
+          dependency = approval['requiredPublishedDependency']
+          assert dependency['name'] == 'syncer'
+          assert dependency['version'] == '0.2.1'
+          assert dependency['vcsCommit'] == os.environ['EMBEDDED_SYNCER_SHA']
+          assert re.fullmatch(r'[0-9a-f]{64}', dependency['sha256'])
+          assert dependency['size'] > 0 and dependency['fileCount'] > 0
+          PY
+          test "$(git -C package rev-parse HEAD)" = "$TARGET_SHA"
+          test "$(git -C package rev-parse 'HEAD^{tree}')" = "$TARGET_TREE_SHA"
+          test "$(git -C package rev-parse HEAD:syncer.c)" = "$EMBEDDED_SYNCER_SHA"
+          test "$(git -C package/syncer.c rev-parse HEAD)" = "$EMBEDDED_SYNCER_SHA"
+          test -z "$(git -C package status --porcelain --untracked-files=all)"
+          test -z "$(git -C package/syncer.c status --porcelain --untracked-files=all)"
+
+      - name: Build exact Zed CLI
+        run: cargo build --locked --release --manifest-path zed-cli/Cargo.toml --bin zed
+
+      - name: Re-pack and compare the untouched approved clients artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          zed="$GITHUB_WORKSPACE/zed-cli/target/release/zed"
+          out="$RUNNER_TEMP/approved-pack"
+          mkdir -p "$out"
+          (cd package && "$zed" pack --out "$out")
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import tarfile
+
+          approval = json.loads(
+              pathlib.Path('controller/release/zed-release-approval.v1.json').read_text()
+          )
+          expected = approval['zedPackages'][0]
+          files = list((pathlib.Path(os.environ['RUNNER_TEMP']) / 'approved-pack').glob('*.tar.gz'))
+          assert [path.name for path in files] == [expected['archive']]
+          path = files[0]
+          assert hashlib.sha256(path.read_bytes()).hexdigest() == expected['sha256']
+          assert path.stat().st_size == expected['size']
+          with tarfile.open(path, 'r:gz') as handle:
+              names = {member.name.rstrip('/') for member in handle.getmembers() if member.name}
+          assert len(names) == expected['fileCount']
+          forbidden = {
+              'pkg/syncer.c/core/test/test_syncer',
+              'pkg/syncer.c/core/test/prop_test',
+              'pkg/syncer.c/core/test/test_syncer_asan',
+              'pkg/syncer.c/core/test/prop_test_asan',
+          }
+          assert not (names & forbidden), sorted(names & forbidden)
+          PY
+
+      - name: Run non-mutating publication preflight before package checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          zed="$GITHUB_WORKSPACE/zed-cli/target/release/zed"
+          (cd package && "$zed" publish --dry-run --allow-dirty --skip-vcs-checks) \
+            | tee "$RUNNER_TEMP/publish-dry-run.txt"
+          grep -F 'opto-sync/opto-sync-clients@0.2.0' "$RUNNER_TEMP/publish-dry-run.txt"
+
+      - name: Run source-owned package checks only after the archive exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd package && python3 scripts/check-dependency-boundary.py)
+          (cd package && python3 scripts/check-package-layout.py)
+          (cd package && python3 scripts/check-zed-packaging.py)
+
+      - name: Upload reproduced clean-source clients package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: approved-clean-source-opto-sync-clients-v0.2.0-package
+          path: ${{ runner.temp }}/approved-pack/*.tar.gz
+          if-no-files-found: error
+          retention-days: 30
