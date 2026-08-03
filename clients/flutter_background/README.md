@@ -120,3 +120,5 @@ python3 scripts/build-mobile-native.py ios
   identifiers on iOS and the two unique Opto Sync work names on Android.
 - Android callback handles are committed to disk before `initialize` returns,
   so a process death cannot leave a scheduled worker without its Dart entrypoint.
+- Flutter callback handles are signed 64-bit identifiers. Dart, Kotlin, Java,
+  and Swift consistently treat only zero as the missing-registration sentinel.

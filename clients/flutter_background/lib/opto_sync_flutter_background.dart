@@ -132,11 +132,14 @@ Future<void> optoSyncBackgroundDispatcher() async {
       throw ArgumentError.value(arguments, 'arguments', 'must be a map');
     }
     final rawHandle = arguments['callbackHandle'];
-    if (rawHandle is! int || rawHandle <= 0) {
+    // Flutter callback handles are signed 64-bit values. Negative values are
+    // valid in generated callback caches, so only zero is the native sentinel
+    // for "not registered".
+    if (rawHandle is! int || rawHandle == 0) {
       throw ArgumentError.value(
         rawHandle,
         'callbackHandle',
-        'must be a positive integer',
+        'must be a non-zero integer',
       );
     }
     final handle = CallbackHandle.fromRawHandle(rawHandle);

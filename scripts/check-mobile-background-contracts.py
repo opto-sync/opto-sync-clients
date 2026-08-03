@@ -77,7 +77,8 @@ def main() -> int:
             "@pragma('vm:entry-point')",
             "Future<void> optoSyncBackgroundDispatcher() async",
             "PluginUtilities.getCallbackHandle(\n      optoSyncBackgroundDispatcher,",
-            "rawHandle is! int || rawHandle <= 0",
+            "rawHandle is! int || rawHandle == 0",
+            "must be a non-zero integer",
         ),
     )
     require(
@@ -143,6 +144,8 @@ def main() -> int:
         fail("Android callback handles must be committed before initialize returns")
     if "static Future<void> setupBackgroundChannel" in dart:
         fail("the headless dispatcher must remain a top-level Dart entrypoint")
+    if "rawHandle <= 0" in dart or "must be a positive integer" in dart:
+        fail("Flutter callback handles are signed; only zero may mean unregistered")
     require_before(
         kotlin_plugin,
         kotlin_plugin_path,
@@ -198,6 +201,7 @@ def main() -> int:
             "accepts and forwards the exact platform floor",
             "does not hide programmer Errors",
             "validates malformed callback arguments",
+            "treats signed non-zero handles as structurally valid",
             "restores and invokes the registered drain",
             "dispatcher handle restores the top-level engine entrypoint",
             "surfaces an explicit cancellation failure",

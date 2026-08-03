@@ -157,8 +157,8 @@ void main() {
         'not-a-map',
         <String, Object?>{},
         <String, Object?>{'callbackHandle': 0},
-        <String, Object?>{'callbackHandle': -1},
         <String, Object?>{'callbackHandle': '1'},
+        <String, Object?>{'callbackHandle': 1.0},
       ]) {
         final response = await _invokeFrameworkChannel(
           backgroundChannel.name,
@@ -174,13 +174,37 @@ void main() {
   );
 
   test(
+    'background dispatcher treats signed non-zero handles as structurally valid',
+    () async {
+      await optoSyncBackgroundDispatcher();
+      final response = await _invokeFrameworkChannel(
+        backgroundChannel.name,
+        const MethodCall('runDrain', {'callbackHandle': -1}),
+      );
+
+      expect(
+        () => const StandardMethodCodec().decodeEnvelope(response!),
+        throwsA(
+          isA<PlatformException>().having(
+            (error) => error.message,
+            'message',
+            contains('registered callback is not a BackgroundDrain'),
+          ),
+        ),
+      );
+    },
+  );
+
+  test(
     'background dispatcher restores and invokes the registered drain',
     () async {
       await optoSyncBackgroundDispatcher();
       final handle = PluginUtilities.getCallbackHandle(_drain)!;
+      final rawHandle = handle.toRawHandle();
+      expect(rawHandle, isNot(0));
       final response = await _invokeFrameworkChannel(
         backgroundChannel.name,
-        MethodCall('runDrain', {'callbackHandle': handle.toRawHandle()}),
+        MethodCall('runDrain', {'callbackHandle': rawHandle}),
       );
 
       expect(const StandardMethodCodec().decodeEnvelope(response!), isTrue);

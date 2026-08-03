@@ -4,7 +4,8 @@
   engines can resolve it after process death and tree shaking.
 - Bound Android dispatcher startup separately from drain execution so an
   unresolvable entrypoint retries promptly instead of occupying a worker slot.
-- Reject negative callback handles before callback-cache lookup.
+- Accept Flutter's signed, nonzero callback handles while rejecting the zero
+  sentinel before callback-cache lookup.
 
 ## 0.1.2
 

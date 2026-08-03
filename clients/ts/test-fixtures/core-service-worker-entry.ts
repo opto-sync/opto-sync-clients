@@ -26,7 +26,7 @@ function openDatabase(): Promise<IDBDatabase> {
 async function incrementCycle(): Promise<number> {
   // Make concurrent tab messages overlap so the SDK's single-flight promise
   // is exercised by the real service-worker event loop.
-  await new Promise((resolve) => setTimeout(resolve, 75));
+  await new Promise((resolve) => setTimeout(resolve, 250));
   const database = await openDatabase();
   try {
     return await new Promise<number>((resolve, reject) => {
@@ -52,6 +52,12 @@ installOptoSyncServiceWorker({
   createSession: () => ({
     loop: {
       async syncNow() {
+        for (const client of await scope.clients.matchAll()) {
+          client.postMessage({
+            type: 'opto-sync:core-e2e-drain-started',
+            workerInstance,
+          });
+        }
         const cycles = await incrementCycle();
         for (const client of await scope.clients.matchAll()) {
           client.postMessage({ type: 'opto-sync:core-e2e-cycle', cycles });

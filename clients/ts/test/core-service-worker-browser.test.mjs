@@ -96,6 +96,23 @@ test(
     };
     navigator.serviceWorker.addEventListener('message', listener);
   });
+  window.armDrainStartedNotice = () => {
+    window.drainStartedNotice = new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('drain-start notice timeout')), 5000);
+      const listener = (event) => {
+        if (event.data?.type !== 'opto-sync:core-e2e-drain-started') return;
+        clearTimeout(timeout);
+        navigator.serviceWorker.removeEventListener('message', listener);
+        resolve(event.data);
+      };
+      navigator.serviceWorker.addEventListener('message', listener);
+    });
+    return true;
+  };
+  window.waitForDrainStartedNotice = () => {
+    if (!window.drainStartedNotice) throw new Error('drain-start notice was not armed');
+    return window.drainStartedNotice;
+  };
   window.deleteTestDatabase = () => new Promise((resolve, reject) => {
     const request = indexedDB.deleteDatabase('opto-sync-core-service-worker-e2e');
     request.onerror = () => reject(request.error);
@@ -141,23 +158,28 @@ test(
     };
     const first = await context.newPage();
     const second = await context.newPage();
+    const observer = await context.newPage();
     watch(first);
     watch(second);
+    watch(observer);
     await Promise.all([
       first.goto(origin, { waitUntil: 'load' }),
       second.goto(origin, { waitUntil: 'load' }),
+      observer.goto(origin, { waitUntil: 'load' }),
     ]);
     assert.equal(await first.evaluate(() => window.registerWorker()), true);
     await Promise.all([
       first.reload({ waitUntil: 'load' }),
       second.reload({ waitUntil: 'load' }),
+      observer.reload({ waitUntil: 'load' }),
     ]);
     assert.deepEqual(
       await Promise.all([
         first.evaluate(() => window.workerReady()),
         second.evaluate(() => window.workerReady()),
+        observer.evaluate(() => window.workerReady()),
       ]),
-      [true, true],
+      [true, true, true],
     );
 
     const [fromFirst, fromSecond] = await Promise.all([
@@ -194,14 +216,27 @@ test(
     });
     await cdp.send('ServiceWorker.enable');
     const registrationId = await registrationIdPromise;
-    const legacyNotice = first.evaluate(() => window.waitForCycleNotice(3));
+    // Race a browser-owned, already-persisted legacy Background Sync event
+    // against an explicit MessageChannel wake. The real service-worker event
+    // loop must share the adapter-owned single-flight promise across both
+    // entry paths, not merely across two messages in the unit fake.
+    assert.equal(
+      await observer.evaluate(() => window.armDrainStartedNotice()),
+      true,
+    );
+    const legacyNotice = second.evaluate(() => window.waitForCycleNotice(3));
+    const messageDuringSync = first.evaluate(() => window.wakeWorker());
+    await observer.evaluate(() => window.waitForDrainStartedNotice());
     await cdp.send('ServiceWorker.dispatchSyncEvent', {
       origin,
       registrationId,
       tag: 'opto-sync:background',
       lastChance: false,
     });
+    const mixedResult = await messageDuringSync;
     await legacyNotice;
+    assert.equal(mixedResult.ok, true);
+    assert.equal(mixedResult.result.pushedMutations, 3);
     assert.equal(await second.evaluate(() => window.readCycles()), 3);
 
     const stoppedPromise = new Promise((resolveStopped, reject) => {
@@ -240,7 +275,7 @@ test(
     assert.deepEqual(errors, []);
     await cdp.detach();
 
-    await second.close();
+    await Promise.all([observer.close(), second.close()]);
     await first.evaluate(async () => {
       const registration = await navigator.serviceWorker.ready;
       await registration.unregister();
