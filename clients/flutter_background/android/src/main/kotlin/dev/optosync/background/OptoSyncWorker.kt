@@ -4,9 +4,9 @@ import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import io.flutter.FlutterInjector
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.dart.DartExecutor
-import io.flutter.embedding.engine.loader.FlutterLoader
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.view.FlutterCallbackInformation
 import java.util.concurrent.atomic.AtomicBoolean
@@ -40,8 +40,10 @@ class OptoSyncWorker(
 
         return try {
             withContext(Dispatchers.Main.immediate) {
-                val loader = FlutterLoader()
-                loader.startInitialization(applicationContext)
+                val loader = FlutterInjector.instance().flutterLoader()
+                if (!loader.initialized()) {
+                    loader.startInitialization(applicationContext)
+                }
                 loader.ensureInitializationComplete(applicationContext, null)
 
                 val engine = FlutterEngine(applicationContext)

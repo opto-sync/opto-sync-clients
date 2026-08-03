@@ -14,6 +14,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 
 import java.util.Collections;
 
+import io.flutter.FlutterInjector;
 import io.flutter.embedding.engine.FlutterEngine;
 import io.flutter.embedding.engine.dart.DartExecutor;
 import io.flutter.embedding.engine.loader.FlutterLoader;
@@ -77,8 +78,8 @@ public final class OptoSyncWorkerJava extends ListenableWorker {
             // engine after WorkManager has already revoked ownership.
             if (isStopped()) return;
             try {
-                final FlutterLoader loader = new FlutterLoader();
-                loader.startInitialization(context);
+                final FlutterLoader loader = FlutterInjector.instance().flutterLoader();
+                if (!loader.initialized()) loader.startInitialization(context);
                 loader.ensureInitializationComplete(context, null);
 
                 engine = new FlutterEngine(context);

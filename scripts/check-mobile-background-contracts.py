@@ -98,6 +98,7 @@ def main() -> int:
             "throw cancelled",
             "runAttemptCount < MAX_ATTEMPTS - 1",
             "engine.destroy()",
+            "FlutterInjector.instance().flutterLoader()",
             'Log.w(LOG_TAG, "background worker failed before completion")',
         ),
     )
@@ -111,6 +112,7 @@ def main() -> int:
             "removeCallbacks",
             "getRunAttemptCount() < MAX_ATTEMPTS - 1",
             "if (completer.set(result)) tearDown()",
+            "FlutterInjector.instance().flutterLoader()",
             'Log.w(LOG_TAG, "Java worker failed before completion")',
         ),
     )
@@ -145,6 +147,8 @@ def main() -> int:
         "if (callbackHandle == 0L || dispatcherHandle == 0L)",
         "FlutterEngine(applicationContext)",
     )
+    if "FlutterLoader()" in kotlin_worker or "new FlutterLoader()" in java_worker:
+        fail("background workers must share FlutterEngine's injected loader")
     require_before(
         java_worker,
         java_worker_path,

@@ -8,6 +8,7 @@
 - Upgrade to WorkManager 2.10.5 while preserving the Android API 21 minimum.
 - Align its compile toolchain with WorkManager's API 35 / AGP 8.6 floor.
 - Add fixed, privacy-safe Android scheduler and worker lifecycle diagnostics.
+- Initialize headless engines through Flutter's shared injected loader.
 
 ## 0.1.1
 
