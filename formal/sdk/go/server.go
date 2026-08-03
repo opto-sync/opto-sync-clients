@@ -74,7 +74,10 @@ func Serve(ctx context.Context, input io.Reader, output io.Writer, adapter Adapt
 		} else {
 			expected := generation
 			if operation == "reset" {
-				expected++
+				if generation == MaxSafeInteger {
+					return errors.New("adapter generation cannot advance beyond 2^53-1")
+				}
+				expected = generation + 1
 			}
 			if request.Generation != expected {
 				return fmt.Errorf("request %s uses generation %d; expected %d", request.RequestID, request.Generation, expected)
@@ -96,10 +99,11 @@ func Serve(ctx context.Context, input io.Reader, output io.Writer, adapter Adapt
 			if err != nil {
 				return err
 			}
-			capabilities = map[string]bool{}
-			for _, capability := range hello.Capabilities {
-				capabilities[capability] = true
+			validatedCapabilities, err := validateCapabilities(hello.Capabilities)
+			if err != nil {
+				return err
 			}
+			capabilities = validatedCapabilities
 			ready = true
 		}
 		if operation == "hello" && outcome.Kind != "ok" {
@@ -127,7 +131,8 @@ func Serve(ctx context.Context, input io.Reader, output io.Writer, adapter Adapt
 		if len(encoded) > MaxMessageBytes {
 			return fmt.Errorf("response exceeds the %d-byte limit", MaxMessageBytes)
 		}
-		if _, err := output.Write(append(encoded, '\n')); err != nil {
+		line = append(encoded, '\n')
+		if err := writeFull(output, line); err != nil {
 			return fmt.Errorf("write adapter response: %w", err)
 		}
 		lastRequestID = new(big.Int).Set(requestID)
@@ -163,23 +168,70 @@ func dispatch(ctx context.Context, adapter Adapter, operation Operation) Outcome
 }
 
 func readBoundedLine(reader *bufio.Reader) ([]byte, error) {
-	line, err := reader.ReadBytes('\n')
-	if len(line) > MaxMessageBytes+1 {
-		return nil, fmt.Errorf("stream adapter message exceeds the %d-byte limit", MaxMessageBytes)
+	line := make([]byte, 0, 64*1024)
+	for {
+		fragment, err := reader.ReadSlice('\n')
+		if len(line)+len(fragment) > MaxMessageBytes+1 {
+			return nil, fmt.Errorf("stream adapter message exceeds the %d-byte limit", MaxMessageBytes)
+		}
+		line = append(line, fragment...)
+		switch {
+		case err == nil:
+			return trimLineTerminator(line), nil
+		case errors.Is(err, bufio.ErrBufferFull):
+			continue
+		case errors.Is(err, io.EOF):
+			if len(line) == 0 {
+				return nil, io.EOF
+			}
+			return trimLineTerminator(line), nil
+		default:
+			return nil, fmt.Errorf("read adapter request: %w", err)
+		}
 	}
+}
+
+func trimLineTerminator(line []byte) []byte {
 	if len(line) > 0 && line[len(line)-1] == '\n' {
 		line = line[:len(line)-1]
 	}
 	if len(line) > 0 && line[len(line)-1] == '\r' {
 		line = line[:len(line)-1]
 	}
-	if err != nil && !errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("read adapter request: %w", err)
+	return line
+}
+
+func writeFull(writer io.Writer, value []byte) error {
+	for len(value) > 0 {
+		written, err := writer.Write(value)
+		if written < 0 || written > len(value) {
+			return fmt.Errorf("writer returned invalid byte count %d", written)
+		}
+		value = value[written:]
+		if err != nil {
+			return err
+		}
+		if written == 0 {
+			return io.ErrShortWrite
+		}
 	}
-	if errors.Is(err, io.EOF) && len(line) == 0 {
-		return nil, io.EOF
+	return nil
+}
+
+func validateCapabilities(values []string) (map[string]bool, error) {
+	capabilities := make(map[string]bool, len(values))
+	for _, capability := range values {
+		if !validOperationName(capability) || capability == "hello" {
+			return nil, fmt.Errorf("hello advertised invalid capability %q", capability)
+		}
+		capabilities[capability] = true
 	}
-	return line, nil
+	for _, mandatory := range []string{"reset", "apply", "observe", "close"} {
+		if !capabilities[mandatory] {
+			return nil, fmt.Errorf("hello result is missing required capability %s", mandatory)
+		}
+	}
+	return capabilities, nil
 }
 
 func OK(value any) Outcome {
