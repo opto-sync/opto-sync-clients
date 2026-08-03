@@ -156,7 +156,7 @@ func TestCanonicalHelloBytesRoundTrip(t *testing.T) {
 		Protocol: Protocol, ProtocolVersion: ProtocolVersion,
 		RequestID: "1", Machine: "lease", Generation: 0,
 		Operation: "hello",
-		Outcome: OK(helloValueWithCapabilities(CapabilityRegistryV1())),
+		Outcome:   OK(helloValueWithCapabilities(CapabilityRegistryV1())),
 	}
 	encoded, err := EncodeMessage(Message{Kind: "response", Response: &response})
 	if err != nil {
