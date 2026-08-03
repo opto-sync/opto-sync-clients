@@ -100,10 +100,7 @@ fn read_bounded_file(path: &Path, maximum: usize) -> Result<Vec<u8>, io::Error> 
     if metadata.len() > maximum_u64 {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            format!(
-                "input exceeds the {maximum}-byte limit: {}",
-                path.display()
-            ),
+            format!("input exceeds the {maximum}-byte limit: {}", path.display()),
         ));
     }
     let source = fs::read(path)?;
