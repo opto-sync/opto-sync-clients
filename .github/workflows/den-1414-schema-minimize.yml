@@ -43,156 +43,93 @@ jobs:
           path = Path('formal/adapter-stream-protocol.schema.json')
           source = path.read_text(encoding='utf-8')
 
-          operation_marker = '''    "operationName": {
-              "enum": [
-                "hello",
-                "reset",
-                "apply",
-                "observe",
-                "settle",
-                "snapshot",
-                "restore",
-                "fault",
-                "close"
-              ]
-            },
-            "streamError": {
-          '''
-          operation_replacement = '''    "operationName": {
-              "enum": [
-                "hello",
-                "reset",
-                "apply",
-                "observe",
-                "settle",
-                "snapshot",
-                "restore",
-                "fault",
-                "close"
-              ]
-            },
-            "canonicalCapabilitiesV1": {
-              "type": "array",
-              "description": "A unique capability set encoded as a strict subsequence of reset, apply, observe, settle, snapshot, restore, fault, close. Reset, apply, observe, and close are mandatory; out-of-order input is rejected rather than silently reordered.",
-              "enum": [
-                ["reset", "apply", "observe", "close"],
-                ["reset", "apply", "observe", "settle", "close"],
-                ["reset", "apply", "observe", "snapshot", "close"],
-                ["reset", "apply", "observe", "settle", "snapshot", "close"],
-                ["reset", "apply", "observe", "restore", "close"],
-                ["reset", "apply", "observe", "settle", "restore", "close"],
-                ["reset", "apply", "observe", "snapshot", "restore", "close"],
-                ["reset", "apply", "observe", "settle", "snapshot", "restore", "close"],
-                ["reset", "apply", "observe", "fault", "close"],
-                ["reset", "apply", "observe", "settle", "fault", "close"],
-                ["reset", "apply", "observe", "snapshot", "fault", "close"],
-                ["reset", "apply", "observe", "settle", "snapshot", "fault", "close"],
-                ["reset", "apply", "observe", "restore", "fault", "close"],
-                ["reset", "apply", "observe", "settle", "restore", "fault", "close"],
-                ["reset", "apply", "observe", "snapshot", "restore", "fault", "close"],
-                ["reset", "apply", "observe", "settle", "snapshot", "restore", "fault", "close"]
-              ]
-            },
-            "streamImplementation": {
-              "type": "object",
-              "properties": {
-                "language": { "type": "string", "minLength": 1, "maxLength": 128 },
-                "name": { "type": "string", "minLength": 1, "maxLength": 256 },
-                "version": { "type": "string", "minLength": 1, "maxLength": 256 }
-              },
-              "required": ["language", "name", "version"],
-              "additionalProperties": false
-            },
-            "helloResult": {
-              "type": "object",
-              "properties": {
-                "implementation": { "$ref": "#/$defs/streamImplementation" },
-                "capabilities": { "$ref": "#/$defs/canonicalCapabilitiesV1" },
-                "canonicalStateSchemaHash": { "$ref": "#/$defs/sha256" }
-              },
-              "required": ["implementation", "capabilities", "canonicalStateSchemaHash"],
-              "additionalProperties": false
-            },
-            "streamError": {
-          '''
-          if source.count(operation_marker) != 1:
-              raise SystemExit('expected one operationName insertion point')
-          source = source.replace(operation_marker, operation_replacement, 1)
+          definitions = '\n'.join([
+              '    "canonicalCapabilitiesV1": {',
+              '      "type": "array",',
+              '      "description": "A unique capability set encoded as a strict subsequence of reset, apply, observe, settle, snapshot, restore, fault, close. Reset, apply, observe, and close are mandatory; out-of-order input is rejected rather than silently reordered.",',
+              '      "enum": [',
+              '        ["reset", "apply", "observe", "close"],',
+              '        ["reset", "apply", "observe", "settle", "close"],',
+              '        ["reset", "apply", "observe", "snapshot", "close"],',
+              '        ["reset", "apply", "observe", "settle", "snapshot", "close"],',
+              '        ["reset", "apply", "observe", "restore", "close"],',
+              '        ["reset", "apply", "observe", "settle", "restore", "close"],',
+              '        ["reset", "apply", "observe", "snapshot", "restore", "close"],',
+              '        ["reset", "apply", "observe", "settle", "snapshot", "restore", "close"],',
+              '        ["reset", "apply", "observe", "fault", "close"],',
+              '        ["reset", "apply", "observe", "settle", "fault", "close"],',
+              '        ["reset", "apply", "observe", "snapshot", "fault", "close"],',
+              '        ["reset", "apply", "observe", "settle", "snapshot", "fault", "close"],',
+              '        ["reset", "apply", "observe", "restore", "fault", "close"],',
+              '        ["reset", "apply", "observe", "settle", "restore", "fault", "close"],',
+              '        ["reset", "apply", "observe", "snapshot", "restore", "fault", "close"],',
+              '        ["reset", "apply", "observe", "settle", "snapshot", "restore", "fault", "close"]',
+              '      ]',
+              '    },',
+              '    "streamImplementation": {',
+              '      "type": "object",',
+              '      "properties": {',
+              '        "language": { "type": "string", "minLength": 1, "maxLength": 128 },',
+              '        "name": { "type": "string", "minLength": 1, "maxLength": 256 },',
+              '        "version": { "type": "string", "minLength": 1, "maxLength": 256 }',
+              '      },',
+              '      "required": ["language", "name", "version"],',
+              '      "additionalProperties": false',
+              '    },',
+              '    "helloResult": {',
+              '      "type": "object",',
+              '      "properties": {',
+              '        "implementation": { "$ref": "#/$defs/streamImplementation" },',
+              '        "capabilities": { "$ref": "#/$defs/canonicalCapabilitiesV1" },',
+              '        "canonicalStateSchemaHash": { "$ref": "#/$defs/sha256" }',
+              '      },',
+              '      "required": ["implementation", "capabilities", "canonicalStateSchemaHash"],',
+              '      "additionalProperties": false',
+              '    },',
+              '',
+          ])
+          marker = '    "streamError": {\n'
+          if source.count(marker) != 1:
+              raise SystemExit('expected one streamError insertion point')
+          source = source.replace(marker, definitions + marker, 1)
 
-          response_marker = '''    "response": {
-              "type": "object",
-              "properties": {
-                "protocol": { "$ref": "#/$defs/protocol" },
-                "protocolVersion": { "$ref": "#/$defs/protocolVersion" },
-                "requestId": { "$ref": "#/$defs/requestId" },
-                "machine": { "$ref": "#/$defs/machine" },
-                "generation": { "$ref": "#/$defs/generation" },
-                "operation": { "$ref": "#/$defs/operationName" },
-                "outcome": { "$ref": "#/$defs/outcome" }
-              },
-              "required": [
-                "protocol",
-                "protocolVersion",
-                "requestId",
-                "machine",
-                "generation",
-                "operation",
-                "outcome"
-              ],
-              "additionalProperties": false
-            },
-          '''
-          response_replacement = '''    "response": {
-              "type": "object",
-              "properties": {
-                "protocol": { "$ref": "#/$defs/protocol" },
-                "protocolVersion": { "$ref": "#/$defs/protocolVersion" },
-                "requestId": { "$ref": "#/$defs/requestId" },
-                "machine": { "$ref": "#/$defs/machine" },
-                "generation": { "$ref": "#/$defs/generation" },
-                "operation": { "$ref": "#/$defs/operationName" },
-                "outcome": { "$ref": "#/$defs/outcome" }
-              },
-              "required": [
-                "protocol",
-                "protocolVersion",
-                "requestId",
-                "machine",
-                "generation",
-                "operation",
-                "outcome"
-              ],
-              "allOf": [
-                {
-                  "if": {
-                    "properties": {
-                      "operation": { "const": "hello" },
-                      "outcome": {
-                        "type": "object",
-                        "properties": { "kind": { "const": "ok" } },
-                        "required": ["kind"]
-                      }
-                    },
-                    "required": ["operation", "outcome"]
-                  },
-                  "then": {
-                    "properties": {
-                      "outcome": {
-                        "type": "object",
-                        "properties": {
-                          "value": { "$ref": "#/$defs/helloResult" }
-                        }
-                      }
-                    }
-                  }
-                }
-              ],
-              "additionalProperties": false
-            },
-          '''
-          if source.count(response_marker) != 1:
-              raise SystemExit('expected one response schema replacement point')
-          path.write_text(source.replace(response_marker, response_replacement, 1), encoding='utf-8')
+          response_start = source.index('    "response": {\n')
+          request_message_start = source.index('    "requestMessage": {\n', response_start)
+          response = source[response_start:request_message_start]
+          end_marker = '      "additionalProperties": false\n    },\n'
+          if response.count(end_marker) != 1:
+              raise SystemExit('expected one response additionalProperties boundary')
+          conditional = '\n'.join([
+              '      "allOf": [',
+              '        {',
+              '          "if": {',
+              '            "properties": {',
+              '              "operation": { "const": "hello" },',
+              '              "outcome": {',
+              '                "type": "object",',
+              '                "properties": { "kind": { "const": "ok" } },',
+              '                "required": ["kind"]',
+              '              }',
+              '            },',
+              '            "required": ["operation", "outcome"]',
+              '          },',
+              '          "then": {',
+              '            "properties": {',
+              '              "outcome": {',
+              '                "type": "object",',
+              '                "properties": {',
+              '                  "value": { "$ref": "#/$defs/helloResult" }',
+              '                }',
+              '              }',
+              '            }',
+              '          }',
+              '        }',
+              '      ],',
+              '',
+          ])
+          response = response.replace(end_marker, conditional + end_marker, 1)
+          source = source[:response_start] + response + source[request_message_start:]
+          path.write_text(source, encoding='utf-8')
           PY
 
           python3 -m json.tool formal/adapter-stream-protocol.schema.json >/dev/null
