@@ -43,13 +43,13 @@ jobs:
     timeout-minutes: 35
     steps:
       - name: Checkout clients and exact core
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
           persist-credentials: false
           submodules: recursive
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22.16.0'
           cache: npm
@@ -83,12 +83,12 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout clients and exact core
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
           submodules: recursive
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
           sdk: stable
 
@@ -107,7 +107,7 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout clients and exact core
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
           submodules: recursive
@@ -127,7 +127,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout this client branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           path: opto-sync-clients
           fetch-depth: 0
@@ -135,10 +135,10 @@ jobs:
           submodules: recursive
 
       - name: Checkout the integration harness
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: opto-sync/opto-sync-e2e
-          ref: main
+          ref: 73071d77e5c28657795ac5e689ffe29828076de9
           path: opto-sync-e2e
           persist-credentials: false
 
@@ -185,7 +185,7 @@ jobs:
 
       - name: Upload integration logs
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: background-reactive-compose-logs
           path: opto-sync-e2e/background-reactive-compose.log

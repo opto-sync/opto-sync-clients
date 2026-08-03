@@ -43,7 +43,7 @@ jobs:
     timeout-minutes: 35
     steps:
       - name: Checkout clients and exact core
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: source
@@ -78,7 +78,7 @@ jobs:
           fi
 
       - name: Checkout pinned Zed CLI
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zed-pkg/zed-cli
           ref: ${{ env.ZED_CLI_SHA }}
@@ -86,7 +86,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout pinned Zed interfaces
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zed-pkg/zed-interfaces
           ref: ${{ env.ZED_INTERFACES_SHA }}
@@ -168,7 +168,7 @@ jobs:
 
       - name: Upload packed file listing on boundary failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: rust-target-boundary-diagnostics
           path: ${{ runner.temp }}/rust-target-files.txt
@@ -176,7 +176,7 @@ jobs:
           retention-days: 7
 
       - name: Upload the exact package tested by every operating system
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: opto-sync-rust-target-package
           path: ${{ runner.temp }}/rust-pack-one/*.tar.gz
@@ -196,7 +196,7 @@ jobs:
     timeout-minutes: 50
     steps:
       - name: Download the exact packed target
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: opto-sync-rust-target-package
           path: ${{ runner.temp }}/rust-target-package
