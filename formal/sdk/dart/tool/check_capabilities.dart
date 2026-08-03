@@ -6,14 +6,15 @@ import 'package:fm_adapter_stream/fm_adapter_capabilities.dart';
 void main() {
   final Map<String, dynamic> fixture =
       jsonDecode(
-            File('../../protocol-fixtures/stream/capabilities.v1.json')
-                .readAsStringSync(),
+            File(
+              '../../protocol-fixtures/stream/capabilities.v1.json',
+            ).readAsStringSync(),
           )
           as Map<String, dynamic>;
-  final List<String> registry =
-      (fixture['registry'] as List<dynamic>).cast<String>();
-  final List<String> required =
-      (fixture['required'] as List<dynamic>).cast<String>();
+  final List<String> registry = (fixture['registry'] as List<dynamic>)
+      .cast<String>();
+  final List<String> required = (fixture['required'] as List<dynamic>)
+      .cast<String>();
 
   _expect(streamAdapterProtocol == fixture['protocol'], 'protocol drift');
   _expect(
@@ -112,7 +113,9 @@ void main() {
     'canonical v1 order',
   );
 
-  stdout.writeln('Dart capability registry agrees with all 16 canonical arrays');
+  stdout.writeln(
+    'Dart capability registry agrees with all 16 canonical arrays',
+  );
 }
 
 List<List<String>> _expectedSequences(
@@ -144,7 +147,9 @@ void _expect(bool condition, String message) {
 
 void _expectJson(Object? actual, Object? expected, String message) {
   if (jsonEncode(actual) != jsonEncode(expected)) {
-    throw StateError('$message: got ${jsonEncode(actual)}, expected ${jsonEncode(expected)}');
+    throw StateError(
+      '$message: got ${jsonEncode(actual)}, expected ${jsonEncode(expected)}',
+    );
   }
 }
 

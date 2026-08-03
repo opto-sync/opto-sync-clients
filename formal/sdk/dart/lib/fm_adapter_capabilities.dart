@@ -22,8 +22,7 @@ const List<String> _requiredCapabilitiesV1 = <String>[
 ];
 
 /// Returns a defensive copy of the canonical V1 wire registry.
-List<String> capabilityRegistryV1() =>
-    List<String>.of(_capabilityRegistryV1);
+List<String> capabilityRegistryV1() => List<String>.of(_capabilityRegistryV1);
 
 /// Returns a defensive copy of the mandatory V1 capability set.
 List<String> requiredCapabilitiesV1() =>
@@ -33,8 +32,7 @@ List<String> requiredCapabilitiesV1() =>
 List<String> canonicalizeCapabilitySetV1(Iterable<String> values) {
   final Set<String> seen = <String>{};
   for (final String capability in values) {
-    if (capability == 'hello' ||
-        !_capabilityRegistryV1.contains(capability)) {
+    if (capability == 'hello' || !_capabilityRegistryV1.contains(capability)) {
       throw FormatException(
         'hello advertised invalid capability ${jsonEncode(capability)}',
       );
