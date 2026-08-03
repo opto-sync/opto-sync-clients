@@ -45,12 +45,24 @@ fn control_within_one_format_the_newer_write_wins() {
     assert_eq!(merge("999", "123"), "local", "integer millis");
     assert_eq!(merge(&s("999"), &s("123")), "local", "pure-digit strings");
     assert_eq!(merge(&s(ISO_2026), &s(ISO_2020)), "local", "ISO-8601");
-    assert_eq!(merge(&s(HLC_2025_LATER), &s(HLC_2025)), "local", "native HLC");
+    assert_eq!(
+        merge(&s(HLC_2025_LATER), &s(HLC_2025)),
+        "local",
+        "native HLC"
+    );
 
     assert_eq!(merge("123", "999"), "incoming", "integer millis");
-    assert_eq!(merge(&s("123"), &s("999")), "incoming", "pure-digit strings");
+    assert_eq!(
+        merge(&s("123"), &s("999")),
+        "incoming",
+        "pure-digit strings"
+    );
     assert_eq!(merge(&s(ISO_2020), &s(ISO_2026)), "incoming", "ISO-8601");
-    assert_eq!(merge(&s(HLC_2025), &s(HLC_2025_LATER)), "incoming", "native HLC");
+    assert_eq!(
+        merge(&s(HLC_2025), &s(HLC_2025_LATER)),
+        "incoming",
+        "native HLC"
+    );
 }
 
 #[test]
@@ -68,8 +80,16 @@ fn documents_the_inversion_iso_beats_hlc_across_five_years() {
 fn documents_the_inversion_iso_wins_from_either_side() {
     // Direction does not matter, which is what makes an un-migrated client a
     // silently privileged writer rather than merely a lucky one.
-    assert_eq!(merge(&s(HLC_2025), &s(ISO_2020)), "incoming", "ISO arriving wins");
-    assert_eq!(merge(&s(ISO_2020), &s(HLC_2025)), "local", "ISO already held wins");
+    assert_eq!(
+        merge(&s(HLC_2025), &s(ISO_2020)),
+        "incoming",
+        "ISO arriving wins"
+    );
+    assert_eq!(
+        merge(&s(ISO_2020), &s(HLC_2025)),
+        "local",
+        "ISO already held wins"
+    );
 }
 
 #[test]
@@ -124,12 +144,10 @@ fn keyed_array_elements_invert_the_same_way() {
     // The inversion is not limited to the root: MERGE_BY_KEY resolves each
     // matched element by the same rules, so one un-migrated writer can freeze
     // individual elements inside a jsonb array.
-    let local = format!(
-        r#"{{"id":"r1","items":[{{"id":"a","v":"local","updatedAt":"{HLC_2025}"}}]}}"#
-    );
-    let incoming = format!(
-        r#"{{"id":"r1","items":[{{"id":"a","v":"incoming","updatedAt":"{ISO_2020}"}}]}}"#
-    );
+    let local =
+        format!(r#"{{"id":"r1","items":[{{"id":"a","v":"local","updatedAt":"{HLC_2025}"}}]}}"#);
+    let incoming =
+        format!(r#"{{"id":"r1","items":[{{"id":"a","v":"incoming","updatedAt":"{ISO_2020}"}}]}}"#);
     let merged = reconcile(&local, &incoming, &ReconcileOptions::default()).expect("valid JSON");
     let value: serde_json::Value = serde_json::from_str(&merged).expect("JSON");
     assert_eq!(
