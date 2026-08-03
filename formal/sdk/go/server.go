@@ -219,17 +219,20 @@ func writeFull(writer io.Writer, value []byte) error {
 }
 
 func validateCapabilities(values []string) (map[string]bool, error) {
-	capabilities := make(map[string]bool, len(values))
-	for _, capability := range values {
-		if !validOperationName(capability) || capability == "hello" {
-			return nil, fmt.Errorf("hello advertised invalid capability %q", capability)
-		}
-		capabilities[capability] = true
+	canonical, err := CanonicalizeCapabilitySetV1(values)
+	if err != nil {
+		return nil, err
 	}
-	for _, mandatory := range []string{"reset", "apply", "observe", "close"} {
-		if !capabilities[mandatory] {
-			return nil, fmt.Errorf("hello result is missing required capability %s", mandatory)
-		}
+	if !equalCapabilitySequence(values, canonical) {
+		return nil, fmt.Errorf(
+			"hello capabilities are not in canonical v1 order: got %v; expected %v",
+			values,
+			canonical,
+		)
+	}
+	capabilities := make(map[string]bool, len(canonical))
+	for _, capability := range canonical {
+		capabilities[capability] = true
 	}
 	return capabilities, nil
 }
