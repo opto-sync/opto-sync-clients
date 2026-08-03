@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::FmError;
 
 pub const MANIFEST_SCHEMA_VERSION: u32 = 1;
+pub const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -181,8 +182,7 @@ impl LoadedManifest {
             fs::canonicalize(workspace).map_err(|source| FmError::io(workspace, source))?;
         let manifest_path =
             canonicalize_existing_under_workspace(&workspace, manifest_path, "manifest")?;
-        let source = fs::read_to_string(&manifest_path)
-            .map_err(|error| FmError::io(&manifest_path, error))?;
+        let source = read_bounded_utf8_file(&manifest_path, MAX_MANIFEST_BYTES, "manifest")?;
         let manifest: Manifest =
             toml::from_str(&source).map_err(|source| FmError::ManifestSyntax {
                 path: manifest_path.clone(),
@@ -292,6 +292,50 @@ impl LoadedManifest {
         }
         Ok(canonical)
     }
+}
+
+fn read_bounded_utf8_file(path: &Path, maximum: usize, label: &str) -> Result<String, FmError> {
+    let metadata = fs::metadata(path).map_err(|source| FmError::io(path, source))?;
+    if !metadata.is_file() {
+        return Err(FmError::Validation(format!(
+            "{label} input must be a regular file: {}",
+            path.display()
+        )));
+    }
+
+    let reported_bytes = usize::try_from(metadata.len()).unwrap_or(usize::MAX);
+    validate_bounded_file_size(label, path, reported_bytes, reported_bytes, maximum)?;
+
+    let source = fs::read(path).map_err(|error| FmError::io(path, error))?;
+    validate_bounded_file_size(label, path, reported_bytes, source.len(), maximum)?;
+    String::from_utf8(source).map_err(|error| {
+        FmError::Validation(format!(
+            "{label} input must be UTF-8: {}: {error}",
+            path.display()
+        ))
+    })
+}
+
+fn validate_bounded_file_size(
+    label: &str,
+    path: &Path,
+    reported_bytes: usize,
+    actual_bytes: usize,
+    maximum: usize,
+) -> Result<(), FmError> {
+    if reported_bytes > maximum {
+        return Err(FmError::Validation(format!(
+            "{label} input exceeds the {maximum}-byte limit before reading: {}",
+            path.display()
+        )));
+    }
+    if actual_bytes > maximum {
+        return Err(FmError::Validation(format!(
+            "{label} input grew beyond the {maximum}-byte limit while reading: {}",
+            path.display()
+        )));
+    }
+    Ok(())
 }
 
 fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
@@ -659,5 +703,58 @@ mod tests {
         )
         .expect_err("symlink escape must fail");
         assert!(error.to_string().contains("symlinked ancestor"));
+    }
+
+    #[test]
+    fn rejects_oversized_manifest_before_toml_parsing() {
+        let workspace = TempDir::new().expect("workspace");
+        let manifest_path = workspace.path().join("oversized.toml");
+        fs::write(&manifest_path, vec![b'x'; MAX_MANIFEST_BYTES + 1]).expect("oversized manifest");
+
+        let error = LoadedManifest::load(workspace.path(), Path::new("oversized.toml"))
+            .expect_err("oversized manifest must fail");
+        let message = error.to_string();
+        assert!(message.contains("exceeds"), "{message}");
+        assert!(
+            message.contains(&MAX_MANIFEST_BYTES.to_string()),
+            "{message}"
+        );
+        assert!(!message.contains("failed to parse manifest"), "{message}");
+    }
+
+    #[test]
+    fn rejects_manifest_path_that_is_not_a_regular_file() {
+        let workspace = TempDir::new().expect("workspace");
+        fs::create_dir(workspace.path().join("manifest-dir")).expect("manifest directory");
+
+        let error = LoadedManifest::load(workspace.path(), Path::new("manifest-dir"))
+            .expect_err("directory manifest must fail");
+        assert!(error.to_string().contains("regular file"));
+    }
+
+    #[test]
+    fn rejects_invalid_utf8_before_toml_parsing() {
+        let workspace = TempDir::new().expect("workspace");
+        fs::write(workspace.path().join("invalid.toml"), [0xff, 0xfe])
+            .expect("invalid UTF-8 manifest");
+
+        let error = LoadedManifest::load(workspace.path(), Path::new("invalid.toml"))
+            .expect_err("invalid UTF-8 manifest must fail");
+        let message = error.to_string();
+        assert!(message.contains("must be UTF-8"), "{message}");
+        assert!(!message.contains("failed to parse manifest"), "{message}");
+    }
+
+    #[test]
+    fn post_read_size_check_rejects_growth_after_metadata() {
+        let error = validate_bounded_file_size(
+            "manifest",
+            Path::new("formal/fm.toml"),
+            MAX_MANIFEST_BYTES,
+            MAX_MANIFEST_BYTES + 1,
+            MAX_MANIFEST_BYTES,
+        )
+        .expect_err("post-read growth must fail");
+        assert!(error.to_string().contains("grew beyond"));
     }
 }
