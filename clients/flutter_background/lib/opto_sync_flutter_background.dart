@@ -62,7 +62,7 @@ class OptoSyncBackground {
       );
     }
     final dispatcher = PluginUtilities.getCallbackHandle(
-      setupBackgroundChannel,
+      optoSyncBackgroundDispatcher,
     );
     if (dispatcher == null) {
       throw StateError('opto-sync background dispatcher is not an entry point');
@@ -112,36 +112,39 @@ class OptoSyncBackground {
 
   /// Cancels all scheduled background drains.
   static Future<void> cancelAll() => channel.invokeMethod<void>('cancelAll');
+}
 
-  /// Entry point invoked by the native side inside the background engine.
-  /// Not for application use.
-  @pragma('vm:entry-point')
-  static Future<void> setupBackgroundChannel() async {
-    WidgetsFlutterBinding.ensureInitialized();
-    const backgroundChannel = MethodChannel(
-      'dev.optosync.background/background',
-    );
-    backgroundChannel.setMethodCallHandler((call) async {
-      if (call.method != 'runDrain') return null;
-      final arguments = call.arguments;
-      if (arguments is! Map) {
-        throw ArgumentError.value(arguments, 'arguments', 'must be a map');
-      }
-      final rawHandle = arguments['callbackHandle'];
-      if (rawHandle is! int || rawHandle == 0) {
-        throw ArgumentError.value(
-          rawHandle,
-          'callbackHandle',
-          'must be a non-zero integer',
-        );
-      }
-      final handle = CallbackHandle.fromRawHandle(rawHandle);
-      final callback = PluginUtilities.getCallbackFromHandle(handle);
-      if (callback is! BackgroundDrain) {
-        throw StateError('registered callback is not a BackgroundDrain');
-      }
-      return callback();
-    });
-    await backgroundChannel.invokeMethod<void>('backgroundChannelReady');
-  }
+/// Entry point invoked by the native side inside the background engine.
+///
+/// This must remain a top-level function. Flutter's headless-engine callback
+/// cache can return a handle for a static class method even though a release
+/// engine cannot subsequently resolve that method as its root entrypoint.
+/// It is public only because Dart entrypoint lookup must survive tree shaking;
+/// applications should call [OptoSyncBackground.initialize] instead.
+@pragma('vm:entry-point')
+Future<void> optoSyncBackgroundDispatcher() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  const backgroundChannel = MethodChannel('dev.optosync.background/background');
+  backgroundChannel.setMethodCallHandler((call) async {
+    if (call.method != 'runDrain') return null;
+    final arguments = call.arguments;
+    if (arguments is! Map) {
+      throw ArgumentError.value(arguments, 'arguments', 'must be a map');
+    }
+    final rawHandle = arguments['callbackHandle'];
+    if (rawHandle is! int || rawHandle <= 0) {
+      throw ArgumentError.value(
+        rawHandle,
+        'callbackHandle',
+        'must be a positive integer',
+      );
+    }
+    final handle = CallbackHandle.fromRawHandle(rawHandle);
+    final callback = PluginUtilities.getCallbackFromHandle(handle);
+    if (callback is! BackgroundDrain) {
+      throw StateError('registered callback is not a BackgroundDrain');
+    }
+    return callback();
+  });
+  await backgroundChannel.invokeMethod<void>('backgroundChannelReady');
 }

@@ -13,6 +13,7 @@ import androidx.work.WorkerParameters;
 import com.google.common.util.concurrent.ListenableFuture;
 
 import java.util.Collections;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.flutter.FlutterInjector;
 import io.flutter.embedding.engine.FlutterEngine;
@@ -29,7 +30,8 @@ import io.flutter.view.FlutterCallbackInformation;
  */
 public final class OptoSyncWorkerJava extends ListenableWorker {
 
-    private static final long DRAIN_TIMEOUT_MILLIS = 9L * 60L * 1000L;
+    private static final long DISPATCHER_READY_TIMEOUT_MILLIS = 30L * 1000L;
+    private static final long DRAIN_TIMEOUT_MILLIS = 8L * 60L * 1000L + 30L * 1000L;
     private static final int MAX_ATTEMPTS = 5;
     private static final String LOG_TAG = "OptoSyncBackground";
 
@@ -83,6 +85,7 @@ public final class OptoSyncWorkerJava extends ListenableWorker {
                 loader.ensureInitializationComplete(context, null);
 
                 engine = new FlutterEngine(context);
+                final AtomicBoolean started = new AtomicBoolean(false);
                 final MethodChannel channel = new MethodChannel(
                         engine.getDartExecutor().getBinaryMessenger(),
                         "dev.optosync.background/background");
@@ -93,6 +96,14 @@ public final class OptoSyncWorkerJava extends ListenableWorker {
                     }
                     Log.i(LOG_TAG, "Java worker background Dart channel is ready");
                     result.success(null);
+                    if (!started.compareAndSet(false, true)) return;
+                    installTimeout(
+                            main,
+                            () -> {
+                                Log.w(LOG_TAG, "Java worker background Dart drain timed out");
+                                finish(completer, retryOrFail());
+                            },
+                            DRAIN_TIMEOUT_MILLIS);
                     channel.invokeMethod(
                             "runDrain",
                             Collections.singletonMap("callbackHandle", callbackHandle),
@@ -129,14 +140,16 @@ public final class OptoSyncWorkerJava extends ListenableWorker {
                     return;
                 }
 
-                // Install the deadline before Dart can report readiness; a very
-                // fast callback must still be able to remove it in finish().
-                timeoutHandler = main;
-                timeoutTask = () -> {
-                    Log.w(LOG_TAG, "Java worker background Dart drain timed out");
-                    finish(completer, retryOrFail());
-                };
-                main.postDelayed(timeoutTask, DRAIN_TIMEOUT_MILLIS);
+                // Install the readiness deadline before Dart can report it; a
+                // very fast dispatcher must still be able to replace it.
+                installTimeout(
+                        main,
+                        () -> {
+                            Log.w(LOG_TAG,
+                                    "Java worker background Dart dispatcher did not become ready");
+                            finish(completer, retryOrFail());
+                        },
+                        DISPATCHER_READY_TIMEOUT_MILLIS);
                 Log.i(LOG_TAG, "Java worker launching background Dart dispatcher");
                 engine.getDartExecutor().executeDartCallback(new DartExecutor.DartCallback(
                         context.getAssets(), loader.findAppBundlePath(), dispatcher));
@@ -147,6 +160,18 @@ public final class OptoSyncWorkerJava extends ListenableWorker {
                 finish(completer, retryOrFail());
             }
         });
+    }
+
+    /** Replaces the active phase deadline (main thread). */
+    private void installTimeout(Handler handler, Runnable task, long delayMillis) {
+        final Handler previousHandler = timeoutHandler;
+        final Runnable previousTask = timeoutTask;
+        if (previousHandler != null && previousTask != null) {
+            previousHandler.removeCallbacks(previousTask);
+        }
+        timeoutHandler = handler;
+        timeoutTask = task;
+        handler.postDelayed(task, delayMillis);
     }
 
     /** Completes the work exactly once and destroys the engine (main thread). */

@@ -1,3 +1,11 @@
+## 0.1.3
+
+- Make the headless Dart dispatcher a top-level entrypoint so Android and iOS
+  engines can resolve it after process death and tree shaking.
+- Bound Android dispatcher startup separately from drain execution so an
+  unresolvable entrypoint retries promptly instead of occupying a worker slot.
+- Reject negative callback handles before callback-cache lookup.
+
 ## 0.1.2
 
 - Align the public periodic cadence with WorkManager's 15-minute floor.

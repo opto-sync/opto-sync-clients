@@ -111,6 +111,9 @@ python3 scripts/build-mobile-native.py ios
   contents, credentials, and record data are never logged.
 - Android headless workers initialize the same injected `FlutterLoader` used
   by their `FlutterEngine`, so the engine cannot observe a divergent loader.
+- The plugin dispatcher is a tree-shake-safe top-level Dart entrypoint. Android
+  bounds dispatcher readiness separately, so a startup failure releases the
+  headless engine and enters bounded retry instead of waiting for the drain cap.
 - iOS schedules the *next* refresh before running the drain, so a crash
   mid-drain cannot break the chain.
 - `cancelAll` is package-scoped: it removes only the two Opto Sync task

@@ -51,6 +51,19 @@ void main() {
     expect(arguments['callbackHandle'], isNot(arguments['dispatcherHandle']));
   });
 
+  test('dispatcher handle restores the top-level engine entrypoint', () async {
+    await OptoSyncBackground.initialize(_drain);
+    final arguments = calls.single.arguments as Map;
+    final handle = CallbackHandle.fromRawHandle(
+      arguments['dispatcherHandle'] as int,
+    );
+    final dispatcher = PluginUtilities.getCallbackFromHandle(handle);
+
+    expect(dispatcher, same(optoSyncBackgroundDispatcher));
+    await (dispatcher! as Future<void> Function())();
+    expect(backgroundCalls.single.method, 'backgroundChannelReady');
+  });
+
   test('initialize rejects a closure (no callback handle)', () async {
     await expectLater(
       OptoSyncBackground.initialize(() async => true),
@@ -136,7 +149,7 @@ void main() {
   test(
     'background dispatcher validates malformed callback arguments',
     () async {
-      await OptoSyncBackground.setupBackgroundChannel();
+      await optoSyncBackgroundDispatcher();
       expect(backgroundCalls.single.method, 'backgroundChannelReady');
 
       for (final arguments in <Object?>[
@@ -163,7 +176,7 @@ void main() {
   test(
     'background dispatcher restores and invokes the registered drain',
     () async {
-      await OptoSyncBackground.setupBackgroundChannel();
+      await optoSyncBackgroundDispatcher();
       final handle = PluginUtilities.getCallbackHandle(_drain)!;
       final response = await _invokeFrameworkChannel(
         backgroundChannel.name,

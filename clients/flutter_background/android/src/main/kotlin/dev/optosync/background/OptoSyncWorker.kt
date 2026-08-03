@@ -48,6 +48,7 @@ class OptoSyncWorker(
 
                 val engine = FlutterEngine(applicationContext)
                 try {
+                    val ready = CompletableDeferred<Unit>()
                     val drained = CompletableDeferred<Boolean>()
                     val started = AtomicBoolean(false)
                     val backgroundChannel = MethodChannel(
@@ -61,6 +62,7 @@ class OptoSyncWorker(
                         }
                         Log.i(LOG_TAG, "background Dart channel is ready")
                         result.success(null)
+                        ready.complete(Unit)
                         if (!started.compareAndSet(false, true)) {
                             return@setMethodCallHandler
                         }
@@ -114,6 +116,12 @@ class OptoSyncWorker(
                         ),
                     )
 
+                    try {
+                        withTimeout(DISPATCHER_READY_TIMEOUT_MILLIS) { ready.await() }
+                    } catch (_: TimeoutCancellationException) {
+                        Log.w(LOG_TAG, "background Dart dispatcher did not become ready")
+                        return@withContext retryOrFail()
+                    }
                     val complete = withTimeout(DRAIN_TIMEOUT_MILLIS) { drained.await() }
                     if (complete) Result.success() else retryOrFail()
                 } finally {
@@ -147,7 +155,8 @@ class OptoSyncWorker(
 
     private companion object {
         const val LOG_TAG = "OptoSyncBackground"
-        const val DRAIN_TIMEOUT_MILLIS = 9 * 60 * 1000L // under the 10-min cap
+        const val DISPATCHER_READY_TIMEOUT_MILLIS = 30 * 1000L
+        const val DRAIN_TIMEOUT_MILLIS = 8 * 60 * 1000L + 30 * 1000L
         const val MAX_ATTEMPTS = 5
     }
 }

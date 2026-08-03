@@ -75,7 +75,9 @@ def main() -> int:
             "frequency.compareTo(minimumPeriodicFrequency) < 0",
             "on Exception",
             "@pragma('vm:entry-point')",
-            "rawHandle is! int || rawHandle == 0",
+            "Future<void> optoSyncBackgroundDispatcher() async",
+            "PluginUtilities.getCallbackHandle(\n      optoSyncBackgroundDispatcher,",
+            "rawHandle is! int || rawHandle <= 0",
         ),
     )
     require(
@@ -100,6 +102,8 @@ def main() -> int:
             "engine.destroy()",
             "FlutterInjector.instance().flutterLoader()",
             'Log.w(LOG_TAG, "background worker failed before completion")',
+            "DISPATCHER_READY_TIMEOUT_MILLIS",
+            'Log.w(LOG_TAG, "background Dart dispatcher did not become ready")',
         ),
     )
     require(
@@ -114,6 +118,8 @@ def main() -> int:
             "if (completer.set(result)) tearDown()",
             "FlutterInjector.instance().flutterLoader()",
             'Log.w(LOG_TAG, "Java worker failed before completion")',
+            "DISPATCHER_READY_TIMEOUT_MILLIS",
+            "Java worker background Dart dispatcher did not become ready",
         ),
     )
     require(
@@ -135,6 +141,8 @@ def main() -> int:
 
     if ".apply()" in kotlin_plugin:
         fail("Android callback handles must be committed before initialize returns")
+    if "static Future<void> setupBackgroundChannel" in dart:
+        fail("the headless dispatcher must remain a top-level Dart entrypoint")
     require_before(
         kotlin_plugin,
         kotlin_plugin_path,
@@ -191,6 +199,7 @@ def main() -> int:
             "does not hide programmer Errors",
             "validates malformed callback arguments",
             "restores and invokes the registered drain",
+            "dispatcher handle restores the top-level engine entrypoint",
             "surfaces an explicit cancellation failure",
         ),
     )
