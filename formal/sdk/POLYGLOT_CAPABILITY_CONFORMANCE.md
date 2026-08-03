@@ -80,8 +80,10 @@ gleam test
 The CI workflow additionally captures each language report and runs the
 cross-language comparator.
 
-## Pull-request dependency
+## Rollout state
 
-The first implementation PR is stacked on the core registry/schema/Rust/Go PR.
-After the core PR merges, retarget the polyglot PR to `main` without changing the
-contract or regenerating language-specific ordering tables.
+The authoritative registry/schema/Rust/Go implementation merged through PR #46.
+This polyglot layer is therefore based directly on `main`; it must preserve the
+same registry order and fixtures without regenerating language-specific policy.
+Every merge decision must use workflow evidence from the current retargeted head,
+not the earlier stacked-head runs.
