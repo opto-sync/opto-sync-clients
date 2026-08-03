@@ -1,6 +1,7 @@
 package dev.optosync.background
 
 import android.content.Context
+import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import io.flutter.embedding.engine.FlutterEngine
@@ -31,7 +32,11 @@ class OptoSyncWorker(
             OptoSyncBackgroundPlugin.storedCallbackHandle(applicationContext)
         val dispatcherHandle =
             OptoSyncBackgroundPlugin.storedDispatcherHandle(applicationContext)
-        if (callbackHandle == 0L || dispatcherHandle == 0L) return Result.failure()
+        if (callbackHandle == 0L || dispatcherHandle == 0L) {
+            Log.w(LOG_TAG, "worker rejected: callback registration is missing")
+            return Result.failure()
+        }
+        Log.i(LOG_TAG, "worker starting; attempt=$runAttemptCount")
 
         return try {
             withContext(Dispatchers.Main.immediate) {
@@ -52,6 +57,7 @@ class OptoSyncWorker(
                             result.notImplemented()
                             return@setMethodCallHandler
                         }
+                        Log.i(LOG_TAG, "background Dart channel is ready")
                         result.success(null)
                         if (!started.compareAndSet(false, true)) {
                             return@setMethodCallHandler
@@ -61,6 +67,10 @@ class OptoSyncWorker(
                             mapOf("callbackHandle" to callbackHandle),
                             object : MethodChannel.Result {
                                 override fun success(value: Any?) {
+                                    Log.i(
+                                        LOG_TAG,
+                                        "background Dart drain completed; drained=${value == true}",
+                                    )
                                     drained.complete(value == true)
                                 }
 
@@ -71,12 +81,14 @@ class OptoSyncWorker(
                                 ) {
                                     // Do not retain platform error strings: an
                                     // application callback may include secrets.
+                                    Log.w(LOG_TAG, "background Dart drain reported failure")
                                     drained.completeExceptionally(
                                         RuntimeException("background drain failed"),
                                     )
                                 }
 
                                 override fun notImplemented() {
+                                    Log.w(LOG_TAG, "background Dart drain was not implemented")
                                     drained.completeExceptionally(
                                         IllegalStateException("runDrain not implemented"),
                                     )
@@ -87,7 +99,11 @@ class OptoSyncWorker(
 
                     val dispatcher =
                         FlutterCallbackInformation.lookupCallbackInformation(dispatcherHandle)
-                            ?: return@withContext Result.failure()
+                            ?: run {
+                                Log.w(LOG_TAG, "worker rejected: Dart dispatcher is unavailable")
+                                return@withContext Result.failure()
+                            }
+                    Log.i(LOG_TAG, "launching background Dart dispatcher")
                     engine.dartExecutor.executeDartCallback(
                         DartExecutor.DartCallback(
                             applicationContext.assets,
@@ -100,15 +116,22 @@ class OptoSyncWorker(
                     if (complete) Result.success() else retryOrFail()
                 } finally {
                     engine.destroy()
+                    Log.i(LOG_TAG, "background Flutter engine destroyed")
                 }
             }
         } catch (_: TimeoutCancellationException) {
+            Log.w(LOG_TAG, "background Dart drain timed out")
             retryOrFail()
         } catch (cancelled: CancellationException) {
             // WorkManager cancellation is ownership loss, not another failed
             // attempt. Propagating it prevents an unwanted retry after stop.
+            Log.i(LOG_TAG, "background work ownership was cancelled")
             throw cancelled
         } catch (_: Exception) {
+            // Never log application exception messages: a callback may include
+            // credentials or record data. The fixed event is enough for CI and
+            // host diagnostics to distinguish a crash from a scheduler delay.
+            Log.w(LOG_TAG, "background worker failed before completion")
             retryOrFail()
         }
     }
@@ -121,6 +144,7 @@ class OptoSyncWorker(
         }
 
     private companion object {
+        const val LOG_TAG = "OptoSyncBackground"
         const val DRAIN_TIMEOUT_MILLIS = 9 * 60 * 1000L // under the 10-min cap
         const val MAX_ATTEMPTS = 5
     }

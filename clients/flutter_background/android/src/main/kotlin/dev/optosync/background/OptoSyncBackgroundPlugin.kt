@@ -1,6 +1,7 @@
 package dev.optosync.background
 
 import android.content.Context
+import android.util.Log
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -29,6 +30,7 @@ class OptoSyncBackgroundPlugin : FlutterPlugin, MethodChannel.MethodCallHandler 
         const val PREFS = "dev.optosync.background"
         const val KEY_CALLBACK_HANDLE = "callbackHandle"
         const val KEY_DISPATCHER_HANDLE = "dispatcherHandle"
+        private const val LOG_TAG = "OptoSyncBackground"
 
         @JvmStatic
         fun storedCallbackHandle(context: Context): Long =
@@ -106,6 +108,7 @@ class OptoSyncBackgroundPlugin : FlutterPlugin, MethodChannel.MethodCallHandler 
                         ExistingPeriodicWorkPolicy.UPDATE,
                         request,
                     )
+                    Log.i(LOG_TAG, "periodic background work submitted")
                     result.success(null)
                 } catch (_: RuntimeException) {
                     result.error("SCHEDULE_FAILED", "periodic work was not scheduled", null)
@@ -130,6 +133,7 @@ class OptoSyncBackgroundPlugin : FlutterPlugin, MethodChannel.MethodCallHandler 
                         ExistingWorkPolicy.KEEP,
                         request,
                     )
+                    Log.i(LOG_TAG, "expedited background work submitted")
                     result.success(null)
                 } catch (_: RuntimeException) {
                     result.error("SCHEDULE_FAILED", "expedited work was not scheduled", null)

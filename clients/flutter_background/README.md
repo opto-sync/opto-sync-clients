@@ -106,6 +106,9 @@ python3 scripts/build-mobile-native.py ios
   durable commit can wake the queue again.
 - `scheduleExpedited` never throws into your write path: a scheduling failure
   or unsupported host degrades to the periodic drain / next foreground session.
+- Android emits fixed `OptoSyncBackground` scheduler/worker lifecycle events
+  for host and CI diagnostics. Callback exception messages, details, queue
+  contents, credentials, and record data are never logged.
 - iOS schedules the *next* refresh before running the drain, so a crash
   mid-drain cannot break the chain.
 - `cancelAll` is package-scoped: it removes only the two Opto Sync task

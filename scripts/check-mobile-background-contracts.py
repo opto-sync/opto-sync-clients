@@ -86,6 +86,7 @@ def main() -> int:
             "ensureInitialized(result)",
             "ExistingWorkPolicy.KEEP",
             'result.error("SCHEDULE_FAILED"',
+            'Log.i(LOG_TAG, "expedited background work submitted")',
         ),
     )
     require(
@@ -97,6 +98,7 @@ def main() -> int:
             "throw cancelled",
             "runAttemptCount < MAX_ATTEMPTS - 1",
             "engine.destroy()",
+            'Log.w(LOG_TAG, "background worker failed before completion")',
         ),
     )
     require(
@@ -109,6 +111,7 @@ def main() -> int:
             "removeCallbacks",
             "getRunAttemptCount() < MAX_ATTEMPTS - 1",
             "if (completer.set(result)) tearDown()",
+            'Log.w(LOG_TAG, "Java worker failed before completion")',
         ),
     )
     require(
@@ -244,9 +247,29 @@ def main() -> int:
             if marker in text:
                 fail(f"{relative} embeds forbidden credential material {marker!r}")
 
+    # Android diagnostics must remain fixed event names. Logging callback
+    # error objects, platform messages, or details could persist credentials
+    # or record data from a host application's drain implementation.
+    forbidden_log_values = (
+        "Log.w(LOG_TAG, error",
+        "Log.e(LOG_TAG, error",
+        "Log.w(LOG_TAG, message",
+        "Log.e(LOG_TAG, message",
+        "Log.w(LOG_TAG, details",
+        "Log.e(LOG_TAG, details",
+    )
+    for relative, text in (
+        (kotlin_worker_path, kotlin_worker),
+        (java_worker_path, java_worker),
+    ):
+        for marker in forbidden_log_values:
+            if marker in text:
+                fail(f"{relative} logs sensitive callback failure material")
+
     print(
         "mobile background contracts passed: durable registration, bounded "
-        "retries, scoped iOS cancellation, safe Flutter fallback, and "
+        "retries, privacy-safe Android diagnostics, scoped iOS cancellation, "
+        "safe Flutter fallback, and "
         f"plugin {plugin_version} with WorkManager {work_version}, API "
         f"{compile_sdk_match.group(1)} compile, and minSdk 21 compatibility"
     )

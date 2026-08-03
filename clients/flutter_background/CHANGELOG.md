@@ -7,6 +7,7 @@
 - Route iOS one-shot commit wakes through the registered network-bound processing task.
 - Upgrade to WorkManager 2.10.5 while preserving the Android API 21 minimum.
 - Align its compile toolchain with WorkManager's API 35 / AGP 8.6 floor.
+- Add fixed, privacy-safe Android scheduler and worker lifecycle diagnostics.
 
 ## 0.1.1
 

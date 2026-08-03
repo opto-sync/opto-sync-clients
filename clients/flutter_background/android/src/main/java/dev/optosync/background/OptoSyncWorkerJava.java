@@ -3,6 +3,7 @@ package dev.optosync.background;
 import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 
 import androidx.annotation.NonNull;
 import androidx.concurrent.futures.CallbackToFutureAdapter;
@@ -29,6 +30,7 @@ public final class OptoSyncWorkerJava extends ListenableWorker {
 
     private static final long DRAIN_TIMEOUT_MILLIS = 9L * 60L * 1000L;
     private static final int MAX_ATTEMPTS = 5;
+    private static final String LOG_TAG = "OptoSyncBackground";
 
     private FlutterEngine engine;
     private Handler timeoutHandler;
@@ -47,9 +49,11 @@ public final class OptoSyncWorkerJava extends ListenableWorker {
 
         return CallbackToFutureAdapter.getFuture(completer -> {
             if (callbackHandle == 0L || dispatcherHandle == 0L) {
+                Log.w(LOG_TAG, "Java worker rejected: callback registration is missing");
                 completer.set(Result.failure());
                 return "opto-sync-drain";
             }
+            Log.i(LOG_TAG, "Java worker starting; attempt=" + getRunAttemptCount());
             // WorkManager cancels the returned future when ownership is lost.
             // Propagate that cancellation to the headless Flutter engine.
             final Handler main = new Handler(Looper.getMainLooper());
@@ -86,6 +90,7 @@ public final class OptoSyncWorkerJava extends ListenableWorker {
                         result.notImplemented();
                         return;
                     }
+                    Log.i(LOG_TAG, "Java worker background Dart channel is ready");
                     result.success(null);
                     channel.invokeMethod(
                             "runDrain",
@@ -93,6 +98,8 @@ public final class OptoSyncWorkerJava extends ListenableWorker {
                             new MethodChannel.Result() {
                                 @Override
                                 public void success(Object value) {
+                                    Log.i(LOG_TAG, "Java worker background Dart drain completed; drained="
+                                            + Boolean.TRUE.equals(value));
                                     finish(completer, Boolean.TRUE.equals(value)
                                             ? Result.success()
                                             : retryOrFail());
@@ -101,11 +108,13 @@ public final class OptoSyncWorkerJava extends ListenableWorker {
                                 @Override
                                 public void error(
                                         @NonNull String code, String message, Object details) {
+                                    Log.w(LOG_TAG, "Java worker background Dart drain reported failure");
                                     finish(completer, retryOrFail());
                                 }
 
                                 @Override
                                 public void notImplemented() {
+                                    Log.w(LOG_TAG, "Java worker background Dart drain was not implemented");
                                     finish(completer, retryOrFail());
                                 }
                             });
@@ -114,6 +123,7 @@ public final class OptoSyncWorkerJava extends ListenableWorker {
                 final FlutterCallbackInformation dispatcher =
                         FlutterCallbackInformation.lookupCallbackInformation(dispatcherHandle);
                 if (dispatcher == null) {
+                    Log.w(LOG_TAG, "Java worker rejected: Dart dispatcher is unavailable");
                     finish(completer, Result.failure());
                     return;
                 }
@@ -121,11 +131,18 @@ public final class OptoSyncWorkerJava extends ListenableWorker {
                 // Install the deadline before Dart can report readiness; a very
                 // fast callback must still be able to remove it in finish().
                 timeoutHandler = main;
-                timeoutTask = () -> finish(completer, retryOrFail());
+                timeoutTask = () -> {
+                    Log.w(LOG_TAG, "Java worker background Dart drain timed out");
+                    finish(completer, retryOrFail());
+                };
                 main.postDelayed(timeoutTask, DRAIN_TIMEOUT_MILLIS);
+                Log.i(LOG_TAG, "Java worker launching background Dart dispatcher");
                 engine.getDartExecutor().executeDartCallback(new DartExecutor.DartCallback(
                         context.getAssets(), loader.findAppBundlePath(), dispatcher));
             } catch (RuntimeException error) {
+                // Do not log the exception: a host callback may include secrets
+                // or record data in its message.
+                Log.w(LOG_TAG, "Java worker failed before completion");
                 finish(completer, retryOrFail());
             }
         });
@@ -153,6 +170,7 @@ public final class OptoSyncWorkerJava extends ListenableWorker {
         timeoutHandler = null;
         timeoutTask = null;
         if (handler != null && task != null) handler.removeCallbacks(task);
+        Log.i(LOG_TAG, "Java worker ownership was cancelled");
         tearDown();
     }
 
@@ -166,6 +184,7 @@ public final class OptoSyncWorkerJava extends ListenableWorker {
         if (engine != null) {
             engine.destroy();
             engine = null;
+            Log.i(LOG_TAG, "Java worker background Flutter engine destroyed");
         }
     }
 }
