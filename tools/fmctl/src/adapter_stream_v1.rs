@@ -7,7 +7,8 @@ use thiserror::Error;
 pub const STREAM_ADAPTER_PROTOCOL: &str = "fm.adapter.stream.v1";
 pub const STREAM_ADAPTER_PROTOCOL_VERSION: u32 = 1;
 pub const MAX_STREAM_MESSAGE_BYTES: usize = 1024 * 1024;
-const MAX_REQUEST_ID: u64 = 9_007_199_254_740_991;
+pub const MAX_STREAM_GENERATION: u64 = 9_007_199_254_740_991;
+const MAX_REQUEST_ID: u64 = MAX_STREAM_GENERATION;
 const MAX_SETTLE_STEPS: u32 = 1_000_000;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -169,6 +170,7 @@ impl StreamRequest {
             &self.request_id,
             &self.machine,
         )?;
+        validate_generation(self.generation)?;
         match &self.operation {
             StreamOperation::Hello
             | StreamOperation::Observe
@@ -225,6 +227,7 @@ impl StreamResponse {
             &self.request_id,
             &self.machine,
         )?;
+        validate_generation(self.generation)?;
         match &self.outcome {
             StreamOutcome::Ok { value } => {
                 canonicalize_json(value)?;
@@ -482,9 +485,10 @@ impl StreamTranscriptValidator {
                     return invalid("hello may only occur before the session is ready");
                 }
                 let expected_generation = if operation == StreamOperationName::Reset {
-                    self.generation
-                        .checked_add(1)
-                        .ok_or_else(|| protocol_error("adapter generation overflowed"))?
+                    if self.generation == MAX_STREAM_GENERATION {
+                        return invalid("adapter generation cannot advance beyond 2^53-1");
+                    }
+                    self.generation + 1
                 } else {
                     self.generation
                 };
@@ -509,7 +513,7 @@ impl StreamTranscriptValidator {
     }
 
     fn accept_response(&mut self, response: &StreamResponse) -> Result<(), StreamProtocolError> {
-        let pending = self.pending.take().ok_or_else(|| {
+        let pending = self.pending.as_ref().cloned().ok_or_else(|| {
             protocol_error(format!(
                 "response {} has no pending request",
                 response.request_id
@@ -523,6 +527,10 @@ impl StreamTranscriptValidator {
             return invalid("response does not echo the pending request identity");
         }
 
+        let mut next_phase = self.phase;
+        let mut next_generation = self.generation;
+        let mut next_capabilities = self.capabilities.clone();
+
         match (&pending.operation, &response.outcome) {
             (StreamOperationName::Hello, StreamOutcome::Ok { value }) => {
                 let hello: HelloResult =
@@ -532,15 +540,30 @@ impl StreamTranscriptValidator {
                         ))
                     })?;
                 hello.validate()?;
-                self.capabilities = hello.capabilities;
-                self.phase = SessionPhase::Ready;
+                next_capabilities = hello.capabilities;
+                next_phase = SessionPhase::Ready;
             }
-            (StreamOperationName::Hello, _) => self.phase = SessionPhase::AwaitHello,
+            (StreamOperationName::Hello, _) => {
+                return invalid("hello must succeed");
+            }
             (StreamOperationName::Reset, StreamOutcome::Ok { .. }) => {
-                self.generation = pending.generation;
+                if self.generation == MAX_STREAM_GENERATION {
+                    return invalid("adapter generation cannot advance beyond 2^53-1");
+                }
+                let expected = self.generation + 1;
+                if pending.generation != expected {
+                    return invalid(format!(
+                        "successful reset response generation {} does not advance {} by one",
+                        pending.generation, self.generation
+                    ));
+                }
+                next_generation = pending.generation;
             }
             (StreamOperationName::Close, StreamOutcome::Ok { .. }) => {
-                self.phase = SessionPhase::Closed;
+                next_phase = SessionPhase::Closed;
+            }
+            (StreamOperationName::Close, _) => {
+                return invalid("close must succeed");
             }
             (operation, StreamOutcome::Ok { .. }) if !self.capabilities.contains(operation) => {
                 return invalid(format!(
@@ -556,6 +579,11 @@ impl StreamTranscriptValidator {
             }
             _ => {}
         }
+
+        self.phase = next_phase;
+        self.generation = next_generation;
+        self.capabilities = next_capabilities;
+        self.pending = None;
         Ok(())
     }
 }
@@ -593,6 +621,15 @@ fn validate_envelope(
     }
     parse_request_id(request_id)?;
     validate_label("machine", machine, 256)
+}
+
+fn validate_generation(value: u64) -> Result<(), StreamProtocolError> {
+    if value > MAX_STREAM_GENERATION {
+        return invalid(format!(
+            "generation must be between 0 and {MAX_STREAM_GENERATION}"
+        ));
+    }
+    Ok(())
 }
 
 fn parse_request_id(value: &str) -> Result<u64, StreamProtocolError> {
@@ -691,6 +728,65 @@ mod tests {
             .expect_err("stale generation")
             .to_string()
             .contains("generation"));
+    }
+
+    #[test]
+    fn rejects_generations_above_the_javascript_safe_integer() {
+        let message = StreamMessage::Request(StreamRequest {
+            protocol: STREAM_ADAPTER_PROTOCOL.to_owned(),
+            protocol_version: STREAM_ADAPTER_PROTOCOL_VERSION,
+            request_id: "1".to_owned(),
+            machine: "machine".to_owned(),
+            generation: MAX_STREAM_GENERATION + 1,
+            operation: StreamOperation::Observe,
+        });
+        assert!(message
+            .validate()
+            .expect_err("unsafe generation")
+            .to_string()
+            .contains("generation"));
+    }
+
+    #[test]
+    fn rejected_response_retains_pending_request_for_a_valid_retry() {
+        let mut validator = StreamTranscriptValidator::default();
+        let request = StreamRequest {
+            protocol: STREAM_ADAPTER_PROTOCOL.to_owned(),
+            protocol_version: STREAM_ADAPTER_PROTOCOL_VERSION,
+            request_id: "1".to_owned(),
+            machine: "machine".to_owned(),
+            generation: 0,
+            operation: StreamOperation::Hello,
+        };
+        validator
+            .accept(&StreamMessage::Request(request))
+            .expect("hello request");
+
+        let hello_value = json!({
+            "implementation": {
+                "language": "rust",
+                "name": "test",
+                "version": "1"
+            },
+            "capabilities": ["reset", "apply", "observe", "close"],
+            "canonicalStateSchemaHash": format!("sha256:{}", "0".repeat(64))
+        });
+        let mut response = StreamResponse {
+            protocol: STREAM_ADAPTER_PROTOCOL.to_owned(),
+            protocol_version: STREAM_ADAPTER_PROTOCOL_VERSION,
+            request_id: "2".to_owned(),
+            machine: "machine".to_owned(),
+            generation: 0,
+            operation: StreamOperationName::Hello,
+            outcome: StreamOutcome::Ok { value: hello_value },
+        };
+        validator
+            .accept(&StreamMessage::Response(response.clone()))
+            .expect_err("mismatched response");
+        response.request_id = "1".to_owned();
+        validator
+            .accept(&StreamMessage::Response(response))
+            .expect("valid retry");
     }
 
     #[test]
