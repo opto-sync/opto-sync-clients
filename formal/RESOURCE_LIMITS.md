@@ -9,9 +9,9 @@ untrusted input boundary even for local runs.
 The loader:
 
 1. canonicalizes the path inside the workspace;
-2. requires a regular file;
-3. checks metadata size before allocating the file body;
-4. opens the file and reads at most the ceiling plus one sentinel byte;
+2. opens the canonical path and requires that exact handle to be a regular file;
+3. checks metadata from the opened handle before allocating the file body;
+4. reads that same handle up to the ceiling plus one sentinel byte;
 5. checks the actual byte count again after the capped read, detecting growth without unbounded allocation; and
 6. validates UTF-8 before TOML parsing.
 

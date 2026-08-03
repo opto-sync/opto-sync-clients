@@ -296,7 +296,10 @@ impl LoadedManifest {
 }
 
 fn read_bounded_utf8_file(path: &Path, maximum: usize, label: &str) -> Result<String, FmError> {
-    let metadata = fs::metadata(path).map_err(|source| FmError::io(path, source))?;
+    let file = fs::File::open(path).map_err(|error| FmError::io(path, error))?;
+    let metadata = file
+        .metadata()
+        .map_err(|source| FmError::io(path, source))?;
     if !metadata.is_file() {
         return Err(FmError::Validation(format!(
             "{label} input must be a regular file: {}",
@@ -307,7 +310,6 @@ fn read_bounded_utf8_file(path: &Path, maximum: usize, label: &str) -> Result<St
     let reported_bytes = usize::try_from(metadata.len()).unwrap_or(usize::MAX);
     validate_bounded_file_size(label, path, reported_bytes, reported_bytes, maximum)?;
 
-    let file = fs::File::open(path).map_err(|error| FmError::io(path, error))?;
     let read_limit = u64::try_from(maximum).unwrap_or(u64::MAX).saturating_add(1);
     let mut source = Vec::with_capacity(reported_bytes.min(maximum));
     file.take(read_limit)
