@@ -179,6 +179,21 @@ func TestCanonicalHelloBytesRoundTrip(t *testing.T) {
 	}
 }
 
+func TestEncodeMessageRejectsNoncanonicalHello(t *testing.T) {
+	response := Response{
+		Protocol: Protocol, ProtocolVersion: ProtocolVersion,
+		RequestID: "1", Machine: "lease", Generation: 0,
+		Operation: "hello",
+		Outcome: OK(helloValueWithCapabilities([]string{
+			"reset", "apply", "observe", "snapshot", "settle", "close",
+		})),
+	}
+	_, err := EncodeMessage(Message{Kind: "response", Response: &response})
+	if err == nil || !strings.Contains(err.Error(), "canonical v1 order") {
+		t.Fatalf("expected direct encoder rejection, got %v", err)
+	}
+}
+
 func helloValueWithCapabilities(capabilities []string) map[string]any {
 	values := make([]any, len(capabilities))
 	for index, capability := range capabilities {
