@@ -1,18 +1,22 @@
 {
   "schemaVersion": 1,
   "status": "pending_dependency",
+  "approvalRevision": 2,
+  "cleanEvidenceMergeSha": "5b676acde74520db259b9b6dc6d739ab85667e57",
   "repository": "opto-sync/opto-sync-clients",
   "targetSha": "38f0fcc6a471455a0a20aec5f7fa63d3f70d5f89",
   "targetTreeSha": "c89cc0e08ab156bcdf9487a7c2f0515d6c88c865",
   "embeddedSyncerSha": "8d2b275a89062403666f4bdf196d246a07c84484",
   "version": "0.2.0",
   "tag": "v0.2.0",
+  "packagingMethod": "independent_untouched_checkouts_before_build",
   "zedPackages": [
     {
       "name": "opto-sync-clients",
       "archive": "opto-sync-opto-sync-clients-0.2.0.tar.gz",
       "sha256": "0719690cbadec372ec1dad95ca91b1cb6ec8ec9d2a8caf1e9551e3396fcaba14",
-      "size": 858022
+      "size": 858022,
+      "fileCount": 378
     }
   ],
   "requiredPublishedDependency": {
@@ -20,16 +24,17 @@
     "version": "0.2.1",
     "tag": "v0.2.1",
     "vcsCommit": "8d2b275a89062403666f4bdf196d246a07c84484",
-    "sha256": "b264be9ac8325e231e8bd2c98af5711f0c6c49934fb203178368490fe2f81c2c",
-    "size": 5775114
+    "sha256": "444d57c04f80a910e418dec02ebaab1032f4e72fcaf43c1ed1c15d08d7aa163b",
+    "size": 554540,
+    "fileCount": 217
   },
   "evidence": {
     "repository": "opto-sync/opto-sync-e2e",
-    "mergeCommit": "1d047de462c1ccb45f1101ca98108728518b77d1",
+    "mergeCommit": "5b676acde74520db259b9b6dc6d739ab85667e57",
     "workflow": "Coordinated deterministic release evidence",
-    "runId": 30781413337,
-    "artifactId": 8843820571,
-    "artifactDigest": "sha256:c61cc2b80638f4f4628027af6037c3ce179f572fa8587c69cde0ce3ad1226d2a"
+    "runId": 30783265479,
+    "artifactId": 8844418512,
+    "artifactDigest": "sha256:71c89a2c0672156839ec7a472ca4d8fad770563f27f6f71fe5ea5b91a1963257"
   },
   "tooling": {
     "zedCliSha": "c636fb8f6b08695c6b4fe94e2481f4d57270b2d7",
