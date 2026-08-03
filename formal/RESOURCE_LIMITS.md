@@ -11,8 +11,8 @@ The loader:
 1. canonicalizes the path inside the workspace;
 2. requires a regular file;
 3. checks metadata size before allocating the file body;
-4. reads bytes rather than an unbounded UTF-8 string;
-5. checks the actual byte count again after reading, closing a growth race; and
+4. opens the file and reads at most the ceiling plus one sentinel byte;
+5. checks the actual byte count again after the capped read, detecting growth without unbounded allocation; and
 6. validates UTF-8 before TOML parsing.
 
 Oversized, non-file, or invalid-UTF-8 inputs are manifest-validation failures and
