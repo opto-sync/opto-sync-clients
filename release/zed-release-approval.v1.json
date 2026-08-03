@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "status": "pending_dependency",
+  "repository": "opto-sync/opto-sync-clients",
+  "targetSha": "38f0fcc6a471455a0a20aec5f7fa63d3f70d5f89",
+  "targetTreeSha": "c89cc0e08ab156bcdf9487a7c2f0515d6c88c865",
+  "embeddedSyncerSha": "8d2b275a89062403666f4bdf196d246a07c84484",
+  "version": "0.2.0",
+  "tag": "v0.2.0",
+  "zedPackages": [
+    {
+      "name": "opto-sync-clients",
+      "archive": "opto-sync-opto-sync-clients-0.2.0.tar.gz",
+      "sha256": "0719690cbadec372ec1dad95ca91b1cb6ec8ec9d2a8caf1e9551e3396fcaba14",
+      "size": 858022
+    }
+  ],
+  "requiredPublishedDependency": {
+    "name": "syncer",
+    "version": "0.2.1",
+    "tag": "v0.2.1",
+    "vcsCommit": "8d2b275a89062403666f4bdf196d246a07c84484",
+    "sha256": "b264be9ac8325e231e8bd2c98af5711f0c6c49934fb203178368490fe2f81c2c",
+    "size": 5775114
+  },
+  "evidence": {
+    "repository": "opto-sync/opto-sync-e2e",
+    "mergeCommit": "1d047de462c1ccb45f1101ca98108728518b77d1",
+    "workflow": "Coordinated deterministic release evidence",
+    "runId": 30781413337,
+    "artifactId": 8843820571,
+    "artifactDigest": "sha256:c61cc2b80638f4f4628027af6037c3ce179f572fa8587c69cde0ce3ad1226d2a"
+  },
+  "tooling": {
+    "zedCliSha": "c636fb8f6b08695c6b4fe94e2481f4d57270b2d7",
+    "zedInterfacesSha": "415e871b1fb3dd97744c134351408a3224805dfb"
+  },
+  "linearIssues": ["DEN-309", "DEN-363"]
+}
