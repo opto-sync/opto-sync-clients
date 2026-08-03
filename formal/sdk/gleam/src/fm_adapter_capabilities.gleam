@@ -87,9 +87,10 @@ pub fn all_canonical_capability_sequences_v1() -> List(List(String)) {
   |> subsets
   |> list.map(fn(optional) {
     let assert Ok(canonical) =
-      canonicalize_capability_set_v1(
-        list.append(required_capabilities_v1(), optional),
-      )
+      canonicalize_capability_set_v1(list.append(
+        required_capabilities_v1(),
+        optional,
+      ))
     canonical
   })
 }
@@ -130,7 +131,10 @@ fn validate_required(
   }
 }
 
-fn select_registry(registry: List(String), values: List(String)) -> List(String) {
+fn select_registry(
+  registry: List(String),
+  values: List(String),
+) -> List(String) {
   case registry {
     [] -> []
     [capability, ..rest] ->
