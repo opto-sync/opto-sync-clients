@@ -1,0 +1,47 @@
+name: DEN-1538 apply pinned Dart formatting
+
+on:
+  push:
+    branches:
+      - agent/den-1538-polyglot-capabilities
+    paths:
+      - '.github/workflows/den-1538-dart-format.yml'
+      - 'formal/sdk/dart/**'
+
+concurrency:
+  group: den-1538-dart-format-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.repository == 'opto-sync/opto-sync-clients'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout the branch head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: agent/den-1538-polyglot-capabilities
+          fetch-depth: 0
+
+      - name: Install pinned Dart SDK
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: '3.12.1'
+
+      - name: Apply and commit Dart formatter output
+        run: |
+          set -euo pipefail
+          dart format formal/sdk/dart/lib formal/sdk/dart/tool
+          if git diff --quiet -- formal/sdk/dart; then
+            echo 'Dart sources are already formatted.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add formal/sdk/dart
+          git commit -m 'DEN-1538 apply Dart 3.12.1 formatting'
+          git push origin HEAD:agent/den-1538-polyglot-capabilities
