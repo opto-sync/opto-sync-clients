@@ -1,0 +1,215 @@
+name: DEN-1414 minimize schema diff and run corpus evaluator
+
+on:
+  push:
+    branches:
+      - agent/den-1414-capability-registry-core
+    paths:
+      - '.github/workflows/den-1414-schema-minimize.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: den-1414-schema-minimize-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout the DEN-1414 branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: agent/den-1414-capability-registry-core
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Install Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+
+      - name: Restore main formatting and apply only semantic schema changes
+        run: |
+          set -euo pipefail
+          git show origin/main:formal/adapter-stream-protocol.schema.json \
+            > formal/adapter-stream-protocol.schema.json
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('formal/adapter-stream-protocol.schema.json')
+          source = path.read_text(encoding='utf-8')
+
+          operation_marker = '''    "operationName": {
+              "enum": [
+                "hello",
+                "reset",
+                "apply",
+                "observe",
+                "settle",
+                "snapshot",
+                "restore",
+                "fault",
+                "close"
+              ]
+            },
+            "streamError": {
+          '''
+          operation_replacement = '''    "operationName": {
+              "enum": [
+                "hello",
+                "reset",
+                "apply",
+                "observe",
+                "settle",
+                "snapshot",
+                "restore",
+                "fault",
+                "close"
+              ]
+            },
+            "canonicalCapabilitiesV1": {
+              "type": "array",
+              "description": "A unique capability set encoded as a strict subsequence of reset, apply, observe, settle, snapshot, restore, fault, close. Reset, apply, observe, and close are mandatory; out-of-order input is rejected rather than silently reordered.",
+              "enum": [
+                ["reset", "apply", "observe", "close"],
+                ["reset", "apply", "observe", "settle", "close"],
+                ["reset", "apply", "observe", "snapshot", "close"],
+                ["reset", "apply", "observe", "settle", "snapshot", "close"],
+                ["reset", "apply", "observe", "restore", "close"],
+                ["reset", "apply", "observe", "settle", "restore", "close"],
+                ["reset", "apply", "observe", "snapshot", "restore", "close"],
+                ["reset", "apply", "observe", "settle", "snapshot", "restore", "close"],
+                ["reset", "apply", "observe", "fault", "close"],
+                ["reset", "apply", "observe", "settle", "fault", "close"],
+                ["reset", "apply", "observe", "snapshot", "fault", "close"],
+                ["reset", "apply", "observe", "settle", "snapshot", "fault", "close"],
+                ["reset", "apply", "observe", "restore", "fault", "close"],
+                ["reset", "apply", "observe", "settle", "restore", "fault", "close"],
+                ["reset", "apply", "observe", "snapshot", "restore", "fault", "close"],
+                ["reset", "apply", "observe", "settle", "snapshot", "restore", "fault", "close"]
+              ]
+            },
+            "streamImplementation": {
+              "type": "object",
+              "properties": {
+                "language": { "type": "string", "minLength": 1, "maxLength": 128 },
+                "name": { "type": "string", "minLength": 1, "maxLength": 256 },
+                "version": { "type": "string", "minLength": 1, "maxLength": 256 }
+              },
+              "required": ["language", "name", "version"],
+              "additionalProperties": false
+            },
+            "helloResult": {
+              "type": "object",
+              "properties": {
+                "implementation": { "$ref": "#/$defs/streamImplementation" },
+                "capabilities": { "$ref": "#/$defs/canonicalCapabilitiesV1" },
+                "canonicalStateSchemaHash": { "$ref": "#/$defs/sha256" }
+              },
+              "required": ["implementation", "capabilities", "canonicalStateSchemaHash"],
+              "additionalProperties": false
+            },
+            "streamError": {
+          '''
+          if source.count(operation_marker) != 1:
+              raise SystemExit('expected one operationName insertion point')
+          source = source.replace(operation_marker, operation_replacement, 1)
+
+          response_marker = '''    "response": {
+              "type": "object",
+              "properties": {
+                "protocol": { "$ref": "#/$defs/protocol" },
+                "protocolVersion": { "$ref": "#/$defs/protocolVersion" },
+                "requestId": { "$ref": "#/$defs/requestId" },
+                "machine": { "$ref": "#/$defs/machine" },
+                "generation": { "$ref": "#/$defs/generation" },
+                "operation": { "$ref": "#/$defs/operationName" },
+                "outcome": { "$ref": "#/$defs/outcome" }
+              },
+              "required": [
+                "protocol",
+                "protocolVersion",
+                "requestId",
+                "machine",
+                "generation",
+                "operation",
+                "outcome"
+              ],
+              "additionalProperties": false
+            },
+          '''
+          response_replacement = '''    "response": {
+              "type": "object",
+              "properties": {
+                "protocol": { "$ref": "#/$defs/protocol" },
+                "protocolVersion": { "$ref": "#/$defs/protocolVersion" },
+                "requestId": { "$ref": "#/$defs/requestId" },
+                "machine": { "$ref": "#/$defs/machine" },
+                "generation": { "$ref": "#/$defs/generation" },
+                "operation": { "$ref": "#/$defs/operationName" },
+                "outcome": { "$ref": "#/$defs/outcome" }
+              },
+              "required": [
+                "protocol",
+                "protocolVersion",
+                "requestId",
+                "machine",
+                "generation",
+                "operation",
+                "outcome"
+              ],
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "operation": { "const": "hello" },
+                      "outcome": {
+                        "type": "object",
+                        "properties": { "kind": { "const": "ok" } },
+                        "required": ["kind"]
+                      }
+                    },
+                    "required": ["operation", "outcome"]
+                  },
+                  "then": {
+                    "properties": {
+                      "outcome": {
+                        "type": "object",
+                        "properties": {
+                          "value": { "$ref": "#/$defs/helloResult" }
+                        }
+                      }
+                    }
+                  }
+                }
+              ],
+              "additionalProperties": false
+            },
+          '''
+          if source.count(response_marker) != 1:
+              raise SystemExit('expected one response schema replacement point')
+          path.write_text(source.replace(response_marker, response_replacement, 1), encoding='utf-8')
+          PY
+
+          python3 -m json.tool formal/adapter-stream-protocol.schema.json >/dev/null
+          (
+            cd schema
+            npm ci
+            npm test
+          )
+          git diff --check
+
+      - name: Commit the focused schema diff
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add formal/adapter-stream-protocol.schema.json
+          git commit -m 'DEN-1414 keep capability schema diff focused'
+          git push origin "HEAD:${BRANCH}"
