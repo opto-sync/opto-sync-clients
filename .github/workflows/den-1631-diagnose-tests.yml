@@ -57,5 +57,6 @@ jobs:
         with:
           name: den-1631-cargo-test-log
           path: .diagnostics/
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 2
