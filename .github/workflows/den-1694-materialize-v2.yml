@@ -57,6 +57,11 @@ jobs:
           source = leased.read_text(encoding='utf-8')
           source = source.replace('use std::ffi::c_void;\n', '#[cfg(windows)]\nuse std::ffi::c_void;\n', 1)
           source = source.replace(
+              'use crate::runner::CommandOutcome;\n\n#[path = "report_publish.rs"]\n',
+              'use crate::runner::CommandOutcome;\n\nuse super::{\n    render_artifact_manifest_json, render_junit_xml, render_provenance_json,\n    render_sarif_json, report_status, ArtifactEntry, ReportStatus,\n};\n\n#[path = "report_publish.rs"]\n',
+              1,
+          )
+          source = source.replace(
               '    // Cleanup and lease creation share this short lock. Once the bundle lease is\n'
               '    // held, different bundle ids may publish concurrently.\n',
               '    // Cleanup and lease creation share this short lock. Once the bundle lease is\n'
@@ -150,6 +155,22 @@ jobs:
           if source.count(old) != 1:
               raise SystemExit('unexpected open_private_lock_file implementation')
           source = source.replace(old, new, 1)
+          source = source.replace(
+              '''fn lock_is_contended(error: &io::Error) -> bool {
+              error.kind() == io::ErrorKind::WouldBlock
+                  || matches!(
+                      error.raw_os_error(),
+                      Some(libc::EAGAIN) | Some(libc::EWOULDBLOCK)
+                  )
+          }
+          ''',
+              '''fn lock_is_contended(error: &io::Error) -> bool {
+              error.kind() == io::ErrorKind::WouldBlock
+                  || error.raw_os_error() == Some(libc::EAGAIN)
+          }
+          ''',
+              1,
+          )
           leased.write_text(source, encoding='utf-8')
 
           tests = Path('tools/fmctl/tests/report_publish_leases.rs')
@@ -202,7 +223,7 @@ jobs:
           #[cfg(unix)]
           #[test]
           fn publisher_rejects_symlinked_and_hardlinked_lease_files() {
-              use std::os::unix::fs::{hard_link, symlink};
+              use std::os::unix::fs::symlink;
 
               for alias_kind in ["symlink", "hardlink"] {
                   let directory = TempDir::new().expect("tempdir");
@@ -214,7 +235,7 @@ jobs:
                   if alias_kind == "symlink" {
                       symlink(&outside, &lease).expect("lease symlink");
                   } else {
-                      hard_link(&outside, &lease).expect("lease hardlink");
+                      fs::hard_link(&outside, &lease).expect("lease hardlink");
                   }
                   let error = publish_report_bundle_with_hook(
                       &fixture_outcome(),
