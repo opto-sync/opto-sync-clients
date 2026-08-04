@@ -1,8 +1,9 @@
 name: DEN-1694 rerun publication lease materializer
 
 on:
-  pull_request:
-    branches: [main]
+  push:
+    branches:
+      - agent/den-1694-cross-platform-publication-leases
     paths:
       - '.github/workflows/den-1694-pr-materializer-v2.yml'
 
