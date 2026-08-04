@@ -22,6 +22,16 @@ pub const MAX_TOOLCHAIN_TOKEN_BYTES: usize = 256;
 pub const MAX_COMMAND_ARGUMENT_BYTES: usize = 4096;
 pub const MAX_ENVIRONMENT_KEY_BYTES: usize = 128;
 pub const MAX_ENVIRONMENT_VALUE_BYTES: usize = 4096;
+pub const MAX_TIMEOUT_SECONDS: u64 = 21_600;
+pub const MAX_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
+pub const MAX_SIMULATION_SAMPLES: u64 = 1_000_000;
+pub const MAX_SIMULATION_STEPS: u64 = 100_000;
+pub const MAX_SIMULATION_WORK: u64 = 100_000_000;
+pub const MAX_VERIFICATION_STEPS: u64 = 100_000;
+pub const MAX_TRACE_COUNT: u64 = 10_000;
+pub const MAX_TRACE_STEPS: u64 = 100_000;
+pub const MAX_TRACE_SAMPLES: u64 = 1_000_000;
+pub const MAX_TRACE_WORK: u64 = 100_000_000;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -429,9 +439,17 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
 
     if manifest.execution.timeout_seconds == 0 {
         errors.push("execution.timeout_seconds must be greater than zero".to_owned());
+    } else if manifest.execution.timeout_seconds > MAX_TIMEOUT_SECONDS {
+        errors.push(format!(
+            "execution.timeout_seconds must be at most {MAX_TIMEOUT_SECONDS}"
+        ));
     }
     if manifest.execution.max_output_bytes < 1_024 {
         errors.push("execution.max_output_bytes must be at least 1024".to_owned());
+    } else if manifest.execution.max_output_bytes > MAX_OUTPUT_BYTES {
+        errors.push(format!(
+            "execution.max_output_bytes must be at most {MAX_OUTPUT_BYTES}"
+        ));
     }
     if let Err(message) =
         validate_relative_path("execution.artifacts_dir", &manifest.execution.artifacts_dir)
@@ -448,10 +466,25 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
         }
         if simulation.max_samples == 0 {
             errors.push("simulation.max_samples must be greater than zero".to_owned());
+        } else if simulation.max_samples > MAX_SIMULATION_SAMPLES {
+            errors.push(format!(
+                "simulation.max_samples must be at most {MAX_SIMULATION_SAMPLES}"
+            ));
         }
         if simulation.max_steps == 0 {
             errors.push("simulation.max_steps must be greater than zero".to_owned());
+        } else if simulation.max_steps > MAX_SIMULATION_STEPS {
+            errors.push(format!(
+                "simulation.max_steps must be at most {MAX_SIMULATION_STEPS}"
+            ));
         }
+        validate_work_product(
+            "simulation.max_samples * simulation.max_steps",
+            simulation.max_samples,
+            simulation.max_steps,
+            MAX_SIMULATION_WORK,
+            &mut errors,
+        );
     }
 
     if let Some(verification) = &manifest.verification {
@@ -466,6 +499,14 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
         }
         if verification.max_steps == Some(0) {
             errors.push("verification.max_steps must be greater than zero when set".to_owned());
+        }
+        if verification
+            .max_steps
+            .is_some_and(|steps| steps > MAX_VERIFICATION_STEPS)
+        {
+            errors.push(format!(
+                "verification.max_steps must be at most {MAX_VERIFICATION_STEPS}"
+            ));
         }
     }
 
@@ -498,12 +539,42 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
         }
         if traces.count == 0 {
             errors.push("traces.count must be greater than zero".to_owned());
+        } else if traces.count > MAX_TRACE_COUNT {
+            errors.push(format!("traces.count must be at most {MAX_TRACE_COUNT}"));
         }
         if traces.max_steps == 0 {
             errors.push("traces.max_steps must be greater than zero".to_owned());
+        } else if traces.max_steps > MAX_TRACE_STEPS {
+            errors.push(format!(
+                "traces.max_steps must be at most {MAX_TRACE_STEPS}"
+            ));
         }
         if traces.max_samples == Some(0) {
             errors.push("traces.max_samples must be greater than zero when set".to_owned());
+        }
+        if traces
+            .max_samples
+            .is_some_and(|samples| samples > MAX_TRACE_SAMPLES)
+        {
+            errors.push(format!(
+                "traces.max_samples must be at most {MAX_TRACE_SAMPLES}"
+            ));
+        }
+        validate_work_product(
+            "traces.count * traces.max_steps",
+            traces.count,
+            traces.max_steps,
+            MAX_TRACE_WORK,
+            &mut errors,
+        );
+        if let Some(samples) = traces.max_samples {
+            validate_work_product(
+                "traces.max_samples * traces.max_steps",
+                samples,
+                traces.max_steps,
+                MAX_TRACE_WORK,
+                &mut errors,
+            );
         }
         validate_unique_identifiers(
             "traces.required_actions",
@@ -612,6 +683,20 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
     }
 
     errors
+}
+
+fn validate_work_product(
+    label: &str,
+    left: u64,
+    right: u64,
+    maximum: u64,
+    errors: &mut Vec<String>,
+) {
+    match left.checked_mul(right) {
+        Some(actual) if actual <= maximum => {}
+        Some(actual) => errors.push(format!("{label} must be at most {maximum}, got {actual}")),
+        None => errors.push(format!("{label} overflows u64")),
+    }
 }
 
 fn validate_collection_limit(label: &str, actual: usize, maximum: usize, errors: &mut Vec<String>) {
@@ -998,5 +1083,116 @@ mod tests {
         assert_error(&manifest, "command argument 0 must be at most");
         assert_error(&manifest, "environment key must be at most");
         assert_error(&manifest, "environment value");
+    }
+
+    #[test]
+    fn execution_budget_boundaries_are_exact() {
+        let mut manifest = valid_manifest();
+        manifest.execution.timeout_seconds = MAX_TIMEOUT_SECONDS;
+        manifest.execution.max_output_bytes = MAX_OUTPUT_BYTES;
+        assert_valid(&manifest);
+
+        manifest.execution.timeout_seconds = MAX_TIMEOUT_SECONDS + 1;
+        manifest.execution.max_output_bytes = MAX_OUTPUT_BYTES + 1;
+        assert_error(&manifest, "execution.timeout_seconds must be at most");
+        assert_error(&manifest, "execution.max_output_bytes must be at most");
+    }
+
+    #[test]
+    fn simulation_scalar_and_aggregate_boundaries_are_exact() {
+        let mut manifest = valid_manifest();
+        let simulation = manifest.simulation.as_mut().expect("simulation");
+        simulation.max_samples = MAX_SIMULATION_SAMPLES;
+        simulation.max_steps = 1;
+        assert_valid(&manifest);
+
+        let simulation = manifest.simulation.as_mut().expect("simulation");
+        simulation.max_samples = 1;
+        simulation.max_steps = MAX_SIMULATION_STEPS;
+        assert_valid(&manifest);
+
+        let simulation = manifest.simulation.as_mut().expect("simulation");
+        simulation.max_samples = 10_000;
+        simulation.max_steps = 10_000;
+        assert_valid(&manifest);
+
+        manifest
+            .simulation
+            .as_mut()
+            .expect("simulation")
+            .max_samples = 10_001;
+        assert_error(
+            &manifest,
+            "simulation.max_samples * simulation.max_steps must be at most",
+        );
+
+        let simulation = manifest.simulation.as_mut().expect("simulation");
+        simulation.max_samples = MAX_SIMULATION_SAMPLES + 1;
+        simulation.max_steps = MAX_SIMULATION_STEPS + 1;
+        assert_error(&manifest, "simulation.max_samples must be at most");
+        assert_error(&manifest, "simulation.max_steps must be at most");
+    }
+
+    #[test]
+    fn verification_step_boundary_is_exact() {
+        let mut manifest = valid_manifest();
+        let verification = manifest.verification.as_mut().expect("verification");
+        verification.backend = "apalache".to_owned();
+        verification.max_steps = Some(MAX_VERIFICATION_STEPS);
+        assert_valid(&manifest);
+
+        manifest
+            .verification
+            .as_mut()
+            .expect("verification")
+            .max_steps = Some(MAX_VERIFICATION_STEPS + 1);
+        assert_error(&manifest, "verification.max_steps must be at most");
+    }
+
+    #[test]
+    fn trace_scalar_and_aggregate_boundaries_are_exact() {
+        let mut manifest = valid_manifest();
+        let traces = manifest.traces.as_mut().expect("traces");
+        traces.count = MAX_TRACE_COUNT;
+        traces.max_steps = 1;
+        traces.max_samples = Some(1);
+        assert_valid(&manifest);
+
+        let traces = manifest.traces.as_mut().expect("traces");
+        traces.count = 1;
+        traces.max_steps = MAX_TRACE_STEPS;
+        traces.max_samples = Some(1);
+        assert_valid(&manifest);
+
+        let traces = manifest.traces.as_mut().expect("traces");
+        traces.count = 10_000;
+        traces.max_steps = 10_000;
+        traces.max_samples = Some(10_000);
+        assert_valid(&manifest);
+
+        let traces = manifest.traces.as_mut().expect("traces");
+        traces.count = 10_000;
+        traces.max_steps = 10_001;
+        traces.max_samples = Some(10_001);
+        assert_error(&manifest, "traces.count * traces.max_steps must be at most");
+        assert_error(
+            &manifest,
+            "traces.max_samples * traces.max_steps must be at most",
+        );
+
+        let traces = manifest.traces.as_mut().expect("traces");
+        traces.count = MAX_TRACE_COUNT + 1;
+        traces.max_steps = MAX_TRACE_STEPS + 1;
+        traces.max_samples = Some(MAX_TRACE_SAMPLES + 1);
+        assert_error(&manifest, "traces.count must be at most");
+        assert_error(&manifest, "traces.max_steps must be at most");
+        assert_error(&manifest, "traces.max_samples must be at most");
+    }
+
+    #[test]
+    fn aggregate_work_overflow_is_rejected() {
+        let mut errors = Vec::new();
+        validate_work_product("overflowing work", u64::MAX, 2, u64::MAX, &mut errors);
+        assert_eq!(errors, ["overflowing work overflows u64"]);
     }
 }
