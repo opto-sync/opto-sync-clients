@@ -6,6 +6,13 @@ on:
       - agent/den-1623-execution-work-budgets
     paths:
       - '.github/workflows/den-1623-materialize.yml'
+  pull_request:
+    branches:
+      - agent/den-1617-manifest-shape-limits
+    paths:
+      - '.github/workflows/den-1623-materialize.yml'
+      - 'formal/EXECUTION_BUDGETS_V1.md'
+      - 'tools/fmctl/src/manifest.rs'
 
 permissions:
   contents: write
@@ -405,5 +412,3 @@ jobs:
           git add tools/fmctl/src/manifest.rs
           git commit -m 'DEN-1623 bound execution and trace work'
           git push origin "HEAD:${BRANCH}"
-
-# retrigger after workflow registration
