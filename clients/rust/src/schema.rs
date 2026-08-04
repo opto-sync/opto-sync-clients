@@ -18,8 +18,7 @@ fn is_identifier(value: &str) -> bool {
         Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
         _ => return false,
     }
-    chars.clone().count() <= 62
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+    chars.clone().count() <= 62 && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 /// `^[0-9]{1,20}$` — pure-digit epoch string.
@@ -114,9 +113,9 @@ fn is_iso8601(value: &str) -> bool {
         return false;
     };
     !suffix.is_empty()
-        && suffix.iter().all(|byte| {
-            byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'~' | b'-')
-        })
+        && suffix
+            .iter()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'~' | b'-'))
 }
 
 fn is_safe_integer(number: &serde_json::Number) -> bool {
