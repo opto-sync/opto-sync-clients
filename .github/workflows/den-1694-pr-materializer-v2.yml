@@ -6,6 +6,10 @@ on:
       - agent/den-1694-cross-platform-publication-leases
     paths:
       - '.github/workflows/den-1694-pr-materializer-v2.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/den-1694-pr-materializer-v2.yml'
 
 permissions:
   contents: write
@@ -16,7 +20,7 @@ concurrency:
 
 jobs:
   apply:
-    if: github.actor != 'github-actions[bot]'
+    if: true
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
