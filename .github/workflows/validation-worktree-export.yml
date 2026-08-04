@@ -1,4 +1,4 @@
-name: Polyglot validation artifact builder
+name: Polyglot validation generated artifact
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: polyglot-validation-artifact-${{ github.ref }}
+  group: polyglot-validation-generated-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -21,7 +21,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     steps:
-      - name: Check out isolated feature branch and pinned core
+      - name: Check out isolated branch and core
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: agent/validation-hardening-polyglot-20260804
@@ -29,77 +29,38 @@ jobs:
           persist-credentials: false
           submodules: recursive
 
-      - name: Materialize checksum-locked product source
+      - name: Materialize checksum-locked source
         shell: bash
         run: |
           set -euo pipefail
-          cat .validation-bootstrap/part-* \
-            | tr -d '\r\n' \
-            | base64 -d \
-            > "$RUNNER_TEMP/validation-hardening.patch.xz"
-          printf '%s  %s\n' \
-            'faca3d443312f7b53207488d91f2ec851eb8fbbbee9e84e4a495ac80d8aa63da' \
-            "$RUNNER_TEMP/validation-hardening.patch.xz" | sha256sum -c -
-          xz -dc "$RUNNER_TEMP/validation-hardening.patch.xz" \
-            | patch -p1 --batch --forward
+          cat .validation-bootstrap/part-* | tr -d '\r\n' | base64 -d > "$RUNNER_TEMP/validation-hardening.patch.xz"
+          printf '%s  %s\n' 'faca3d443312f7b53207488d91f2ec851eb8fbbbee9e84e4a495ac80d8aa63da' "$RUNNER_TEMP/validation-hardening.patch.xz" | sha256sum -c -
+          xz -dc "$RUNNER_TEMP/validation-hardening.patch.xz" | patch -p1 --batch --forward
           chmod 0755 scripts/generate-validation-schema-copies.py
           python3 scripts/generate-validation-schema-copies.py --check
           rm -rf .validation-bootstrap .validation-bootstrap-ready
           rm .github/workflows/validation-worktree-export.yml
 
-      - name: Export source snapshot
-        shell: bash
-        run: |
-          set -euo pipefail
-          tar \
-            --exclude=.git \
-            --exclude=syncer.c \
-            --exclude=node_modules \
-            --exclude=target \
-            --exclude=build \
-            --exclude=.dart_tool \
-            --exclude=.gleam \
-            -czf "$RUNNER_TEMP/opto-sync-validation-source.tar.gz" .
-
-      - name: Upload source snapshot
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: polyglot-validation-source-${{ github.sha }}
-          path: ${{ runner.temp }}/opto-sync-validation-source.tar.gz
-          if-no-files-found: error
-          retention-days: 3
-
-      - name: Set up Node 22
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
-
-      - name: Set up Rust 1.91
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
         with:
           toolchain: '1.91.0'
           components: rustfmt,clippy
-
-      - name: Set up Dart
-        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
           sdk: stable
-
-      - name: Set up Erlang, Elixir, and Gleam
-        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
         with:
           otp-version: '27.3.4'
           elixir-version: '1.18.4'
           gleam-version: '1.16.0'
-
-      - name: Set up Go 1.24
-        uses: actions/setup-go@c0137caad775660c0844396c52da96e560aba63d # v6
+      - uses: actions/setup-go@c0137caad775660c0844396c52da96e560aba63d # v6
         with:
           go-version: '1.24.x'
           cache: false
-
-      - name: Set up Java 21
-        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
+      - uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9 # v4
         with:
           distribution: temurin
           java-version: '21'
@@ -110,6 +71,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          sed -i 's#github.com/go-playground/validator/v10 v10.30.3#github.com/go-playground/validator/v10 v10.29.0#' clients/go/go.mod
           python3 scripts/generate-validation-schema-copies.py
           (cd schema && npm install --package-lock-only --ignore-scripts --no-audit --no-fund)
           (cd clients/ts && npm install --package-lock-only --ignore-scripts --no-audit --no-fund)
@@ -124,15 +86,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tar \
-            --exclude=.git \
-            --exclude=syncer.c \
-            --exclude=node_modules \
-            --exclude=target \
-            --exclude=build \
-            --exclude=.dart_tool \
-            --exclude=.gleam \
-            -czf "$RUNNER_TEMP/opto-sync-validation-product.tar.gz" .
+          tar --exclude=.git --exclude=syncer.c --exclude=node_modules --exclude=target --exclude=build --exclude=.dart_tool --exclude=.gleam -czf "$RUNNER_TEMP/opto-sync-validation-product.tar.gz" .
 
       - name: Upload generated product tree
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -156,19 +110,11 @@ jobs:
         run: |
           set -euo pipefail
           (cd syncer.c/bindings/typescript && npm ci --ignore-scripts)
-          cd clients/ts
-          npm ci --ignore-scripts
-          npm run build
-          node --test test/schema-ingest.test.mjs
+          (cd clients/ts && npm ci --ignore-scripts && npm run build && node --test test/schema-ingest.test.mjs)
 
       - name: Validate Rust backends
         working-directory: clients/rust
-        shell: bash
-        run: |
-          set -euo pipefail
-          cargo fmt --check
-          cargo test --locked --all-features --test schema_ingest
-          cargo clippy --locked --all-targets --all-features -- -D warnings
+        run: cargo fmt --check && cargo test --locked --all-features --test schema_ingest && cargo clippy --locked --all-targets --all-features -- -D warnings
 
       - name: Validate Dart backends
         shell: bash
@@ -178,31 +124,21 @@ jobs:
           cd clients/dart
           dart pub get
           dart analyze
-          SYNCER_LIB_PATH="$GITHUB_WORKSPACE/syncer.c/core/build/libsyncer.so" \
-            dart test test/schema_ingest_test.dart
+          SYNCER_LIB_PATH="$GITHUB_WORKSPACE/syncer.c/core/build/libsyncer.so" dart test test/schema_ingest_test.dart
 
       - name: Validate Gleam backends
         shell: bash
         run: |
           set -euo pipefail
-          (cd syncer.c/bindings/beam && mix local.hex --force && mix local.rebar --force && mix deps.get && mix compile)
+          (cd syncer.c/bindings/beam && mix deps.get && mix compile)
           cd clients/gleam
           gleam deps download
           gleam format --check src test
-          OPTO_SYNC_BEAM_EBIN=../../syncer.c/bindings/beam/_build/dev/lib/opto_sync_nif/ebin \
-          OPTO_SYNC_ELIXIR_EBIN="$(elixir -e 'IO.puts(Path.join(:code.lib_dir(:elixir), "ebin"))')" \
-            gleam test
+          OPTO_SYNC_BEAM_EBIN=../../syncer.c/bindings/beam/_build/dev/lib/opto_sync_nif/ebin OPTO_SYNC_ELIXIR_EBIN="$(elixir -e 'IO.puts(Path.join(:code.lib_dir(:elixir), "ebin"))')" gleam test
 
       - name: Validate Go backends
         working-directory: clients/go
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -z "$(gofmt -l .)"
-          go mod tidy
-          git diff --exit-code -- go.mod go.sum
-          go vet ./...
-          go test ./...
+        run: test -z "$(gofmt -l .)" && go mod tidy && git diff --exit-code -- go.mod go.sum && go vet ./... && go test ./...
 
       - name: Validate Java backends
         working-directory: clients/java
