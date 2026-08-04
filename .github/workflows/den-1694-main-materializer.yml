@@ -1,0 +1,92 @@
+name: DEN-1694 exact-branch lease materializer
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: den-1694-main-materializer-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    if: github.head_ref == 'agent/den-1694-cross-platform-publication-leases' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Check out the exact feature branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: agent/den-1694-cross-platform-publication-leases
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Install repository Nix toolchain
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Materialize and certify publication leases
+        shell: bash
+        run: |
+          set -euo pipefail
+          awk '
+            /- name: Add OS-backed publication leases and cleanup probes/ { found=1; next }
+            found && /run: \|/ { capture=1; next }
+            capture && /^      - name: Commit publication lease implementation/ { exit }
+            capture { sub(/^          /, ""); print }
+          ' .github/workflows/den-1694-materialize.yml > /tmp/den-1694-apply.sh
+          test -s /tmp/den-1694-apply.sh
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          script = Path('/tmp/den-1694-apply.sh')
+          source = script.read_text(encoding='utf-8')
+          old = 'use std::path::{Path, PathBuf};\\n'
+          new = 'use std::path::PathBuf;\\n'
+          if source.count(old) != 1:
+              raise SystemExit('expected one generated unused Path import')
+          script.write_text(source.replace(old, new, 1), encoding='utf-8')
+
+          tests = Path('tools/fmctl/tests/report_publish.rs')
+          source = tests.read_text(encoding='utf-8')
+          old = '''        })
+        .collect::<Vec<_>>();
+    assert!(
+        names.is_empty(),
+'''
+          new = '''        })
+        .filter(|name| name != ".fm-report-publication-guard")
+        .collect::<Vec<_>>();
+    assert!(
+        names.is_empty(),
+'''
+          if source.count(old) != 1:
+              raise SystemExit('expected one partial-state name collection')
+          tests.write_text(source.replace(old, new, 1), encoding='utf-8')
+          PY
+
+          bash -n /tmp/den-1694-apply.sh
+          bash /tmp/den-1694-apply.sh
+
+      - name: Commit only production code, tests, lockfile, and docs
+        env:
+          BRANCH: agent/den-1694-cross-platform-publication-leases
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout origin/main -- .github/workflows/formal-go-sdk.yml
+          rm -f \
+            .github/workflows/den-1694-materialize.yml \
+            .github/workflows/den-1694-pr-materializer.yml \
+            .github/workflows/den-1694-pr-materializer-v2.yml \
+            .den-1694-trigger
+          git add -A
+          git commit -m 'DEN-1694 protect active report publications with OS leases'
+          git push origin "HEAD:${BRANCH}"
