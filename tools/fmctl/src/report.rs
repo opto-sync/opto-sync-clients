@@ -160,10 +160,14 @@ pub fn render_junit_xml(outcome: &CommandOutcome) -> Result<String, FmError> {
     match status {
         ReportStatus::Passed => {}
         ReportStatus::Failed => {
-            xml.push_str("    <failure type=\"command_failure\" message=\"formal operation failed\"/>\n");
+            xml.push_str(
+                "    <failure type=\"command_failure\" message=\"formal operation failed\"/>\n",
+            );
         }
         ReportStatus::TimedOut => {
-            xml.push_str("    <failure type=\"timeout\" message=\"formal operation timed out\"/>\n");
+            xml.push_str(
+                "    <failure type=\"timeout\" message=\"formal operation timed out\"/>\n",
+            );
         }
     }
     xml.push_str("  </testcase>\n</testsuite>\n");
@@ -363,11 +367,7 @@ fn status_text(status: ReportStatus) -> &'static str {
 }
 
 fn seconds_text(duration_millis: u64) -> String {
-    format!(
-        "{}.{:03}",
-        duration_millis / 1000,
-        duration_millis % 1000
-    )
+    format!("{}.{:03}", duration_millis / 1000, duration_millis % 1000)
 }
 
 fn xml_attribute(value: &str) -> String {

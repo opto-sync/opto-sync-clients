@@ -36,7 +36,10 @@ fn every_format_carries_the_exact_effective_resource_policy() {
     assert_eq!(bundle.schema_version, REPORT_BUNDLE_SCHEMA_VERSION);
     assert_eq!(bundle.artifact_manifest.schema, ARTIFACT_MANIFEST_SCHEMA);
     assert_eq!(bundle.provenance.schema, PROVENANCE_SCHEMA);
-    assert_eq!(bundle.artifact_manifest.resource_policy, outcome.resource_policy);
+    assert_eq!(
+        bundle.artifact_manifest.resource_policy,
+        outcome.resource_policy
+    );
     assert_eq!(bundle.provenance.resource_policy, outcome.resource_policy);
     assert_eq!(
         bundle.sarif["runs"][0]["properties"]["resourcePolicy"],
@@ -46,12 +49,12 @@ fn every_format_carries_the_exact_effective_resource_policy() {
     assert!(bundle
         .junit_xml
         .contains("name=\"fm.resource.profile\" value=\"ci\""));
-    assert!(bundle.junit_xml.contains(
-        "name=\"fm.resource.effective.scalar.timeout_seconds\" value=\"7200\""
-    ));
-    assert!(bundle.junit_xml.contains(
-        "name=\"fm.resource.clamped_fields\" value=\"[&quot;timeout_seconds&quot;]\""
-    ));
+    assert!(bundle
+        .junit_xml
+        .contains("name=\"fm.resource.effective.scalar.timeout_seconds\" value=\"7200\""));
+    assert!(bundle
+        .junit_xml
+        .contains("name=\"fm.resource.clamped_fields\" value=\"[&quot;timeout_seconds&quot;]\""));
 }
 
 #[test]
