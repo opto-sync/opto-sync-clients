@@ -22,7 +22,7 @@ use super::{
 
 const STAGING_PREFIX: &str = ".fm-report-staging-";
 const RESERVATION_PREFIX: &str = ".fm-report-reservation-";
-const MAX_BUNDLE_ID_BYTES: usize = 128;
+pub const MAX_REPORT_BUNDLE_ID_BYTES: usize = 128;
 const MAX_REPORT_FILE_BYTES: usize = 64 * 1024 * 1024;
 static STAGING_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -181,7 +181,7 @@ pub fn publish_report_bundle_with_hook<F>(
 where
     F: FnMut(PublishStep) -> io::Result<()>,
 {
-    validate_bundle_id(bundle_id)?;
+    validate_report_bundle_id(bundle_id)?;
     let root = ensure_private_root(root)?;
     let final_directory = root.join(bundle_id);
     reject_existing_or_symlink(&final_directory, "report bundle destination")?;
@@ -476,17 +476,55 @@ fn is_old_enough(metadata: &fs::Metadata, now: SystemTime, minimum_age: Duration
             .is_some_and(|age| age >= minimum_age)
 }
 
-fn validate_bundle_id(bundle_id: &str) -> Result<(), FmError> {
-    if bundle_id.is_empty()
-        || bundle_id.len() > MAX_BUNDLE_ID_BYTES
-        || matches!(bundle_id, "." | "..")
-        || !bundle_id
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
-    {
+pub fn validate_report_bundle_id(bundle_id: &str) -> Result<(), FmError> {
+    if bundle_id.is_empty() || bundle_id.len() > MAX_REPORT_BUNDLE_ID_BYTES {
+        return invalid_bundle_id(bundle_id);
+    }
+
+    let reserved_basename = bundle_id.split('.').next().unwrap_or(bundle_id);
+    if is_windows_device_basename(reserved_basename) {
         return Err(FmError::Validation(format!(
-            "invalid report bundle id {bundle_id:?}; use 1..={MAX_BUNDLE_ID_BYTES} ASCII alphanumeric, '-', '_', or '.' bytes"
+            "report bundle id uses a reserved Windows device basename: {bundle_id:?}"
         )));
     }
+
+    let bytes = bundle_id.as_bytes();
+    let first = bytes[0];
+    let last = bytes[bytes.len() - 1];
+    if !is_lower_ascii_alphanumeric(first)
+        || !is_lower_ascii_alphanumeric(last)
+        || !bytes
+            .iter()
+            .copied()
+            .all(|byte| is_lower_ascii_alphanumeric(byte) || matches!(byte, b'-' | b'_'))
+    {
+        return invalid_bundle_id(bundle_id);
+    }
     Ok(())
+}
+
+fn is_lower_ascii_alphanumeric(byte: u8) -> bool {
+    byte.is_ascii_lowercase() || byte.is_ascii_digit()
+}
+
+fn is_windows_device_basename(value: &str) -> bool {
+    if value.eq_ignore_ascii_case("con")
+        || value.eq_ignore_ascii_case("prn")
+        || value.eq_ignore_ascii_case("aux")
+        || value.eq_ignore_ascii_case("nul")
+        || value.eq_ignore_ascii_case("clock$")
+    {
+        return true;
+    }
+    let bytes = value.as_bytes();
+    if bytes.len() != 4 || !matches!(bytes[3], b'1'..=b'9') {
+        return false;
+    }
+    bytes[..3].eq_ignore_ascii_case(b"com") || bytes[..3].eq_ignore_ascii_case(b"lpt")
+}
+
+fn invalid_bundle_id<T>(bundle_id: &str) -> Result<T, FmError> {
+    Err(FmError::Validation(format!(
+        "invalid report bundle id {bundle_id:?}; use 1..={MAX_REPORT_BUNDLE_ID_BYTES} lower-case ASCII alphanumeric bytes with interior '-' or '_' only"
+    )))
 }
