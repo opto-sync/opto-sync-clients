@@ -41,11 +41,11 @@ jobs:
 
           cargo = Path('tools/fmctl/Cargo.toml')
           source = cargo.read_text(encoding='utf-8')
-          marker = 'clap = { version = "4.5.54", features = ["derive"] }\n'
+          marker = 'clap = { version = "=4.5.23", features = ["derive"] }\n'
           if 'fs2 = ' not in source:
               if source.count(marker) != 1:
-                  raise SystemExit('expected one clap dependency marker')
-              source = source.replace(marker, marker + 'fs2 = "0.4.3"\n', 1)
+                  raise SystemExit('expected one pinned clap dependency marker')
+              source = source.replace(marker, marker + 'fs2 = "=0.4.3"\n', 1)
           cargo.write_text(source, encoding='utf-8')
 
           publisher = Path('tools/fmctl/src/report_publish.rs')
