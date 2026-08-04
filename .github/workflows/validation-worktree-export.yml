@@ -1,4 +1,4 @@
-name: Polyglot validation hardening bootstrap
+name: Polyglot validation artifact builder
 
 on:
   push:
@@ -9,51 +9,65 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: polyglot-validation-hardening-${{ github.ref }}
+  group: polyglot-validation-artifact-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  materialize-and-validate:
+  build-test-export:
     if: github.actor == 'ORESoftware'
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 50
     steps:
       - name: Check out isolated feature branch and pinned core
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: agent/validation-hardening-polyglot-20260804
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
           submodules: recursive
 
-      - name: Materialize audited product source
+      - name: Materialize checksum-locked product source
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name 'opto-sync validation automation'
-          git config user.email 'validation-automation@users.noreply.github.com'
-          if [[ -d .validation-bootstrap ]]; then
-            cat .validation-bootstrap/part-* \
-              | tr -d '\r\n' \
-              | base64 -d \
-              > "$RUNNER_TEMP/validation-hardening.patch.xz"
-            printf '%s  %s\n' \
-              'faca3d443312f7b53207488d91f2ec851eb8fbbbee9e84e4a495ac80d8aa63da' \
-              "$RUNNER_TEMP/validation-hardening.patch.xz" | sha256sum -c -
-            xz -dc "$RUNNER_TEMP/validation-hardening.patch.xz" \
-              | patch -p1 --batch --forward
-            chmod 0755 scripts/generate-validation-schema-copies.py
-            python3 scripts/generate-validation-schema-copies.py --check
-            rm -rf .validation-bootstrap .validation-bootstrap-ready
-            git add -A
-            git commit -m 'feat(validation): harden polyglot envelope validation'
-            git push origin HEAD:agent/validation-hardening-polyglot-20260804
-          else
-            rm -f .validation-bootstrap-ready
-          fi
+          cat .validation-bootstrap/part-* \
+            | tr -d '\r\n' \
+            | base64 -d \
+            > "$RUNNER_TEMP/validation-hardening.patch.xz"
+          printf '%s  %s\n' \
+            'faca3d443312f7b53207488d91f2ec851eb8fbbbee9e84e4a495ac80d8aa63da' \
+            "$RUNNER_TEMP/validation-hardening.patch.xz" | sha256sum -c -
+          xz -dc "$RUNNER_TEMP/validation-hardening.patch.xz" \
+            | patch -p1 --batch --forward
+          chmod 0755 scripts/generate-validation-schema-copies.py
+          python3 scripts/generate-validation-schema-copies.py --check
+          rm -rf .validation-bootstrap .validation-bootstrap-ready
+          rm .github/workflows/validation-worktree-export.yml
+
+      - name: Export source snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar \
+            --exclude=.git \
+            --exclude=syncer.c \
+            --exclude=node_modules \
+            --exclude=target \
+            --exclude=build \
+            --exclude=.dart_tool \
+            --exclude=.gleam \
+            -czf "$RUNNER_TEMP/opto-sync-validation-source.tar.gz" .
+
+      - name: Upload source snapshot
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: polyglot-validation-source-${{ github.sha }}
+          path: ${{ runner.temp }}/opto-sync-validation-source.tar.gz
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Set up Node 22
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
@@ -92,7 +106,7 @@ jobs:
           cache: maven
           cache-dependency-path: clients/java/pom.xml
 
-      - name: Lock and format all validation modules
+      - name: Generate locks and canonical formatting
         shell: bash
         run: |
           set -euo pipefail
@@ -105,11 +119,28 @@ jobs:
           (cd clients/gleam && gleam deps download && gleam format src test)
           (cd clients/go && go mod tidy && gofmt -w .)
           python3 scripts/generate-validation-schema-copies.py --check
-          git add -A
-          if ! git diff --cached --quiet; then
-            git commit -m 'chore(validation): lock and format validator backends'
-            git push origin HEAD:agent/validation-hardening-polyglot-20260804
-          fi
+
+      - name: Export generated product tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar \
+            --exclude=.git \
+            --exclude=syncer.c \
+            --exclude=node_modules \
+            --exclude=target \
+            --exclude=build \
+            --exclude=.dart_tool \
+            --exclude=.gleam \
+            -czf "$RUNNER_TEMP/opto-sync-validation-product.tar.gz" .
+
+      - name: Upload generated product tree
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: polyglot-validation-product-${{ github.sha }}
+          path: ${{ runner.temp }}/opto-sync-validation-product.tar.gz
+          if-no-files-found: error
+          retention-days: 3
 
       - name: Validate shared schema and package boundaries
         shell: bash
@@ -124,6 +155,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          (cd syncer.c/bindings/typescript && npm ci --ignore-scripts)
           cd clients/ts
           npm ci --ignore-scripts
           npm run build
@@ -139,22 +171,27 @@ jobs:
           cargo clippy --locked --all-targets --all-features -- -D warnings
 
       - name: Validate Dart backends
-        working-directory: clients/dart
         shell: bash
         run: |
           set -euo pipefail
+          (cd syncer.c/core && cmake -S . -B build && cmake --build build --target syncer)
+          cd clients/dart
           dart pub get
           dart analyze
-          dart test test/schema_ingest_test.dart
+          SYNCER_LIB_PATH="$GITHUB_WORKSPACE/syncer.c/core/build/libsyncer.so" \
+            dart test test/schema_ingest_test.dart
 
       - name: Validate Gleam backends
-        working-directory: clients/gleam
         shell: bash
         run: |
           set -euo pipefail
+          (cd syncer.c/bindings/beam && mix local.hex --force && mix local.rebar --force && mix deps.get && mix compile)
+          cd clients/gleam
           gleam deps download
           gleam format --check src test
-          gleam test
+          OPTO_SYNC_BEAM_EBIN=../../syncer.c/bindings/beam/_build/dev/lib/opto_sync_nif/ebin \
+          OPTO_SYNC_ELIXIR_EBIN="$(elixir -e 'IO.puts(Path.join(:code.lib_dir(:elixir), "ebin"))')" \
+            gleam test
 
       - name: Validate Go backends
         working-directory: clients/go
@@ -170,13 +207,3 @@ jobs:
       - name: Validate Java backends
         working-directory: clients/java
         run: mvn --batch-mode --no-transfer-progress test
-
-      - name: Require clean generated state and remove bootstrap
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf clients/dart/.dart_tool clients/dart/pubspec.lock
-          git diff --exit-code
-          git rm .github/workflows/validation-worktree-export.yml
-          git commit -m 'chore(validation): remove completed bootstrap'
-          git push origin HEAD:agent/validation-hardening-polyglot-20260804
