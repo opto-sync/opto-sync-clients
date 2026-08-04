@@ -1,3 +1,6 @@
+#[path = "report.rs"]
+pub mod report;
+
 use serde::Serialize;
 use serde_json::Value;
 
