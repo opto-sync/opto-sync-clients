@@ -91,6 +91,12 @@ fn success_failure_and_timeout_map_consistently() {
                 .len(),
             expected_sarif_results
         );
+        let invocation = &bundle.sarif["runs"][0]["invocations"][0];
+        if status == ReportStatus::TimedOut {
+            assert!(invocation.get("exitCode").is_none());
+        } else {
+            assert_eq!(invocation["exitCode"], outcome.exit_code);
+        }
         match expected_failure_type {
             Some(kind) => assert!(bundle.junit_xml.contains(&format!("type=\"{kind}\""))),
             None => assert!(!bundle.junit_xml.contains("<failure")),
@@ -127,6 +133,14 @@ fn artifact_manifest_is_sorted_and_provenance_uses_sanitized_command_identity() 
             PathBuf::from("trace-{seq}.json"),
         ]
     );
+}
+
+#[test]
+fn unusual_program_identity_fails_closed_to_a_generic_name() {
+    let mut outcome = fixture_outcome(ReportStatus::Passed);
+    outcome.program = "/".to_owned();
+    let bundle = render_report_bundle(&outcome).expect("bundle");
+    assert_eq!(bundle.provenance.command.program, "program");
 }
 
 #[test]
