@@ -1,0 +1,309 @@
+name: DEN-1694 materialize confined publication leases
+
+on:
+  push:
+    branches:
+      - agent/den-1694-publication-leases-v2
+    paths:
+      - '.github/workflows/den-1694-materialize-v2.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: den-1694-materialize-v2-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout clean current-main branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: agent/den-1694-publication-leases-v2
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Install repository toolchain
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Port and harden lease implementation onto current main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin agent/den-1694-cross-platform-publication-leases
+          git show origin/agent/den-1694-cross-platform-publication-leases:tools/fmctl/src/report_publish_leased.rs \
+            > tools/fmctl/src/report_publish_leased.rs
+          git show origin/agent/den-1694-cross-platform-publication-leases:tools/fmctl/tests/report_publish_leases.rs \
+            > tools/fmctl/tests/report_publish_leases.rs
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          result = Path('tools/fmctl/src/result.rs')
+          source = result.read_text(encoding='utf-8')
+          old = '#[path = "report_publish.rs"]\npub mod publish;\n'
+          new = '#[path = "report_publish_leased.rs"]\npub mod publish;\n'
+          if source.count(old) != 1:
+              raise SystemExit('unexpected result.rs publication module boundary')
+          result.write_text(source.replace(old, new, 1), encoding='utf-8')
+
+          leased = Path('tools/fmctl/src/report_publish_leased.rs')
+          source = leased.read_text(encoding='utf-8')
+          source = source.replace('use std::ffi::c_void;\n', '#[cfg(windows)]\nuse std::ffi::c_void;\n', 1)
+          source = source.replace(
+              '    // Cleanup and lease creation share this short lock. Once the bundle lease is\n'
+              '    // held, different bundle ids may publish concurrently.\n',
+              '    // Cleanup and lease creation share this short lock. Once the bundle lease is\n'
+              '    // held, different bundle ids may publish concurrently. Lock files are opened\n'
+              '    // without following symlinks/reparse points and Unix hard-link aliases fail\n'
+              '    // closed before any publication state is trusted.\n',
+              1,
+          )
+          old = '''fn probe_file_lock(path: &Path) -> Result<LockProbe, FmError> {
+              let mut options = OpenOptions::new();
+              options.read(true).write(true);
+              let file = match options.open(path) {
+                  Ok(file) => file,
+                  Err(source) if source.kind() == io::ErrorKind::NotFound => return Ok(LockProbe::Missing),
+                  Err(source) => return Err(FmError::io(path, source)),
+              };
+          '''
+          new = '''fn probe_file_lock(path: &Path) -> Result<LockProbe, FmError> {
+              let file = match open_confined_lock_file(path, false, false) {
+                  Ok(file) => file,
+                  Err(FmError::Io { source, .. }) if source.kind() == io::ErrorKind::NotFound => {
+                      return Ok(LockProbe::Missing)
+                  }
+                  Err(error) => return Err(error),
+              };
+          '''
+          if source.count(old) != 1:
+              raise SystemExit('unexpected probe_file_lock implementation')
+          source = source.replace(old, new, 1)
+
+          old = '''fn open_private_lock_file(path: &Path, truncate: bool) -> Result<File, FmError> {
+              let mut options = OpenOptions::new();
+              options.read(true).write(true).create(true).truncate(truncate);
+              #[cfg(unix)]
+              {
+                  use std::os::unix::fs::OpenOptionsExt;
+                  options.mode(0o600);
+              }
+              options.open(path).map_err(|source| FmError::io(path, source))
+          }
+          '''
+          new = '''fn open_private_lock_file(path: &Path, truncate: bool) -> Result<File, FmError> {
+              open_confined_lock_file(path, true, truncate)
+          }
+
+          fn open_confined_lock_file(
+              path: &Path,
+              create: bool,
+              truncate: bool,
+          ) -> Result<File, FmError> {
+              let mut options = OpenOptions::new();
+              options
+                  .read(true)
+                  .write(true)
+                  .create(create)
+                  .truncate(truncate);
+              #[cfg(unix)]
+              {
+                  use std::os::unix::fs::OpenOptionsExt;
+                  options
+                      .mode(0o600)
+                      .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
+              }
+              #[cfg(windows)]
+              {
+                  use std::os::windows::fs::OpenOptionsExt;
+                  const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+                  options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
+              }
+              let file = options.open(path).map_err(|source| FmError::io(path, source))?;
+              let metadata = file.metadata().map_err(|source| FmError::io(path, source))?;
+              if !metadata.is_file() {
+                  return Err(FmError::Validation(format!(
+                      "report publication lock must be a regular file: {}",
+                      path.display()
+                  )));
+              }
+              #[cfg(unix)]
+              {
+                  use std::os::unix::fs::MetadataExt;
+                  if metadata.nlink() != 1 {
+                      return Err(FmError::Validation(format!(
+                          "report publication lock must not have hard-link aliases: {}",
+                          path.display()
+                      )));
+                  }
+              }
+              Ok(file)
+          }
+          '''
+          if source.count(old) != 1:
+              raise SystemExit('unexpected open_private_lock_file implementation')
+          source = source.replace(old, new, 1)
+          leased.write_text(source, encoding='utf-8')
+
+          tests = Path('tools/fmctl/tests/report_publish_leases.rs')
+          source = tests.read_text(encoding='utf-8')
+          source = source.replace(
+              'use fmctl::plan::{ArtifactPaths, Operation};\n',
+              'use fmctl::plan::CommandArtifacts;\nuse fmctl::resource::{ResourceProfile, ResourceRequest};\n',
+              1,
+          )
+          source = source.replace(
+              'use fmctl::runner::{CommandOutcome, Termination};\n',
+              'use fmctl::runner::CommandOutcome;\n',
+              1,
+          )
+          start = source.index('fn fixture_outcome() -> CommandOutcome {')
+          source = source[:start] + '''fn fixture_outcome() -> CommandOutcome {
+              let resource_policy = ResourceProfile::ci_v1()
+                  .resolve(ResourceRequest {
+                      timeout_seconds: Some(9_000),
+                      ..ResourceRequest::absent()
+                  })
+                  .expect("CI policy");
+              CommandOutcome {
+                  schema_version: 1,
+                  project: "lease-project".to_owned(),
+                  model: "lease-model".to_owned(),
+                  operation: "check".to_owned(),
+                  program: "/usr/bin/quint".to_owned(),
+                  args: vec!["typecheck".to_owned()],
+                  resource_policy,
+                  success: true,
+                  timed_out: false,
+                  exit_code: Some(0),
+                  duration_millis: 17,
+                  stdout: "typecheck ok\\n".to_owned(),
+                  stderr: String::new(),
+                  stdout_truncated: false,
+                  stderr_truncated: false,
+                  adapter_response: None,
+                  failure: None,
+                  artifacts: CommandArtifacts {
+                      stdout: PathBuf::from("stdout.log"),
+                      stderr: PathBuf::from("stderr.log"),
+                      result: PathBuf::from("result.json"),
+                      trace_pattern: None,
+                  },
+              }
+          }
+
+          #[cfg(unix)]
+          #[test]
+          fn publisher_rejects_symlinked_and_hardlinked_lease_files() {
+              use std::os::unix::fs::{hard_link, symlink};
+
+              for alias_kind in ["symlink", "hardlink"] {
+                  let directory = TempDir::new().expect("tempdir");
+                  let root = directory.path().join("bundles");
+                  fs::create_dir_all(&root).expect("root");
+                  let outside = directory.path().join(format!("outside-{alias_kind}"));
+                  fs::write(&outside, b"outside").expect("outside file");
+                  let lease = root.join(".fm-report-lease-confined-001");
+                  if alias_kind == "symlink" {
+                      symlink(&outside, &lease).expect("lease symlink");
+                  } else {
+                      hard_link(&outside, &lease).expect("lease hardlink");
+                  }
+                  let error = publish_report_bundle_with_hook(
+                      &fixture_outcome(),
+                      &root,
+                      "confined-001",
+                      |_| Ok(()),
+                  )
+                  .expect_err("aliased lease must fail closed");
+                  let message = error.to_string();
+                  assert!(
+                      message.contains("symlink")
+                          || message.contains("regular file")
+                          || message.contains("hard-link"),
+                      "unexpected confinement error: {message}"
+                  );
+                  assert_eq!(fs::read(&outside).expect("outside bytes"), b"outside");
+                  assert!(!root.join("confined-001").exists());
+              }
+          }
+
+          #[cfg(unix)]
+          #[test]
+          fn cleanup_rejects_a_symlinked_lease_instead_of_following_it() {
+              use std::os::unix::fs::symlink;
+
+              let directory = TempDir::new().expect("tempdir");
+              let root = directory.path().join("bundles");
+              fs::create_dir_all(&root).expect("root");
+              fs::create_dir(root.join(".fm-report-staging-cleanup-001-123-0"))
+                  .expect("staging");
+              fs::write(
+                  root.join(".fm-report-reservation-cleanup-001"),
+                  b"cleanup-001",
+              )
+              .expect("reservation");
+              let outside = directory.path().join("outside-lock");
+              fs::write(&outside, b"outside").expect("outside");
+              symlink(&outside, root.join(".fm-report-lease-cleanup-001"))
+                  .expect("lease symlink");
+
+              let error = cleanup_stale_publication_state(&root, Duration::ZERO)
+                  .expect_err("cleanup must reject a symlinked lease");
+              assert_eq!(fs::read(&outside).expect("outside bytes"), b"outside");
+              assert!(root.join(".fm-report-staging-cleanup-001-123-0").exists());
+          }
+          '''
+          tests.write_text(source, encoding='utf-8')
+          PY
+
+          cat > formal/REPORT_PUBLICATION_LEASES.md <<'DOC'
+          # Report publication leases
+
+          Active report publication is protected by one exclusive OS lease per
+          bundle identifier. Cleanup holds a short root guard, probes leases
+          nonblocking, and never removes reservation or staging state while a
+          publisher owns that lease. Process death releases the kernel lock, so
+          abandoned state becomes recoverable without trusting process IDs.
+
+          Lock paths are confinement boundaries. Unix opens use `O_NOFOLLOW`,
+          require one regular-file link, and set close-on-exec. Windows opens use
+          `FILE_FLAG_OPEN_REPARSE_POINT` and require a regular file. Symlink,
+          reparse-point, and Unix hard-link aliases fail closed before publication
+          or cleanup trusts the lock.
+
+          Immutable completed bundles and their reservations remain unchanged.
+          Legacy staging names retain age-only cleanup; new parseable staging
+          names are correlated with the bundle lease before removal.
+          DOC
+
+          nix develop --command cargo fmt --manifest-path tools/fmctl/Cargo.toml
+          nix develop --command cargo clippy \
+            --locked --manifest-path tools/fmctl/Cargo.toml \
+            --all-targets --all-features -- -D warnings
+          nix develop --command cargo test \
+            --locked --manifest-path tools/fmctl/Cargo.toml \
+            --all-targets --all-features
+          git diff --check
+
+      - name: Commit clean lease implementation
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            formal/REPORT_PUBLICATION_LEASES.md \
+            tools/fmctl/src/report_publish_leased.rs \
+            tools/fmctl/src/result.rs \
+            tools/fmctl/tests/report_publish_leases.rs
+          git commit -m 'DEN-1694 confine cross-platform publication leases'
+          git push origin "HEAD:${BRANCH}"
