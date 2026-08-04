@@ -35,7 +35,6 @@ pub struct ResourceValues {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ResourceCeilings {
-    #[serde(flatten)]
     pub scalar: ResourceValues,
     pub max_simulation_work: u64,
     pub max_trace_work: u64,
@@ -83,7 +82,6 @@ pub struct ResourceProfile {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct EffectiveResourceValues {
-    #[serde(flatten)]
     pub scalar: ResourceValues,
     pub simulation_work: u64,
     pub trace_count_work: u64,
@@ -107,10 +105,23 @@ pub struct EffectiveResourcePolicy {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum ResourcePolicyError {
+    #[error("unsupported resource policy schema version {actual}")]
+    UnsupportedSchema { actual: u32 },
+    #[error("unsupported resource policy version {actual:?}")]
+    UnsupportedPolicyVersion { actual: String },
     #[error("resource profile {profile:?} has invalid zero field {field}")]
     InvalidProfile {
         profile: ResourceProfileName,
         field: &'static str,
+    },
+    #[error(
+        "resource profile {profile:?} default {field}={default} exceeds maximum {maximum}"
+    )]
+    DefaultOverMaximum {
+        profile: ResourceProfileName,
+        field: &'static str,
+        default: u64,
+        maximum: u64,
     },
     #[error("resource request field {field} must be greater than zero")]
     ZeroRequest { field: &'static str },
@@ -389,19 +400,38 @@ impl ResourceProfile {
     }
 
     fn validate(&self) -> Result<(), ResourcePolicyError> {
-        for (field, value) in resource_fields(&self.defaults) {
-            if value == 0 {
+        if self.schema_version != RESOURCE_POLICY_SCHEMA_VERSION {
+            return Err(ResourcePolicyError::UnsupportedSchema {
+                actual: self.schema_version,
+            });
+        }
+        if self.policy_version != RESOURCE_POLICY_VERSION {
+            return Err(ResourcePolicyError::UnsupportedPolicyVersion {
+                actual: self.policy_version.clone(),
+            });
+        }
+        for ((field, default), (_, maximum)) in resource_fields(&self.defaults)
+            .into_iter()
+            .zip(resource_fields(&self.maximum.scalar))
+        {
+            if default == 0 {
                 return Err(ResourcePolicyError::InvalidProfile {
                     profile: self.name,
                     field,
                 });
             }
-        }
-        for (field, value) in resource_fields(&self.maximum.scalar) {
-            if value == 0 {
+            if maximum == 0 {
                 return Err(ResourcePolicyError::InvalidProfile {
                     profile: self.name,
                     field,
+                });
+            }
+            if default > maximum {
+                return Err(ResourcePolicyError::DefaultOverMaximum {
+                    profile: self.name,
+                    field,
+                    default,
+                    maximum,
                 });
             }
         }
@@ -417,6 +447,27 @@ impl ResourceProfile {
                 field: "max_trace_work",
             });
         }
+        checked_work(
+            self.name,
+            "default simulation work",
+            self.defaults.simulation_max_samples,
+            self.defaults.simulation_max_steps,
+            self.maximum.max_simulation_work,
+        )?;
+        checked_work(
+            self.name,
+            "default trace count work",
+            self.defaults.trace_count,
+            self.defaults.trace_max_steps,
+            self.maximum.max_trace_work,
+        )?;
+        checked_work(
+            self.name,
+            "default trace sample work",
+            self.defaults.trace_max_samples,
+            self.defaults.trace_max_steps,
+            self.maximum.max_trace_work,
+        )?;
         Ok(())
     }
 }
@@ -535,7 +586,8 @@ mod tests {
 
     #[test]
     fn coupled_work_overages_are_rejected_even_for_clamping_profiles() {
-        let profile = ResourceProfile::service_v1();
+        let mut profile = ResourceProfile::service_v1();
+        profile.maximum.max_simulation_work -= 1;
         let mut request = request_from(&profile.defaults);
         request.simulation_max_samples = Some(profile.maximum.scalar.simulation_max_samples);
         request.simulation_max_steps = Some(profile.maximum.scalar.simulation_max_steps);
@@ -545,7 +597,38 @@ mod tests {
                 profile: ResourceProfileName::Service,
                 field: "simulation_max_samples * simulation_max_steps",
                 actual: 5_000_000,
-                maximum: 5_000_000,
+                maximum: 4_999_999,
+            })
+        );
+    }
+
+    #[test]
+    fn invalid_profile_identity_and_defaults_fail_closed() {
+        let mut profile = ResourceProfile::local_v1();
+        profile.schema_version += 1;
+        assert_eq!(
+            profile.resolve(ResourceRequest::absent()),
+            Err(ResourcePolicyError::UnsupportedSchema { actual: 2 })
+        );
+
+        let mut profile = ResourceProfile::local_v1();
+        profile.policy_version = "fm.resources.v2".to_owned();
+        assert_eq!(
+            profile.resolve(ResourceRequest::absent()),
+            Err(ResourcePolicyError::UnsupportedPolicyVersion {
+                actual: "fm.resources.v2".to_owned(),
+            })
+        );
+
+        let mut profile = ResourceProfile::local_v1();
+        profile.defaults.timeout_seconds = profile.maximum.scalar.timeout_seconds + 1;
+        assert_eq!(
+            profile.resolve(ResourceRequest::absent()),
+            Err(ResourcePolicyError::DefaultOverMaximum {
+                profile: ResourceProfileName::Local,
+                field: "timeout_seconds",
+                default: 21_601,
+                maximum: 21_600,
             })
         );
     }
