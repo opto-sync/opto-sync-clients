@@ -16,8 +16,9 @@ concurrency:
 
 jobs:
   materialize:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Check out exact push
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -26,24 +27,38 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Install repository Nix toolchain
-        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
-
-      - name: Apply, test, and publish either production code or diagnostics
+      - name: Materialize, test, and publish either production code or diagnostics
         env:
           BRANCH: agent/den-1694-cross-platform-publication-leases
           EXPECTED_SHA: ${{ github.sha }}
+          RUST_TOOLCHAIN: 1.88.0
         shell: bash
         run: |
           set -euo pipefail
           test "$GITHUB_REF_NAME" = "$BRANCH"
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
 
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          # Commit an observable start marker before any external setup. This
+          # push does not retrigger the workflow because only the workflow path
+          # is in the trigger filter.
+          printf 'workflow=%s\ninput_sha=%s\n' "$GITHUB_WORKFLOW" "$EXPECTED_SHA" \
+            > .den-1694-materializer-started
+          git add .den-1694-materializer-started
+          git commit -m 'DEN-1694 record lease materializer start'
+          git push origin "HEAD:${BRANCH}"
+          marker_sha="$(git rev-parse HEAD)"
+
           set +e
           (
             set -euo pipefail
+            rustup set profile minimal
+            rustup toolchain install "$RUST_TOOLCHAIN" \
+              --component rustfmt \
+              --component clippy
+
             awk '
               /- name: Add OS-backed publication leases and cleanup probes/ { found=1; next }
               found && /run: \|/ { capture=1; next }
@@ -57,14 +72,34 @@ jobs:
 
           script = Path('/tmp/den-1694-apply.sh')
           source = script.read_text(encoding='utf-8')
+
           old = 'use std::path::{Path, PathBuf};\\n'
           new = 'use std::path::PathBuf;\\n'
           if source.count(old) != 1:
               raise SystemExit('expected one generated unused Path import')
-          script.write_text(source.replace(old, new, 1), encoding='utf-8')
+          source = source.replace(old, new, 1)
+
+          # Run the extracted patch under the explicit repository Rust contract
+          # rather than an external setup action, keeping all failures inside
+          # this observable transaction.
+          source = source.replace(
+              'nix develop --command cargo fmt',
+              'cargo +1.88.0 fmt',
+          )
+          source = source.replace(
+              'nix develop --command cargo clippy',
+              'cargo +1.88.0 clippy',
+          )
+          source = source.replace(
+              'nix develop --command cargo test',
+              'cargo +1.88.0 test',
+          )
+          if 'nix develop --command cargo' in source:
+              raise SystemExit('unconverted Nix cargo invocation remains')
+          script.write_text(source, encoding='utf-8')
 
           tests = Path('tools/fmctl/tests/report_publish.rs')
-          source = tests.read_text(encoding='utf-8')
+          current = tests.read_text(encoding='utf-8')
           old = '''        })
         .collect::<Vec<_>>();
     assert!(
@@ -76,21 +111,34 @@ jobs:
     assert!(
         names.is_empty(),
 '''
-          if source.count(old) != 1:
+          if current.count(old) != 1:
               raise SystemExit('expected one partial-state name collection')
-          tests.write_text(source.replace(old, new, 1), encoding='utf-8')
+          tests.write_text(current.replace(old, new, 1), encoding='utf-8')
           PY
 
             bash -n /tmp/den-1694-apply.sh
             bash /tmp/den-1694-apply.sh
+            cargo +"$RUST_TOOLCHAIN" fmt \
+              --manifest-path tools/fmctl/Cargo.toml \
+              -- --check
+            cargo +"$RUST_TOOLCHAIN" clippy \
+              --locked \
+              --manifest-path tools/fmctl/Cargo.toml \
+              --all-targets \
+              --all-features \
+              -- -D warnings
+            cargo +"$RUST_TOOLCHAIN" test \
+              --locked \
+              --manifest-path tools/fmctl/Cargo.toml \
+              --all-targets \
+              --all-features
+            git diff --check
           ) > /tmp/den-1694-materializer.log 2>&1
           status=$?
           set -e
 
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           remote_sha="$(git ls-remote origin "refs/heads/${BRANCH}" | awk '{print $1}')"
-          test "$remote_sha" = "$EXPECTED_SHA"
+          test "$remote_sha" = "$marker_sha"
 
           if [[ "$status" -eq 0 ]]; then
             git checkout origin/main -- \
@@ -102,6 +150,7 @@ jobs:
               .github/workflows/den-1694-pr-materializer-v2.yml \
               .den-1694-trigger \
               .den-1694-workflow-ran \
+              .den-1694-materializer-started \
               .den-1694-materializer-failure.log
             git add -A
             git commit -m 'DEN-1694 protect active report publications with OS leases'
@@ -109,7 +158,7 @@ jobs:
             exit 0
           fi
 
-          git reset --hard "$EXPECTED_SHA"
+          git reset --hard "$marker_sha"
           cp /tmp/den-1694-materializer.log .den-1694-materializer-failure.log
           printf '\nexit_status=%s\n' "$status" >> .den-1694-materializer-failure.log
           git add .den-1694-materializer-failure.log
