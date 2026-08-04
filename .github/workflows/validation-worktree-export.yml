@@ -1,0 +1,43 @@
+name: Validation hardening worktree export
+
+on:
+  push:
+    branches:
+      - agent/validation-hardening-go-java
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validation-hardening-worktree-export
+  cancel-in-progress: true
+
+jobs:
+  export:
+    if: github.actor == 'ORESoftware'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out exact branch head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      - name: Create source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar \
+            --exclude=.git \
+            --exclude=opto-sync-clients.tar.gz \
+            -czf opto-sync-clients.tar.gz .
+
+      - name: Upload source archive
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: validation-hardening-worktree-${{ github.sha }}
+          path: opto-sync-clients.tar.gz
+          if-no-files-found: error
+          retention-days: 1
