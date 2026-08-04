@@ -1,28 +1,41 @@
 name: DEN-1694 exact-branch lease materializer
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - agent/den-1694-cross-platform-publication-leases
+    paths:
+      - '.github/workflows/den-1694-main-materializer.yml'
 
 permissions:
   contents: write
 
 concurrency:
-  group: den-1694-main-materializer-${{ github.event.pull_request.number }}
+  group: den-1694-main-materializer-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   materialize:
-    if: github.head_ref == 'agent/den-1694-cross-platform-publication-leases' && github.actor != 'github-actions[bot]'
+    if: github.ref_name == 'agent/den-1694-cross-platform-publication-leases' && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - name: Check out the exact feature branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: agent/den-1694-cross-platform-publication-leases
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: true
+
+      - name: Verify the immutable push identity
+        shell: bash
+        env:
+          EXPECTED_BRANCH: agent/den-1694-cross-platform-publication-leases
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "$EXPECTED_BRANCH"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
 
       - name: Install repository Nix toolchain
         uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
@@ -76,12 +89,16 @@ jobs:
       - name: Commit only production code, tests, lockfile, and docs
         env:
           BRANCH: agent/den-1694-cross-platform-publication-leases
+          EXPECTED_SHA: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git checkout origin/main -- .github/workflows/formal-go-sdk.yml
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git checkout origin/main -- \
+            .github/workflows/formal-go-sdk.yml \
+            .github/workflows/den-1694-main-materializer.yml
           rm -f \
             .github/workflows/den-1694-materialize.yml \
             .github/workflows/den-1694-pr-materializer.yml \
