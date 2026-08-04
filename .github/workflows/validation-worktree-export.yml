@@ -35,13 +35,12 @@ jobs:
           set -euo pipefail
           tar \
             --exclude=.git \
-            --exclude=opto-sync-clients.tar.gz \
-            -czf opto-sync-clients.tar.gz .
+            -czf "$RUNNER_TEMP/opto-sync-clients.tar.gz" .
 
       - name: Upload source archive
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: validation-hardening-worktree-${{ github.sha }}
-          path: opto-sync-clients.tar.gz
+          path: ${{ runner.temp }}/opto-sync-clients.tar.gz
           if-no-files-found: error
           retention-days: 1
