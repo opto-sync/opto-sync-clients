@@ -4,8 +4,9 @@ use std::process::ExitCode;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use fmctl::error::FmError;
+use fmctl::execution_report::PublishedExecution;
 use fmctl::plan::{CommandPlan, Operation};
-use fmctl::runner::{command_display, CommandOutcome};
+use fmctl::runner::command_display;
 use fmctl::{rpc, App, DoctorReport, InitReport, InitRequest};
 use serde::Serialize;
 use serde_json::json;
@@ -219,9 +220,9 @@ fn execute_or_plan(
         return Ok(0);
     }
 
-    let outcome = app.execute(&operation)?;
-    print_outcome(format, &outcome)?;
-    Ok(outcome.stable_exit_code())
+    let execution = app.execute_with_report_bundle(&operation)?;
+    print_execution(format, &execution)?;
+    Ok(execution.stable_exit_code())
 }
 
 fn print_init(format: OutputFormat, report: &InitReport) -> Result<(), FmError> {
@@ -250,10 +251,11 @@ fn print_plan(format: OutputFormat, plan: &CommandPlan) -> Result<(), FmError> {
     }
 }
 
-fn print_outcome(format: OutputFormat, outcome: &CommandOutcome) -> Result<(), FmError> {
+fn print_execution(format: OutputFormat, execution: &PublishedExecution) -> Result<(), FmError> {
     match format {
-        OutputFormat::Json => print_serialized(format, outcome),
+        OutputFormat::Json => print_serialized(format, execution),
         OutputFormat::Human => {
+            let outcome = &execution.outcome;
             let mut stdout = io::stdout().lock();
             let mut stderr = io::stderr().lock();
             if !outcome.stdout.is_empty() {
@@ -277,11 +279,12 @@ fn print_outcome(format: OutputFormat, outcome: &CommandOutcome) -> Result<(), F
                 }
             }
             eprintln!(
-                "fmctl {}: {} ({} ms; result {})",
+                "fmctl {}: {} ({} ms; result {}; bundle {})",
                 outcome.operation,
                 if outcome.success { "passed" } else { "failed" },
                 outcome.duration_millis,
-                outcome.artifacts.result.display()
+                outcome.artifacts.result.display(),
+                execution.bundle.directory.display()
             );
             Ok(())
         }
