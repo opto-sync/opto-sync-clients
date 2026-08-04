@@ -52,7 +52,20 @@ jobs:
               if not line.startswith('          '):
                   raise SystemExit(f'unexpected materializer indentation: {line!r}')
               body.append(line[10:])
-          Path('/tmp/den-1694-materialize.sh').write_text('\n'.join(body) + '\n')
+          script = '\n'.join(body) + '\n'
+          needle = "leased.write_text(source, encoding='utf-8')"
+          patch = '''source = source.replace(
+              "Some(libc::EAGAIN) | Some(libc::EWOULDBLOCK)",
+              "Some(libc::EAGAIN)",
+          )
+          source = source.replace(
+              '#[path = "report_publish.rs"]\\nmod legacy;',
+              '#[allow(dead_code)]\\n#[path = "report_publish.rs"]\\nmod legacy;',
+          )
+          leased.write_text(source, encoding='utf-8')'''
+          if script.count(needle) != 1:
+              raise SystemExit('expected one leased source write boundary')
+          Path('/tmp/den-1694-materialize.sh').write_text(script.replace(needle, patch, 1))
           PY
           bash /tmp/den-1694-materialize.sh
 
