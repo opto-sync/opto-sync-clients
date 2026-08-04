@@ -6,7 +6,7 @@ wire every CLI/RPC path yet.
 
 ## Publication protocol
 
-1. Validate a caller-supplied bundle identifier against a narrow ASCII grammar.
+1. Validate a caller-supplied bundle identifier against the portable canonical grammar in `PORTABLE_REPORT_BUNDLE_IDS.md`, including case-alias and Windows device-name rejection.
 2. Canonicalize the publication root and reject symlinked or non-directory path
    components.
 3. Acquire an immutable create-new reservation for the bundle identifier.
