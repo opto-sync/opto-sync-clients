@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   apply:
-    if: github.actor != 'github-actions[bot]'
+    if: true
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -90,7 +90,7 @@ jobs:
               '    let outcome = app.execute(&operation)?;\n    print_outcome(format, &outcome)?;\n    Ok(outcome.stable_exit_code())\n',
               '    let execution = app.execute_with_report_bundle(&operation)?;\n    print_execution(format, &execution)?;\n    Ok(execution.stable_exit_code())\n',
           )
-          old_print = '''fn print_outcome(format: OutputFormat, outcome: &CommandOutcome) -> Result<(), FmError> {
+          old_print = r'''fn print_outcome(format: OutputFormat, outcome: &CommandOutcome) -> Result<(), FmError> {
               match format {
                   OutputFormat::Json => print_serialized(format, outcome),
                   OutputFormat::Human => {
@@ -128,7 +128,7 @@ jobs:
               }
           }
           '''
-          new_print = '''fn print_execution(
+          new_print = r'''fn print_execution(
               format: OutputFormat,
               execution: &PublishedExecution,
           ) -> Result<(), FmError> {
@@ -211,7 +211,7 @@ jobs:
 
       - name: Commit the integrated execution path
         env:
-          BRANCH: ${{ github.ref_name }}
+          BRANCH: agent/den-1684-cli-rpc-report-bundles
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
