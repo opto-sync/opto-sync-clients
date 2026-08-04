@@ -36,3 +36,15 @@ publication fails; callers must not treat it as a complete report bundle.
 The bundle publisher remains immutable. Reusing an existing bundle id is
 fail-closed; later content-addressed deduplication may verify and reuse an exact
 complete bundle, but must never overwrite it in place.
+
+## Semantic failures and manifest races
+
+Post-process failures such as malformed adapter responses or invalid trace
+corpora are recorded in the `CommandOutcome`, published as complete bundles,
+and returned with their stable nonzero exit code. The legacy `App::execute`
+API continues returning its structured error for compatibility.
+
+Bundle placement is derived from the result artifact path in the executed
+`CommandPlan`; the manifest is not reloaded after the child process runs.
+Therefore a process that edits the manifest cannot redirect or suppress the
+evidence from the already-authorized execution plan.

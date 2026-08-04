@@ -5,7 +5,9 @@ use sha2::{Digest, Sha256};
 
 use crate::error::FmError;
 use crate::plan::Operation;
-use crate::result::publish::{publish_report_bundle, PublishedReportBundle};
+use crate::result::publish::{
+    publish_report_bundle, render_public_result_json, PublishedReportBundle,
+};
 use crate::result::{
     render_artifact_manifest_json, render_junit_xml, render_provenance_json, render_sarif_json,
 };
@@ -34,11 +36,13 @@ impl App {
         &self,
         operation: &Operation,
     ) -> Result<PublishedExecution, FmError> {
-        let outcome = self.execute(operation)?;
-        let loaded = self.load()?;
-        let bundle_root = loaded
-            .resolve_output_path(&loaded.manifest.execution.artifacts_dir.join("bundles"))
-            .map_err(FmError::report_publication)?;
+        let (outcome, _deferred_error) = self.execute_outcome(operation)?;
+        let artifacts_dir = outcome.artifacts.result.parent().ok_or_else(|| {
+            FmError::report_publication(FmError::Validation(
+                "execution result artifact has no parent directory".to_owned(),
+            ))
+        })?;
+        let bundle_root = bundle_root_for_artifacts(artifacts_dir);
         let bundle_id = deterministic_bundle_id(&outcome).map_err(FmError::report_publication)?;
         let bundle = publish_report_bundle(&outcome, &bundle_root, &bundle_id)
             .map_err(FmError::report_publication)?;
@@ -50,6 +54,7 @@ impl App {
 /// Raw arguments, environment, stdout/stderr, source, and trace payloads are not
 /// hashed because the report renderers intentionally exclude them.
 pub fn deterministic_bundle_id(outcome: &CommandOutcome) -> Result<String, FmError> {
+    let result = render_public_result_json(outcome)?;
     let junit = render_junit_xml(outcome)?;
     let sarif = render_sarif_json(outcome)?;
     let artifacts = render_artifact_manifest_json(outcome)?;
@@ -57,6 +62,7 @@ pub fn deterministic_bundle_id(outcome: &CommandOutcome) -> Result<String, FmErr
 
     let mut digest = Sha256::new();
     for payload in [
+        result.as_slice(),
         junit.as_bytes(),
         sarif.as_slice(),
         artifacts.as_slice(),
@@ -80,17 +86,21 @@ pub fn deterministic_bundle_id(outcome: &CommandOutcome) -> Result<String, FmErr
 }
 
 fn operation_component(operation: &str) -> String {
-    let value = operation
-        .bytes()
-        .map(|byte| {
-            if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_') {
-                char::from(byte)
-            } else {
-                '-'
-            }
-        })
-        .take(48)
-        .collect::<String>();
+    let mut value = String::new();
+    for byte in operation.bytes() {
+        let byte = byte.to_ascii_lowercase();
+        if byte.is_ascii_alphanumeric() {
+            value.push(char::from(byte));
+        } else if !value.is_empty() && !value.ends_with('-') {
+            value.push('-');
+        }
+        if value.len() >= 48 {
+            break;
+        }
+    }
+    while value.ends_with('-') {
+        value.pop();
+    }
     if value.is_empty() {
         "operation".to_owned()
     } else {

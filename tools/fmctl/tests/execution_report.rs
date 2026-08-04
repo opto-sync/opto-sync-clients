@@ -108,6 +108,68 @@ fn deterministic_bundle_id_is_stable_for_the_same_sanitized_outcome() {
     assert!(!first.contains("secret"));
 }
 
+#[test]
+fn trace_validation_failure_still_publishes_a_complete_bundle() {
+    let fixture = Fixture::new();
+    let execution = fixture
+        .app
+        .execute_with_report_bundle(&Operation::Trace { output: None })
+        .expect("semantic trace failure still publishes");
+    assert!(!execution.outcome.success);
+    assert_eq!(execution.stable_exit_code(), 2);
+    assert!(execution
+        .outcome
+        .failure
+        .as_deref()
+        .is_some_and(|failure| failure.contains("expected 8")));
+    assert_complete_bundle(&execution.bundle.directory);
+
+    let legacy = fixture.app.execute(&Operation::Trace { output: None });
+    assert!(matches!(legacy, Err(FmError::Validation(_))));
+}
+
+#[test]
+fn execution_uses_the_planned_artifact_root_if_the_manifest_changes_mid_run() {
+    let fixture = Fixture::new();
+    let script = fixture.directory.path().join("formal/fake-npx.sh");
+    fs::write(
+        &script,
+        "#!/bin/sh\nprintf 'invalid = [' > formal/fm.toml\nprintf 'fake verifier passed\\n'\n",
+    )
+    .expect("rewrite fake verifier");
+    let mut permissions = fs::metadata(&script)
+        .expect("script metadata")
+        .permissions();
+    permissions.set_mode(0o700);
+    fs::set_permissions(&script, permissions).expect("script permissions");
+
+    let execution = fixture
+        .app
+        .execute_with_report_bundle(&Operation::Check)
+        .expect("bundle root comes from the executed plan");
+    assert_complete_bundle(&execution.bundle.directory);
+    assert!(execution.bundle.directory.starts_with(
+        fixture
+            .directory
+            .path()
+            .join(".formal-artifacts/fmctl/bundles")
+    ));
+}
+
+#[test]
+fn public_result_changes_change_the_content_address() {
+    let fixture = Fixture::new();
+    let execution = fixture
+        .app
+        .execute_with_report_bundle(&Operation::Check)
+        .expect("published execution");
+    let mut changed = execution.outcome.clone();
+    changed.duration_millis = changed.duration_millis.saturating_add(1);
+    let original = deterministic_bundle_id(&execution.outcome).expect("original id");
+    let changed = deterministic_bundle_id(&changed).expect("changed id");
+    assert_ne!(original, changed);
+}
+
 fn assert_complete_bundle(directory: &Path) {
     for name in [
         "result.json",

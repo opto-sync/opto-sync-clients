@@ -94,6 +94,17 @@ impl App {
     }
 
     pub fn execute(&self, operation: &Operation) -> Result<CommandOutcome, FmError> {
+        let (outcome, deferred_error) = self.execute_outcome(operation)?;
+        if let Some(error) = deferred_error {
+            return Err(error);
+        }
+        Ok(outcome)
+    }
+
+    pub(crate) fn execute_outcome(
+        &self,
+        operation: &Operation,
+    ) -> Result<(CommandOutcome, Option<FmError>), FmError> {
         let loaded = self.load()?;
         let plan = build_plan(&loaded, operation)?;
         if matches!(operation, Operation::Trace { .. }) {
@@ -170,10 +181,7 @@ impl App {
 
         let result_json = serde_json::to_vec_pretty(&outcome)?;
         write_artifact(&plan.workspace, &outcome.artifacts.result, &result_json)?;
-        if let Some(error) = deferred_error {
-            return Err(error);
-        }
-        Ok(outcome)
+        Ok((outcome, deferred_error))
     }
 
     pub fn doctor(&self) -> Result<DoctorReport, FmError> {

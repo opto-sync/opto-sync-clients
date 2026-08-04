@@ -262,7 +262,7 @@ pub fn cleanup_stale_publication_state(
     Ok(report)
 }
 
-fn render_public_result_json(outcome: &CommandOutcome) -> Result<Vec<u8>, FmError> {
+pub(crate) fn render_public_result_json(outcome: &CommandOutcome) -> Result<Vec<u8>, FmError> {
     let result = PublishedResult {
         schema: "fm.result.v1",
         schema_version: 1,
