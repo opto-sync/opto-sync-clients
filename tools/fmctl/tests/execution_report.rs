@@ -21,12 +21,20 @@ fn cli_execution_publishes_complete_bundle_and_json_envelope() {
         .args(["--format", "json", "check"])
         .output()
         .expect("run fmctl");
-    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     let envelope: Value = serde_json::from_slice(&output.stdout).expect("CLI JSON envelope");
     assert_eq!(envelope["outcome"]["operation"], "check");
     assert_eq!(envelope["outcome"]["success"], true);
-    let directory = PathBuf::from(envelope["bundle"]["directory"].as_str().expect("bundle dir"));
+    let directory = PathBuf::from(
+        envelope["bundle"]["directory"]
+            .as_str()
+            .expect("bundle dir"),
+    );
     assert_complete_bundle(&directory);
 }
 
@@ -39,10 +47,13 @@ fn rpc_execution_returns_the_same_published_execution_shape() {
     let mut output = Vec::new();
     rpc::run_server(fixture.app, input, &mut output).expect("RPC server");
     let lines = String::from_utf8(output).expect("RPC UTF-8");
-    let response: Value = serde_json::from_str(lines.lines().next().expect("first response"))
-        .expect("RPC response");
+    let response: Value =
+        serde_json::from_str(lines.lines().next().expect("first response")).expect("RPC response");
     assert_eq!(response["result"]["kind"], "execution");
-    assert_eq!(response["result"]["execution"]["outcome"]["operation"], "check");
+    assert_eq!(
+        response["result"]["execution"]["outcome"]["operation"],
+        "check"
+    );
     let directory = PathBuf::from(
         response["result"]["execution"]["bundle"]["directory"]
             .as_str()
@@ -60,7 +71,11 @@ fn dry_run_does_not_publish_execution_reports() {
         .output()
         .expect("run dry-run fmctl");
     assert!(output.status.success());
-    assert!(!fixture.directory.path().join(".formal-artifacts/bundles").exists());
+    assert!(!fixture
+        .directory
+        .path()
+        .join(".formal-artifacts/bundles")
+        .exists());
 }
 
 #[test]
@@ -127,7 +142,9 @@ impl Fixture {
 
         let script = directory.path().join("formal/fake-npx.sh");
         fs::write(&script, "#!/bin/sh\nprintf 'fake verifier passed\\n'\n").expect("script");
-        let mut permissions = fs::metadata(&script).expect("script metadata").permissions();
+        let mut permissions = fs::metadata(&script)
+            .expect("script metadata")
+            .permissions();
         permissions.set_mode(0o700);
         fs::set_permissions(&script, permissions).expect("script permissions");
 

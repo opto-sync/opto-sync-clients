@@ -1,5 +1,6 @@
 pub mod adapter;
 pub mod error;
+pub mod execution_report;
 pub mod manifest;
 pub mod plan;
 pub mod resource;

@@ -62,7 +62,11 @@ pub fn deterministic_bundle_id(outcome: &CommandOutcome) -> Result<String, FmErr
         artifacts.as_slice(),
         provenance.as_slice(),
     ] {
-        digest.update(u64::try_from(payload.len()).unwrap_or(u64::MAX).to_be_bytes());
+        digest.update(
+            u64::try_from(payload.len())
+                .unwrap_or(u64::MAX)
+                .to_be_bytes(),
+        );
         digest.update(payload);
     }
     let digest = digest.finalize();
