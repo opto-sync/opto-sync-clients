@@ -1,0 +1,40 @@
+name: Agent rustfmt fix
+
+on:
+  push:
+    branches: [agent/harden-envelope-validation]
+    paths:
+      - clients/rust/src/schema.rs
+      - clients/rust/tests/schema_providers.rs
+      - .github/workflows/agent-rustfmt.yml
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout the PR branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: agent/harden-envelope-validation
+          fetch-depth: 0
+          persist-credentials: true
+      - name: Format only the Rust validation changes
+        working-directory: clients/rust
+        run: cargo fmt --all
+      - name: Commit formatted Rust sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add clients/rust/src/schema.rs clients/rust/tests/schema_providers.rs
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'format Rust validation adapters'
+          git push origin HEAD:agent/harden-envelope-validation
