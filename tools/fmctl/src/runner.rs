@@ -28,6 +28,7 @@ pub struct CommandOutcome {
     pub operation: String,
     pub program: String,
     pub args: Vec<String>,
+    pub resource_policy: crate::resource::EffectiveResourcePolicy,
     pub success: bool,
     pub timed_out: bool,
     pub exit_code: Option<i32>,
@@ -172,6 +173,7 @@ pub fn execute_plan(plan: &CommandPlan) -> Result<CommandOutcome, FmError> {
         operation: plan.operation.clone(),
         program: plan.program.clone(),
         args: plan.args.clone(),
+        resource_policy: plan.resource_policy.clone(),
         success: status.success() && !timed_out,
         timed_out,
         exit_code: status.code(),
@@ -387,6 +389,7 @@ fn shell_quote(value: &str) -> String {
 mod tests {
     use super::*;
     use crate::plan::CommandArtifacts;
+    use crate::resource::{ResourceProfile, ResourceRequest};
     use std::collections::BTreeMap;
     use tempfile::TempDir;
 
@@ -414,6 +417,13 @@ mod tests {
         let workspace = fs::canonicalize(directory.path()).expect("canonical workspace");
         let artifacts = workspace.join("artifacts");
         fs::create_dir_all(&artifacts).expect("artifacts");
+        let resource_policy = ResourceProfile::local_v1()
+            .resolve(ResourceRequest {
+                timeout_seconds: Some(1),
+                max_output_bytes: Some(1024),
+                ..ResourceRequest::absent()
+            })
+            .expect("test policy");
         let plan = CommandPlan {
             schema_version: 1,
             project: "example".to_owned(),
@@ -427,6 +437,7 @@ mod tests {
             stdin: Some("x".repeat(2 * 1024 * 1024)),
             timeout_seconds: 1,
             max_output_bytes: 1024,
+            resource_policy: resource_policy.clone(),
             create_directories: vec![artifacts.clone()],
             artifacts: CommandArtifacts {
                 stdout: artifacts.join("stdout.log"),
@@ -438,6 +449,7 @@ mod tests {
         let started = Instant::now();
         let outcome = execute_plan(&plan).expect("bounded execution");
         assert!(outcome.timed_out);
+        assert_eq!(outcome.resource_policy, resource_policy);
         assert!(started.elapsed() < Duration::from_secs(10));
     }
 }

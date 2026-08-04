@@ -2,6 +2,7 @@ pub mod adapter;
 pub mod error;
 pub mod manifest;
 pub mod plan;
+pub mod resource;
 pub mod result;
 pub mod rpc;
 pub mod runner;
