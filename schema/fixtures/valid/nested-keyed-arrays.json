@@ -7,7 +7,7 @@
       "operation": "upsert",
       "baseRevision": "41",
       "payload": {
-        "updatedAt": 1753876800123456789,
+        "updatedAt": "1753876800123456789",
         "createdAt": "2026-01-02T03:04:05Z",
         "syncedAt": "1753876800123",
         "sections": [
