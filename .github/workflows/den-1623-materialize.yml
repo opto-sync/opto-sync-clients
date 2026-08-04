@@ -405,3 +405,5 @@ jobs:
           git add tools/fmctl/src/manifest.rs
           git commit -m 'DEN-1623 bound execution and trace work'
           git push origin "HEAD:${BRANCH}"
+
+# retrigger after workflow registration
