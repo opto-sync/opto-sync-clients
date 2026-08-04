@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/opto-sync/opto-sync-clients/main/adoption/adoption.schema.json",
+  "title": "Opto Sync adoption manifest",
+  "description": "Machine-readable declaration of an application's local-first sync boundary and pinned Opto Sync client source.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "project",
+    "clientPackage",
+    "languages",
+    "dataScopes",
+    "localStores",
+    "transports",
+    "writeStrategies",
+    "conflictPolicy",
+    "background",
+    "security",
+    "rollout"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "opto-sync.adoption.v1"
+    },
+    "project": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "clientPackage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["package", "repository", "version", "commit"],
+      "properties": {
+        "package": { "const": "opto-sync/opto-sync-clients" },
+        "repository": { "const": "https://github.com/opto-sync/opto-sync-clients" },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        }
+      }
+    },
+    "languages": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["dart", "gleam", "rust", "typescript"]
+      }
+    },
+    "dataScopes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[A-Za-z0-9_.:/-]+$"
+      }
+    },
+    "localStores": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["indexeddb", "memory", "sqlite"]
+      }
+    },
+    "transports": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["broadcast-channel", "http", "supabase-realtime", "tcp", "websocket"]
+      }
+    },
+    "writeStrategies": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": ["local-durable", "local-then-remote", "remote-confirmed"]
+      }
+    },
+    "conflictPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["arrayStrategy", "resolveByTimestamp", "lwwKeys", "tombstones"],
+      "properties": {
+        "arrayStrategy": {
+          "enum": ["append", "mergeByIndex", "mergeByKey", "replace", "union"]
+        },
+        "resolveByTimestamp": { "type": "boolean" },
+        "lwwKeys": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+        },
+        "arrayMatchKeys": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+        },
+        "tombstones": { "const": true }
+      }
+    },
+    "background": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["webServiceWorker", "mobileWorker", "desktopWorker"],
+      "properties": {
+        "webServiceWorker": { "type": "boolean" },
+        "mobileWorker": { "type": "boolean" },
+        "desktopWorker": { "type": "boolean" }
+      }
+    },
+    "security": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authenticatedTransport", "encryptedAtRest", "secretsInManifest"],
+      "properties": {
+        "authenticatedTransport": { "const": true },
+        "encryptedAtRest": { "type": "boolean" },
+        "secretsInManifest": { "const": false }
+      }
+    },
+    "rollout": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phase", "owners"],
+      "properties": {
+        "phase": {
+          "enum": ["declared", "local-queue", "transport", "background", "production"]
+        },
+        "owners": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+        }
+      }
+    },
+    "notes": {
+      "type": "string",
+      "maxLength": 2000
+    }
+  }
+}
