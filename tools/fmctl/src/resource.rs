@@ -114,9 +114,7 @@ pub enum ResourcePolicyError {
         profile: ResourceProfileName,
         field: &'static str,
     },
-    #[error(
-        "resource profile {profile:?} default {field}={default} exceeds maximum {maximum}"
-    )]
+    #[error("resource profile {profile:?} default {field}={default} exceeds maximum {maximum}")]
     DefaultOverMaximum {
         profile: ResourceProfileName,
         field: &'static str,
