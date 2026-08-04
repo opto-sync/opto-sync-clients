@@ -41,15 +41,18 @@ jobs:
           test "$GITHUB_REF_NAME" = "$BRANCH"
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
 
-          awk '
-            /- name: Add OS-backed publication leases and cleanup probes/ { found=1; next }
-            found && /run: \|/ { capture=1; next }
-            capture && /^      - name: Commit publication lease implementation/ { exit }
-            capture { sub(/^          /, ""); print }
-          ' .github/workflows/den-1694-materialize.yml > /tmp/den-1694-apply.sh
-          test -s /tmp/den-1694-apply.sh
+          set +e
+          (
+            set -euo pipefail
+            awk '
+              /- name: Add OS-backed publication leases and cleanup probes/ { found=1; next }
+              found && /run: \|/ { capture=1; next }
+              capture && /^      - name: Commit publication lease implementation/ { exit }
+              capture { sub(/^          /, ""); print }
+            ' .github/workflows/den-1694-materialize.yml > /tmp/den-1694-apply.sh
+            test -s /tmp/den-1694-apply.sh
 
-          python3 - <<'PY'
+            python3 - <<'PY'
           from pathlib import Path
 
           script = Path('/tmp/den-1694-apply.sh')
@@ -78,9 +81,9 @@ jobs:
           tests.write_text(source.replace(old, new, 1), encoding='utf-8')
           PY
 
-          bash -n /tmp/den-1694-apply.sh
-          set +e
-          bash /tmp/den-1694-apply.sh > /tmp/den-1694-materializer.log 2>&1
+            bash -n /tmp/den-1694-apply.sh
+            bash /tmp/den-1694-apply.sh
+          ) > /tmp/den-1694-materializer.log 2>&1
           status=$?
           set -e
 
