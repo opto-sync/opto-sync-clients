@@ -1,19 +1,23 @@
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime};
 
 #[cfg(unix)]
+use std::fs::File;
+#[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 
 use serde::Serialize;
 
 use crate::error::FmError;
+use crate::resource::EffectiveResourcePolicy;
 use crate::runner::CommandOutcome;
 
 use super::{
     render_artifact_manifest_json, render_junit_xml, render_provenance_json, render_sarif_json,
+    report_status, ArtifactEntry, ReportStatus,
 };
 
 const STAGING_PREFIX: &str = ".fm-report-staging-";
@@ -48,6 +52,39 @@ pub struct PublishedReportBundle {
 pub struct CleanupReport {
     pub staging_directories_removed: usize,
     pub reservations_removed: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+struct PublishedResult<'a> {
+    schema: &'static str,
+    schema_version: u32,
+    project: &'a str,
+    model: &'a str,
+    operation: &'a str,
+    status: ReportStatus,
+    command: PublishedCommand,
+    result: PublishedResultEvidence,
+    artifacts: Vec<ArtifactEntry>,
+    resource_policy: &'a EffectiveResourcePolicy,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+struct PublishedCommand {
+    program: String,
+    argument_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+struct PublishedResultEvidence {
+    success: bool,
+    timed_out: bool,
+    exit_code: Option<i32>,
+    duration_millis: u64,
+    stdout_truncated: bool,
+    stderr_truncated: bool,
 }
 
 struct Reservation {
@@ -153,7 +190,7 @@ where
     reject_existing_or_symlink(&final_directory, "report bundle destination")?;
     let mut staging = StagingDirectory::create(&root, bundle_id)?;
 
-    let result_json = serde_json::to_vec_pretty(outcome)?;
+    let result_json = render_public_result_json(outcome)?;
     let junit_xml = render_junit_xml(outcome)?.into_bytes();
     let sarif_json = render_sarif_json(outcome)?;
     let artifact_manifest = render_artifact_manifest_json(outcome)?;
@@ -175,9 +212,9 @@ where
     reject_existing_or_symlink(&final_directory, "report bundle destination")?;
     fs::rename(&staging.path, &final_directory)
         .map_err(|source| FmError::io(&final_directory, source))?;
-    sync_directory(&root)?;
     staging.commit();
     reservation.commit();
+    sync_directory(&root)?;
 
     Ok(PublishedReportBundle {
         bundle_id: bundle_id.to_owned(),
@@ -224,6 +261,71 @@ pub fn cleanup_stale_publication_state(
     }
     sync_directory(&root)?;
     Ok(report)
+}
+
+fn render_public_result_json(outcome: &CommandOutcome) -> Result<Vec<u8>, FmError> {
+    let result = PublishedResult {
+        schema: "fm.result.v1",
+        schema_version: 1,
+        project: &outcome.project,
+        model: &outcome.model,
+        operation: &outcome.operation,
+        status: report_status(outcome),
+        command: PublishedCommand {
+            program: sanitized_program_name(&outcome.program),
+            argument_count: outcome.args.len(),
+        },
+        result: PublishedResultEvidence {
+            success: outcome.success,
+            timed_out: outcome.timed_out,
+            exit_code: outcome.exit_code,
+            duration_millis: outcome.duration_millis,
+            stdout_truncated: outcome.stdout_truncated,
+            stderr_truncated: outcome.stderr_truncated,
+        },
+        artifacts: public_artifacts(outcome),
+        resource_policy: &outcome.resource_policy,
+    };
+    Ok(serde_json::to_vec_pretty(&result)?)
+}
+
+fn public_artifacts(outcome: &CommandOutcome) -> Vec<ArtifactEntry> {
+    let mut artifacts = vec![
+        ArtifactEntry {
+            kind: "result".to_owned(),
+            path: artifact_basename(&outcome.artifacts.result),
+        },
+        ArtifactEntry {
+            kind: "stderr".to_owned(),
+            path: artifact_basename(&outcome.artifacts.stderr),
+        },
+        ArtifactEntry {
+            kind: "stdout".to_owned(),
+            path: artifact_basename(&outcome.artifacts.stdout),
+        },
+    ];
+    if let Some(path) = &outcome.artifacts.trace_pattern {
+        artifacts.push(ArtifactEntry {
+            kind: "trace_pattern".to_owned(),
+            path: artifact_basename(path),
+        });
+    }
+    artifacts.sort_by(|left, right| left.kind.cmp(&right.kind));
+    artifacts
+}
+
+fn artifact_basename(path: &Path) -> PathBuf {
+    path.file_name()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("artifact"))
+}
+
+fn sanitized_program_name(program: &str) -> String {
+    Path::new(program)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("program")
+        .to_owned()
 }
 
 fn invoke_hook<F>(hook: &mut F, step: PublishStep) -> Result<(), FmError>
@@ -368,11 +470,12 @@ fn sync_directory(path: &Path) -> Result<(), FmError> {
 }
 
 fn is_old_enough(metadata: &fs::Metadata, now: SystemTime, minimum_age: Duration) -> bool {
-    metadata
-        .modified()
-        .ok()
-        .and_then(|modified| now.duration_since(modified).ok())
-        .is_some_and(|age| age >= minimum_age)
+    minimum_age.is_zero()
+        || metadata
+            .modified()
+            .ok()
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age >= minimum_age)
 }
 
 fn validate_bundle_id(bundle_id: &str) -> Result<(), FmError> {
