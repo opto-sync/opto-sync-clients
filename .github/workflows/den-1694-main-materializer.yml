@@ -1,4 +1,4 @@
-name: DEN-1694 exact-branch lease materializer
+name: DEN-1694 branch workflow diagnostic
 
 on:
   push:
@@ -10,100 +10,30 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: den-1694-main-materializer-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
-  materialize:
-    if: github.ref_name == 'agent/den-1694-cross-platform-publication-leases' && github.actor != 'github-actions[bot]'
+  diagnostic:
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 5
     steps:
-      - name: Check out the exact feature branch
+      - name: Check out exact push
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Verify the immutable push identity
-        shell: bash
-        env:
-          EXPECTED_BRANCH: agent/den-1694-cross-platform-publication-leases
-          EXPECTED_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          test "$GITHUB_REF_NAME" = "$EXPECTED_BRANCH"
-          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-
-      - name: Install repository Nix toolchain
-        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
-        with:
-          nix_path: nixpkgs=channel:nixos-unstable
-
-      - name: Materialize and certify publication leases
-        shell: bash
-        run: |
-          set -euo pipefail
-          awk '
-            /- name: Add OS-backed publication leases and cleanup probes/ { found=1; next }
-            found && /run: \|/ { capture=1; next }
-            capture && /^      - name: Commit publication lease implementation/ { exit }
-            capture { sub(/^          /, ""); print }
-          ' .github/workflows/den-1694-materialize.yml > /tmp/den-1694-apply.sh
-          test -s /tmp/den-1694-apply.sh
-
-          python3 - <<'PY'
-          from pathlib import Path
-
-          script = Path('/tmp/den-1694-apply.sh')
-          source = script.read_text(encoding='utf-8')
-          old = 'use std::path::{Path, PathBuf};\\n'
-          new = 'use std::path::PathBuf;\\n'
-          if source.count(old) != 1:
-              raise SystemExit('expected one generated unused Path import')
-          script.write_text(source.replace(old, new, 1), encoding='utf-8')
-
-          tests = Path('tools/fmctl/tests/report_publish.rs')
-          source = tests.read_text(encoding='utf-8')
-          old = '''        })
-        .collect::<Vec<_>>();
-    assert!(
-        names.is_empty(),
-'''
-          new = '''        })
-        .filter(|name| name != ".fm-report-publication-guard")
-        .collect::<Vec<_>>();
-    assert!(
-        names.is_empty(),
-'''
-          if source.count(old) != 1:
-              raise SystemExit('expected one partial-state name collection')
-          tests.write_text(source.replace(old, new, 1), encoding='utf-8')
-          PY
-
-          bash -n /tmp/den-1694-apply.sh
-          bash /tmp/den-1694-apply.sh
-
-      - name: Commit only production code, tests, lockfile, and docs
+      - name: Commit scheduling marker
         env:
           BRANCH: agent/den-1694-cross-platform-publication-leases
           EXPECTED_SHA: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
+          test "$GITHUB_REF_NAME" = "$BRANCH"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          printf 'workflow=%s\nsha=%s\n' "$GITHUB_WORKFLOW" "$EXPECTED_SHA" > .den-1694-workflow-ran
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-          git checkout origin/main -- \
-            .github/workflows/formal-go-sdk.yml \
-            .github/workflows/den-1694-main-materializer.yml
-          rm -f \
-            .github/workflows/den-1694-materialize.yml \
-            .github/workflows/den-1694-pr-materializer.yml \
-            .github/workflows/den-1694-pr-materializer-v2.yml \
-            .den-1694-trigger
-          git add -A
-          git commit -m 'DEN-1694 protect active report publications with OS leases'
+          git add .den-1694-workflow-ran
+          git commit -m 'DEN-1694 confirm branch workflow scheduling'
           git push origin "HEAD:${BRANCH}"
