@@ -4,12 +4,16 @@ on:
   push:
     branches:
       - agent/validation-hardening-go-java
+  pull_request:
+    branches:
+      - main
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
 
 concurrency:
-  group: validation-hardening-worktree-export
+  group: validation-hardening-worktree-export-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
