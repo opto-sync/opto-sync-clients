@@ -9,6 +9,19 @@ use crate::error::FmError;
 
 pub const MANIFEST_SCHEMA_VERSION: u32 = 1;
 pub const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
+pub const MAX_INVARIANTS: usize = 256;
+pub const MAX_WITNESSES: usize = 256;
+pub const MAX_ADAPTERS: usize = 32;
+pub const MAX_REQUIRED_ACTIONS: usize = 256;
+pub const MAX_OBSERVABLE_FIELDS: usize = 256;
+pub const MAX_COMMAND_ARGUMENTS: usize = 64;
+pub const MAX_ENVIRONMENT_ENTRIES: usize = 64;
+pub const MAX_LABEL_BYTES: usize = 128;
+pub const MAX_IDENTIFIER_BYTES: usize = 128;
+pub const MAX_TOOLCHAIN_TOKEN_BYTES: usize = 256;
+pub const MAX_COMMAND_ARGUMENT_BYTES: usize = 4096;
+pub const MAX_ENVIRONMENT_KEY_BYTES: usize = 128;
+pub const MAX_ENVIRONMENT_VALUE_BYTES: usize = 4096;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -365,6 +378,24 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
     if manifest.invariants.is_empty() {
         errors.push("at least one invariant is required".to_owned());
     }
+    validate_collection_limit(
+        "invariants",
+        manifest.invariants.len(),
+        MAX_INVARIANTS,
+        &mut errors,
+    );
+    validate_collection_limit(
+        "witnesses",
+        manifest.witnesses.len(),
+        MAX_WITNESSES,
+        &mut errors,
+    );
+    validate_collection_limit(
+        "adapters",
+        manifest.adapters.len(),
+        MAX_ADAPTERS,
+        &mut errors,
+    );
     validate_unique_identifiers("invariants", &manifest.invariants, &mut errors);
     validate_unique_identifiers("witnesses", &manifest.witnesses, &mut errors);
 
@@ -374,9 +405,7 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
             manifest.toolchain.quint
         ));
     }
-    if manifest.toolchain.java.trim().is_empty() {
-        errors.push("toolchain.java must not be empty".to_owned());
-    }
+    validate_label("toolchain.java", &manifest.toolchain.java, &mut errors);
     if let Some(node) = &manifest.toolchain.node {
         if !is_safe_version(node) {
             errors.push(format!(
@@ -441,6 +470,12 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
     }
 
     if let Some(traces) = &manifest.traces {
+        validate_collection_limit(
+            "traces.required_actions",
+            traces.required_actions.len(),
+            MAX_REQUIRED_ACTIONS,
+            &mut errors,
+        );
         if traces.format != "itf" {
             errors.push(format!(
                 "traces.format must be 'itf', got {:?}",
@@ -479,9 +514,29 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
 
     for (name, adapter) in &manifest.adapters {
         validate_identifier("adapter name", name, &mut errors);
-        if adapter.strategy.trim().is_empty() {
-            errors.push(format!("adapter '{name}' strategy must not be empty"));
-        }
+        validate_label(
+            &format!("adapter '{name}' strategy"),
+            &adapter.strategy,
+            &mut errors,
+        );
+        validate_collection_limit(
+            &format!("adapter '{name}' observable_state"),
+            adapter.observable_state.len(),
+            MAX_OBSERVABLE_FIELDS,
+            &mut errors,
+        );
+        validate_collection_limit(
+            &format!("adapter '{name}' command"),
+            adapter.command.len(),
+            MAX_COMMAND_ARGUMENTS,
+            &mut errors,
+        );
+        validate_collection_limit(
+            &format!("adapter '{name}' environment"),
+            adapter.environment.len(),
+            MAX_ENVIRONMENT_ENTRIES,
+            &mut errors,
+        );
         if let Some(target) = &adapter.target {
             if let Err(message) =
                 validate_relative_path(&format!("adapter '{name}' target"), target)
@@ -525,19 +580,32 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
                 "active adapter '{name}' must declare a command array"
             ));
         }
-        if adapter
-            .command
-            .iter()
-            .any(|part| part.is_empty() || part.contains('\0'))
-        {
-            errors.push(format!(
-                "adapter '{name}' command contains an empty or NUL-bearing argument"
-            ));
+        for (index, part) in adapter.command.iter().enumerate() {
+            if part.is_empty() || part.contains('\0') {
+                errors.push(format!(
+                    "adapter '{name}' command argument {index} is empty or contains NUL"
+                ));
+            }
+            if part.len() > MAX_COMMAND_ARGUMENT_BYTES {
+                errors.push(format!(
+                    "adapter '{name}' command argument {index} must be at most {MAX_COMMAND_ARGUMENT_BYTES} bytes"
+                ));
+            }
         }
         for (key, value) in &adapter.environment {
             if key.is_empty() || key.contains('=') || key.contains('\0') || value.contains('\0') {
                 errors.push(format!(
                     "adapter '{name}' has an invalid environment entry {key:?}"
+                ));
+            }
+            if key.len() > MAX_ENVIRONMENT_KEY_BYTES {
+                errors.push(format!(
+                    "adapter '{name}' environment key must be at most {MAX_ENVIRONMENT_KEY_BYTES} bytes, got {key:?}"
+                ));
+            }
+            if value.len() > MAX_ENVIRONMENT_VALUE_BYTES {
+                errors.push(format!(
+                    "adapter '{name}' environment value for {key:?} must be at most {MAX_ENVIRONMENT_VALUE_BYTES} bytes"
                 ));
             }
         }
@@ -546,12 +614,20 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
     errors
 }
 
+fn validate_collection_limit(label: &str, actual: usize, maximum: usize, errors: &mut Vec<String>) {
+    if actual > maximum {
+        errors.push(format!(
+            "{label} must contain at most {maximum} entries, got {actual}"
+        ));
+    }
+}
+
 fn validate_label(label: &str, value: &str, errors: &mut Vec<String>) {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         errors.push(format!("{label} must not be empty"));
-    } else if trimmed.len() > 128 {
-        errors.push(format!("{label} must be at most 128 bytes"));
+    } else if trimmed.len() > MAX_LABEL_BYTES {
+        errors.push(format!("{label} must be at most {MAX_LABEL_BYTES} bytes"));
     } else if trimmed.chars().any(char::is_control) {
         errors.push(format!("{label} must not contain control characters"));
     }
@@ -568,6 +644,12 @@ fn validate_unique_identifiers(label: &str, values: &[String], errors: &mut Vec<
 }
 
 fn validate_identifier(label: &str, value: &str, errors: &mut Vec<String>) {
+    if value.len() > MAX_IDENTIFIER_BYTES {
+        errors.push(format!(
+            "{label} must be at most {MAX_IDENTIFIER_BYTES} bytes"
+        ));
+        return;
+    }
     let mut chars = value.chars();
     let Some(first) = chars.next() else {
         errors.push(format!("{label} must not be empty"));
@@ -584,13 +666,17 @@ fn validate_identifier(label: &str, value: &str, errors: &mut Vec<String>) {
 
 fn is_safe_version(version: &str) -> bool {
     !version.is_empty()
+        && version.len() <= MAX_TOOLCHAIN_TOKEN_BYTES
         && version
             .chars()
             .all(|character| character.is_ascii_alphanumeric() || ".+-_".contains(character))
 }
 
 fn is_safe_program(program: &str) -> bool {
-    !program.is_empty() && !program.contains('\0') && !program.chars().any(char::is_whitespace)
+    !program.is_empty()
+        && program.len() <= MAX_COMMAND_ARGUMENT_BYTES
+        && !program.contains('\0')
+        && !program.chars().any(char::is_whitespace)
 }
 
 pub fn validate_relative_path(label: &str, path: &Path) -> Result<(), String> {
@@ -764,5 +850,153 @@ mod tests {
         )
         .expect_err("post-read growth must fail");
         assert!(error.to_string().contains("grew beyond"));
+    }
+
+    fn valid_manifest() -> Manifest {
+        toml::from_str(include_str!("../../../formal/fm.toml")).expect("repository formal manifest")
+    }
+
+    fn identifiers(prefix: &str, count: usize) -> Vec<String> {
+        (0..count)
+            .map(|index| format!("{prefix}_{index}"))
+            .collect()
+    }
+
+    fn assert_valid(manifest: &Manifest) {
+        let errors = validate_manifest_shape(manifest);
+        assert!(
+            errors.is_empty(),
+            "unexpected validation errors: {errors:#?}"
+        );
+    }
+
+    fn assert_error(manifest: &Manifest, expected: &str) {
+        let errors = validate_manifest_shape(manifest);
+        assert!(
+            errors.iter().any(|error| error.contains(expected)),
+            "expected error containing {expected:?}, got {errors:#?}"
+        );
+    }
+
+    #[test]
+    fn invariant_and_witness_boundaries_are_exact() {
+        let mut manifest = valid_manifest();
+        manifest.invariants = identifiers("invariant", MAX_INVARIANTS);
+        manifest.witnesses = identifiers("witness", MAX_WITNESSES);
+        assert_valid(&manifest);
+
+        manifest.invariants.push("invariant_overflow".to_owned());
+        manifest.witnesses.push("witness_overflow".to_owned());
+        assert_error(&manifest, "invariants must contain at most");
+        assert_error(&manifest, "witnesses must contain at most");
+    }
+
+    #[test]
+    fn adapter_and_trace_collection_boundaries_are_exact() {
+        let mut manifest = valid_manifest();
+        let template = manifest
+            .adapters
+            .values()
+            .next()
+            .cloned()
+            .expect("adapter template");
+        manifest.adapters = (0..MAX_ADAPTERS)
+            .map(|index| (format!("adapter_{index}"), template.clone()))
+            .collect();
+        manifest
+            .traces
+            .as_mut()
+            .expect("trace config")
+            .required_actions = identifiers("action", MAX_REQUIRED_ACTIONS);
+        assert_valid(&manifest);
+
+        manifest
+            .adapters
+            .insert("adapter_overflow".to_owned(), template);
+        manifest
+            .traces
+            .as_mut()
+            .expect("trace config")
+            .required_actions
+            .push("action_overflow".to_owned());
+        assert_error(&manifest, "adapters must contain at most");
+        assert_error(&manifest, "traces.required_actions must contain at most");
+    }
+
+    #[test]
+    fn adapter_local_collection_boundaries_are_exact() {
+        let mut manifest = valid_manifest();
+        let adapter = manifest.adapters.values_mut().next().expect("adapter");
+        adapter.observable_state = (0..MAX_OBSERVABLE_FIELDS)
+            .map(|index| format!("field {index}"))
+            .collect();
+        adapter.command = vec!["argument".to_owned(); MAX_COMMAND_ARGUMENTS];
+        adapter.environment = (0..MAX_ENVIRONMENT_ENTRIES)
+            .map(|index| (format!("KEY_{index}"), "value".to_owned()))
+            .collect();
+        assert_valid(&manifest);
+
+        let adapter = manifest.adapters.values_mut().next().expect("adapter");
+        adapter.observable_state.push("field overflow".to_owned());
+        adapter.command.push("argument".to_owned());
+        adapter
+            .environment
+            .insert("KEY_OVERFLOW".to_owned(), "value".to_owned());
+        assert_error(&manifest, "observable_state must contain at most");
+        assert_error(&manifest, "command must contain at most");
+        assert_error(&manifest, "environment must contain at most");
+    }
+
+    #[test]
+    fn scalar_boundaries_are_exact() {
+        let mut errors = Vec::new();
+        validate_label("label", &"x".repeat(MAX_LABEL_BYTES), &mut errors);
+        validate_identifier(
+            "identifier",
+            &format!("a{}", "x".repeat(MAX_IDENTIFIER_BYTES - 1)),
+            &mut errors,
+        );
+        assert!(errors.is_empty(), "boundary values must pass: {errors:#?}");
+        assert!(is_safe_version(&"1".repeat(MAX_TOOLCHAIN_TOKEN_BYTES)));
+        assert!(is_safe_program(&"x".repeat(MAX_COMMAND_ARGUMENT_BYTES)));
+
+        validate_label("label", &"x".repeat(MAX_LABEL_BYTES + 1), &mut errors);
+        validate_identifier(
+            "identifier",
+            &format!("a{}", "x".repeat(MAX_IDENTIFIER_BYTES)),
+            &mut errors,
+        );
+        assert!(errors
+            .iter()
+            .any(|error| error.contains("label must be at most")));
+        assert!(errors
+            .iter()
+            .any(|error| error.contains("identifier must be at most")));
+        assert!(!is_safe_version(&"1".repeat(MAX_TOOLCHAIN_TOKEN_BYTES + 1)));
+        assert!(!is_safe_program(
+            &"x".repeat(MAX_COMMAND_ARGUMENT_BYTES + 1)
+        ));
+    }
+
+    #[test]
+    fn command_and_environment_scalar_boundaries_are_exact() {
+        let mut manifest = valid_manifest();
+        let adapter = manifest.adapters.values_mut().next().expect("adapter");
+        adapter.command = vec!["x".repeat(MAX_COMMAND_ARGUMENT_BYTES)];
+        adapter.environment = BTreeMap::from([(
+            "K".repeat(MAX_ENVIRONMENT_KEY_BYTES),
+            "v".repeat(MAX_ENVIRONMENT_VALUE_BYTES),
+        )]);
+        assert_valid(&manifest);
+
+        let adapter = manifest.adapters.values_mut().next().expect("adapter");
+        adapter.command = vec!["x".repeat(MAX_COMMAND_ARGUMENT_BYTES + 1)];
+        adapter.environment = BTreeMap::from([(
+            "K".repeat(MAX_ENVIRONMENT_KEY_BYTES + 1),
+            "v".repeat(MAX_ENVIRONMENT_VALUE_BYTES + 1),
+        )]);
+        assert_error(&manifest, "command argument 0 must be at most");
+        assert_error(&manifest, "environment key must be at most");
+        assert_error(&manifest, "environment value");
     }
 }
