@@ -6,6 +6,12 @@ on:
       - agent/den-1684-cli-rpc-report-bundles
     paths:
       - '.github/workflows/den-1684-materialize.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/den-1684-materialize.yml'
+      - 'tools/fmctl/**'
+      - 'formal/EXECUTION_REPORT_BUNDLES.md'
 
 permissions:
   contents: write
@@ -220,5 +226,6 @@ jobs:
             tools/fmctl/src/execution_report.rs \
             tools/fmctl/tests/execution_report.rs \
             formal/EXECUTION_REPORT_BUNDLES.md
+          git rm .github/workflows/den-1684-materialize.yml
           git commit -m 'DEN-1684 publish report bundles from CLI and RPC'
           git push origin "HEAD:${BRANCH}"
