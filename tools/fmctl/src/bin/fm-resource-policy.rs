@@ -3,11 +3,13 @@ use std::error::Error;
 use std::io::{self, Read, Write};
 use std::process::ExitCode;
 
+use serde::Deserialize;
+
 #[allow(dead_code)]
 #[path = "../resource.rs"]
 mod resource;
 
-use resource::{ResourceProfile, ResourceProfileName, ResourceRequest};
+use resource::{ResourceProfile, ResourceRequest};
 
 const MAX_REQUEST_BYTES: u64 = 1024 * 1024;
 
@@ -88,6 +90,7 @@ fn usage_error() -> io::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use resource::ResourceProfileName;
 
     #[test]
     fn parses_every_named_profile() {
