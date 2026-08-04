@@ -92,20 +92,18 @@ fn publishes_a_complete_immutable_bundle() {
 fn failure_before_rename_leaves_no_partial_bundle_or_reservation() {
     let directory = TempDir::new().expect("tempdir");
     let outcome = fixture_outcome();
-    let error = publish_report_bundle_with_hook(
-        &outcome,
-        directory.path(),
-        "failure-001",
-        |step| {
+    let error =
+        publish_report_bundle_with_hook(&outcome, directory.path(), "failure-001", |step| {
             if step == PublishStep::Sarif {
                 Err(io::Error::other("injected report publication failure"))
             } else {
                 Ok(())
             }
-        },
-    )
-    .expect_err("injected failure must abort publication");
-    assert!(error.to_string().contains("injected report publication failure"));
+        })
+        .expect_err("injected failure must abort publication");
+    assert!(error
+        .to_string()
+        .contains("injected report publication failure"));
     assert!(!directory.path().join("failure-001").exists());
     let names = fs::read_dir(directory.path())
         .expect("read root")
@@ -154,8 +152,7 @@ fn cleanup_removes_only_old_abandoned_publication_state() {
     let directory = TempDir::new().expect("tempdir");
     let root = directory.path();
     fs::create_dir(root.join(".fm-report-staging-abandoned-1-1")).expect("staging dir");
-    fs::write(root.join(".fm-report-reservation-orphan"), b"orphan")
-        .expect("orphan reservation");
+    fs::write(root.join(".fm-report-reservation-orphan"), b"orphan").expect("orphan reservation");
     fs::write(root.join(".fm-report-reservation-published"), b"published")
         .expect("published reservation");
     fs::create_dir(root.join("published")).expect("published bundle");
