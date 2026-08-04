@@ -53,33 +53,13 @@ jobs:
 
           replace_one(
               'tools/fmctl/src/lib.rs',
-              '''    pub fn execute(&self, operation: &Operation) -> Result<CommandOutcome, FmError> {
-                  let loaded = self.load()?;
-          ''',
-              '''    pub fn execute(&self, operation: &Operation) -> Result<CommandOutcome, FmError> {
-                  let (outcome, deferred_error) = self.execute_outcome(operation)?;
-                  if let Some(error) = deferred_error {
-                      return Err(error);
-                  }
-                  Ok(outcome)
-              }
-
-              pub(crate) fn execute_outcome(
-                  &self,
-                  operation: &Operation,
-              ) -> Result<(CommandOutcome, Option<FmError>), FmError> {
-                  let loaded = self.load()?;
-          ''',
+              '    pub fn execute(&self, operation: &Operation) -> Result<CommandOutcome, FmError> {\n        let loaded = self.load()?;\n',
+              '    pub fn execute(&self, operation: &Operation) -> Result<CommandOutcome, FmError> {\n        let (outcome, deferred_error) = self.execute_outcome(operation)?;\n        if let Some(error) = deferred_error {\n            return Err(error);\n        }\n        Ok(outcome)\n    }\n\n    pub(crate) fn execute_outcome(\n        &self,\n        operation: &Operation,\n    ) -> Result<(CommandOutcome, Option<FmError>), FmError> {\n        let loaded = self.load()?;\n',
           )
           replace_one(
               'tools/fmctl/src/lib.rs',
-              '''        if let Some(error) = deferred_error {
-                  return Err(error);
-              }
-              Ok(outcome)
-          ''',
-              '''        Ok((outcome, deferred_error))
-          ''',
+              '        if let Some(error) = deferred_error {\n            return Err(error);\n        }\n        Ok(outcome)\n    }\n\n    pub fn doctor',
+              '        Ok((outcome, deferred_error))\n    }\n\n    pub fn doctor',
           )
 
           replace_one(
@@ -90,48 +70,26 @@ jobs:
 
           execution = Path('tools/fmctl/src/execution_report.rs')
           source = execution.read_text(encoding='utf-8')
-          source = source.replace(
-              'use crate::result::publish::{publish_report_bundle, PublishedReportBundle};\n',
-              'use crate::result::publish::{\n    publish_report_bundle, render_public_result_json, PublishedReportBundle,\n};\n',
-              1,
-          )
-          source = source.replace(
-              '''        let outcome = self.execute(operation)?;
-                  let loaded = self.load()?;
-                  let bundle_root = loaded
-                      .resolve_output_path(&loaded.manifest.execution.artifacts_dir.join("bundles"))
-                      .map_err(FmError::report_publication)?;
-          ''',
-              '''        let (outcome, _deferred_error) = self.execute_outcome(operation)?;
-                  let artifacts_dir = outcome.artifacts.result.parent().ok_or_else(|| {
-                      FmError::report_publication(FmError::Validation(
-                          "execution result artifact has no parent directory".to_owned(),
-                      ))
-                  })?;
-                  let bundle_root = bundle_root_for_artifacts(artifacts_dir);
-          ''',
-              1,
-          )
-          source = source.replace(
-              '''    let junit = render_junit_xml(outcome)?;
-              let sarif = render_sarif_json(outcome)?;
-          ''',
-              '''    let result = render_public_result_json(outcome)?;
-              let junit = render_junit_xml(outcome)?;
-              let sarif = render_sarif_json(outcome)?;
-          ''',
-              1,
-          )
-          source = source.replace(
-              '''    for payload in [
-                  junit.as_bytes(),
-          ''',
-              '''    for payload in [
-                  result.as_slice(),
-                  junit.as_bytes(),
-          ''',
-              1,
-          )
+          old = 'use crate::result::publish::{publish_report_bundle, PublishedReportBundle};\n'
+          new = 'use crate::result::publish::{\n    publish_report_bundle, render_public_result_json, PublishedReportBundle,\n};\n'
+          if source.count(old) != 1:
+              raise SystemExit('execution_report import drifted')
+          source = source.replace(old, new, 1)
+          old = '        let outcome = self.execute(operation)?;\n        let loaded = self.load()?;\n        let bundle_root = loaded\n            .resolve_output_path(&loaded.manifest.execution.artifacts_dir.join("bundles"))\n            .map_err(FmError::report_publication)?;\n'
+          new = '        let (outcome, _deferred_error) = self.execute_outcome(operation)?;\n        let artifacts_dir = outcome.artifacts.result.parent().ok_or_else(|| {\n            FmError::report_publication(FmError::Validation(\n                "execution result artifact has no parent directory".to_owned(),\n            ))\n        })?;\n        let bundle_root = bundle_root_for_artifacts(artifacts_dir);\n'
+          if source.count(old) != 1:
+              raise SystemExit('execution_report bundle-root block drifted')
+          source = source.replace(old, new, 1)
+          old = '    let junit = render_junit_xml(outcome)?;\n    let sarif = render_sarif_json(outcome)?;\n'
+          new = '    let result = render_public_result_json(outcome)?;\n    let junit = render_junit_xml(outcome)?;\n    let sarif = render_sarif_json(outcome)?;\n'
+          if source.count(old) != 1:
+              raise SystemExit('execution_report renderer block drifted')
+          source = source.replace(old, new, 1)
+          old = '    for payload in [\n        junit.as_bytes(),\n'
+          new = '    for payload in [\n        result.as_slice(),\n        junit.as_bytes(),\n'
+          if source.count(old) != 1:
+              raise SystemExit('execution_report digest block drifted')
+          source = source.replace(old, new, 1)
           start = source.index('fn operation_component(operation: &str) -> String {')
           end = source.index('\npub fn bundle_root_for_artifacts', start)
           replacement = '''fn operation_component(operation: &str) -> String {
