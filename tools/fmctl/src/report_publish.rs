@@ -246,8 +246,7 @@ pub fn cleanup_stale_publication_state(
             continue;
         }
         if name.starts_with(STAGING_PREFIX) && metadata.is_dir() {
-            fs::remove_dir_all(entry.path())
-                .map_err(|source| FmError::io(entry.path(), source))?;
+            fs::remove_dir_all(entry.path()).map_err(|source| FmError::io(entry.path(), source))?;
             report.staging_directories_removed += 1;
             continue;
         }
@@ -351,8 +350,7 @@ fn write_report_file(directory: &Path, name: &str, bytes: &[u8]) -> Result<(), F
         .map_err(|source| FmError::io(&path, source))?;
     file.write_all(bytes)
         .map_err(|source| FmError::io(&path, source))?;
-    file.sync_all()
-        .map_err(|source| FmError::io(&path, source))
+    file.sync_all().map_err(|source| FmError::io(&path, source))
 }
 
 fn ensure_private_root(path: &Path) -> Result<PathBuf, FmError> {
@@ -365,8 +363,8 @@ fn ensure_private_root(path: &Path) -> Result<PathBuf, FmError> {
             path.display()
         )));
     }
-    let metadata = fs::symlink_metadata(&canonical)
-        .map_err(|source| FmError::io(&canonical, source))?;
+    let metadata =
+        fs::symlink_metadata(&canonical).map_err(|source| FmError::io(&canonical, source))?;
     if metadata.file_type().is_symlink() || !metadata.is_dir() {
         return Err(FmError::Validation(format!(
             "report bundle root must be a real directory: {}",
