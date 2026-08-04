@@ -1,5 +1,11 @@
 #[path = "report.rs"]
 pub mod report;
+#[path = "report_publish.rs"]
+pub mod publish;
+
+pub use report::{
+    render_artifact_manifest_json, render_junit_xml, render_provenance_json, render_sarif_json,
+};
 
 use serde::Serialize;
 use serde_json::Value;
