@@ -1,0 +1,164 @@
+name: DEN-1637 harden SARIF and command identity
+
+on:
+  push:
+    branches:
+      - agent/den-1637-report-bundle
+    paths:
+      - '.github/workflows/den-1637-sarif.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  harden:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out report branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: agent/den-1637-report-bundle
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Install repository Nix toolchain
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Omit absent SARIF exit codes and close identity fallback
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          report = Path('tools/fmctl/src/report.rs')
+          source = report.read_text(encoding='utf-8')
+          old = '''    Ok(json!({
+              "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+              "version": "2.1.0",
+              "runs": [{
+                  "tool": {
+                      "driver": {
+                          "name": "fmctl",
+                          "version": env!("CARGO_PKG_VERSION")
+                      }
+                  },
+                  "invocations": [{
+                      "executionSuccessful": outcome.success,
+                      "exitCode": outcome.exit_code,
+                      "properties": {
+                          "status": status_text(status),
+                          "timedOut": outcome.timed_out,
+                          "durationMillis": outcome.duration_millis,
+                          "stdoutTruncated": outcome.stdout_truncated,
+                          "stderrTruncated": outcome.stderr_truncated
+                      }
+                  }],
+          '''
+          new = '''    let mut invocation = json!({
+              "executionSuccessful": outcome.success,
+              "properties": {
+                  "status": status_text(status),
+                  "timedOut": outcome.timed_out,
+                  "durationMillis": outcome.duration_millis,
+                  "stdoutTruncated": outcome.stdout_truncated,
+                  "stderrTruncated": outcome.stderr_truncated
+              }
+          });
+              if let Some(exit_code) = outcome.exit_code {
+                  invocation["exitCode"] = json!(exit_code);
+              }
+              Ok(json!({
+                  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+                  "version": "2.1.0",
+                  "runs": [{
+                      "tool": {
+                          "driver": {
+                              "name": "fmctl",
+                              "version": env!("CARGO_PKG_VERSION")
+                          }
+                      },
+                      "invocations": [invocation],
+          '''
+          if source.count(old) != 1:
+              raise SystemExit('expected one SARIF invocation block')
+          source = source.replace(old, new, 1)
+          old = '''        .and_then(|name| name.to_str())
+                  .unwrap_or(program)
+                  .to_owned()
+          '''
+          new = '''        .and_then(|name| name.to_str())
+                  .unwrap_or("program")
+                  .to_owned()
+          '''
+          if source.count(old) != 1:
+              raise SystemExit('expected one command identity fallback')
+          report.write_text(source.replace(old, new, 1), encoding='utf-8')
+
+          tests = Path('tools/fmctl/tests/report_bundle.rs')
+          source = tests.read_text(encoding='utf-8')
+          old = '''        match expected_failure_type {
+                      Some(kind) => assert!(bundle.junit_xml.contains(&format!("type=\\\"{kind}\\\""))),
+                      None => assert!(!bundle.junit_xml.contains("<failure")),
+                  }
+              }
+          }
+          '''
+          new = '''        let invocation = &bundle.sarif["runs"][0]["invocations"][0];
+                  if status == ReportStatus::TimedOut {
+                      assert!(invocation.get("exitCode").is_none());
+                  } else {
+                      assert_eq!(invocation["exitCode"], outcome.exit_code);
+                  }
+                  match expected_failure_type {
+                      Some(kind) => assert!(bundle.junit_xml.contains(&format!("type=\\\"{kind}\\\""))),
+                      None => assert!(!bundle.junit_xml.contains("<failure")),
+                  }
+              }
+          }
+          '''
+          if source.count(old) != 1:
+              raise SystemExit('expected one status mapping assertion block')
+          source = source.replace(old, new, 1)
+          marker = '#[test]\nfn report_utility_reads_result_json_and_emits_the_same_bundle() {\n'
+          addition = '''#[test]
+          fn unusual_program_identity_fails_closed_to_a_generic_name() {
+              let mut outcome = fixture_outcome(ReportStatus::Passed);
+              outcome.program = "/".to_owned();
+              let bundle = render_report_bundle(&outcome).expect("bundle");
+              assert_eq!(bundle.provenance.command.program, "program");
+          }
+
+          '''
+          if source.count(marker) != 1:
+              raise SystemExit('expected one utility test marker')
+          tests.write_text(source.replace(marker, addition + marker, 1), encoding='utf-8')
+          PY
+
+          nix develop --command cargo fmt \
+            --manifest-path tools/fmctl/Cargo.toml
+          nix develop --command cargo clippy \
+            --locked \
+            --manifest-path tools/fmctl/Cargo.toml \
+            --all-targets \
+            --all-features \
+            -- -D warnings
+          nix develop --command cargo test \
+            --locked \
+            --manifest-path tools/fmctl/Cargo.toml \
+            --test report_bundle
+          git diff --check
+
+      - name: Commit SARIF hardening
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tools/fmctl/src/report.rs tools/fmctl/tests/report_bundle.rs
+          git commit -m 'DEN-1637 harden SARIF and command identity'
+          git push origin "HEAD:${BRANCH}"
