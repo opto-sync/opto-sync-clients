@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, ValueEnum};
-use fmctl::report::{
+use fmctl::result::report::{
     render_artifact_manifest_json, render_junit_xml, render_provenance_json,
     render_report_bundle_json, render_sarif_json,
 };
