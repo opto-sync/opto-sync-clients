@@ -46,6 +46,9 @@ jobs:
           for line in source[run_line + 1:]:
               if line.startswith('      - name:'):
                   break
+              if line == '':
+                  body.append('')
+                  continue
               if not line.startswith('          '):
                   raise SystemExit(f'unexpected materializer indentation: {line!r}')
               body.append(line[10:])
