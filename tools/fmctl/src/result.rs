@@ -1,4 +1,4 @@
-#[path = "report_publish.rs"]
+#[path = "report_publish_portable.rs"]
 pub mod publish;
 #[path = "report.rs"]
 pub mod report;
