@@ -50,20 +50,10 @@ jobs:
 
           path = Path('scripts/den-1631-materialize.py')
           source = path.read_text(encoding='utf-8')
-          old = '''replace_once(
-              plan,
-              '''    use crate::manifest::LoadedManifest;\n''',
-              '''    use crate::manifest::LoadedManifest;\n    use crate::resource::{ResourceProfileName, MAX_TIMEOUT_SECONDS};\n''',
-              "plan test imports",
-          )'''
-          new = '''replace_once(
-              plan,
-              '''    use crate::manifest::LoadedManifest;\n''',
-              '''    use crate::manifest::{LoadedManifest, MAX_TIMEOUT_SECONDS};\n    use crate::resource::ResourceProfileName;\n''',
-              "plan test imports",
-          )'''
+          old = "'''    use crate::manifest::LoadedManifest;\\n    use crate::resource::{ResourceProfileName, MAX_TIMEOUT_SECONDS};\\n''',"
+          new = "'''    use crate::manifest::{LoadedManifest, MAX_TIMEOUT_SECONDS};\\n    use crate::resource::ResourceProfileName;\\n''',"
           if source.count(old) != 1:
-              raise SystemExit(f'expected one complete plan-test import block, found {source.count(old)}')
+              raise SystemExit(f'expected one incorrect replacement literal, found {source.count(old)}')
           path.write_text(source.replace(old, new, 1), encoding='utf-8')
           PY
           python3 scripts/den-1631-materialize.py
