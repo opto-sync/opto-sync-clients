@@ -1,0 +1,403 @@
+name: DEN-1694 materialize active publication leases
+
+on:
+  push:
+    branches:
+      - agent/den-1694-lock-active-publications
+    paths:
+      - '.github/workflows/den-1694-materialize.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: den-1694-materialize-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  materialize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out cleanup-lock branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: agent/den-1694-lock-active-publications
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Install repository Nix toolchain
+        uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      - name: Add locked publication leases and concurrent cleanup tests
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          cargo = Path('tools/fmctl/Cargo.toml')
+          source = cargo.read_text(encoding='utf-8')
+          marker = 'clap = { version = "4.5.54", features = ["derive"] }\n'
+          if 'fs2 = ' not in source:
+              if source.count(marker) != 1:
+                  raise SystemExit('expected one clap dependency marker')
+              source = source.replace(marker, marker + 'fs2 = "0.4.3"\n', 1)
+          cargo.write_text(source, encoding='utf-8')
+
+          publisher = Path('tools/fmctl/src/report_publish.rs')
+          source = publisher.read_text(encoding='utf-8')
+          replacements = [
+              (
+                  'use std::fs::{self, OpenOptions};\n',
+                  'use std::fs::{self, File, OpenOptions};\n',
+              ),
+              (
+                  '#[cfg(unix)]\nuse std::fs::File;\n',
+                  '',
+              ),
+              (
+                  'use serde::Serialize;\n',
+                  'use fs2::FileExt;\nuse serde::Serialize;\n',
+              ),
+              (
+                  '''struct Reservation {
+              path: PathBuf,
+              committed: bool,
+          }
+          ''',
+                  '''struct Reservation {
+              path: PathBuf,
+              file: Option<File>,
+              committed: bool,
+          }
+          ''',
+              ),
+              (
+                  '''        file.sync_all()
+                      .map_err(|source| FmError::io(&path, source))?;
+                  Ok(Self {
+                      path,
+                      committed: false,
+                  })
+          ''',
+                  '''        file.sync_all()
+                      .map_err(|source| FmError::io(&path, source))?;
+                  FileExt::lock_exclusive(&file)
+                      .map_err(|source| FmError::io(&path, source))?;
+                  Ok(Self {
+                      path,
+                      file: Some(file),
+                      committed: false,
+                  })
+          ''',
+              ),
+              (
+                  '''impl Drop for Reservation {
+              fn drop(&mut self) {
+                  if !self.committed {
+                      let _ = fs::remove_file(&self.path);
+                  }
+              }
+          }
+          ''',
+                  '''impl Drop for Reservation {
+              fn drop(&mut self) {
+                  if let Some(file) = self.file.take() {
+                      let _ = FileExt::unlock(&file);
+                      drop(file);
+                  }
+                  if !self.committed {
+                      let _ = fs::remove_file(&self.path);
+                  }
+              }
+          }
+          ''',
+              ),
+              (
+                  '''        let name = format!(
+                      "{STAGING_PREFIX}{bundle_id}-{}-{sequence}",
+                      std::process::id()
+                  );
+          ''',
+                  '''        let name = format!(
+                      "{STAGING_PREFIX}{}-{bundle_id}-{}-{sequence}",
+                      bundle_id.len(),
+                      std::process::id()
+                  );
+          ''',
+              ),
+          ]
+          for old, new in replacements:
+              if source.count(old) != 1:
+                  raise SystemExit(f'expected one publisher replacement: {old[:100]!r}')
+              source = source.replace(old, new, 1)
+
+          old = '''        if name.starts_with(STAGING_PREFIX) && metadata.is_dir() {
+                  fs::remove_dir_all(entry.path()).map_err(|source| FmError::io(entry.path(), source))?;
+                  report.staging_directories_removed += 1;
+                  continue;
+              }
+              if let Some(bundle_id) = name.strip_prefix(RESERVATION_PREFIX) {
+                  if metadata.is_file() && !root.join(bundle_id).exists() {
+                      fs::remove_file(entry.path())
+                          .map_err(|source| FmError::io(entry.path(), source))?;
+                      report.reservations_removed += 1;
+                  }
+              }
+          '''
+          new = '''        if name.starts_with(STAGING_PREFIX) && metadata.is_dir() {
+                  let Some(bundle_id) = staging_bundle_id(name) else {
+                      continue;
+                  };
+                  if matches!(probe_reservation(&root, bundle_id)?, ReservationProbe::Active) {
+                      continue;
+                  }
+                  if remove_dir_all_if_exists(&entry.path())? {
+                      report.staging_directories_removed += 1;
+                  }
+                  continue;
+              }
+              if let Some(bundle_id) = name.strip_prefix(RESERVATION_PREFIX) {
+                  if !metadata.is_file() || root.join(bundle_id).exists() {
+                      continue;
+                  }
+                  match probe_reservation_path(&entry.path())? {
+                      ReservationProbe::Active => {}
+                      ReservationProbe::Missing => {}
+                      ReservationProbe::Abandoned(file) => {
+                          FileExt::unlock(&file)
+                              .map_err(|source| FmError::io(entry.path(), source))?;
+                          drop(file);
+                          if remove_file_if_exists(&entry.path())? {
+                              report.reservations_removed += 1;
+                          }
+                      }
+                  }
+              }
+          '''
+          if source.count(old) != 1:
+              raise SystemExit('expected one cleanup transition block')
+          source = source.replace(old, new, 1)
+
+          marker = 'fn render_public_result_json(outcome: &CommandOutcome) -> Result<Vec<u8>, FmError> {\n'
+          helpers = '''enum ReservationProbe {
+              Missing,
+              Active,
+              Abandoned(File),
+          }
+
+          fn probe_reservation(root: &Path, bundle_id: &str) -> Result<ReservationProbe, FmError> {
+              probe_reservation_path(&root.join(format!("{RESERVATION_PREFIX}{bundle_id}")))
+          }
+
+          fn probe_reservation_path(path: &Path) -> Result<ReservationProbe, FmError> {
+              let file = match OpenOptions::new().read(true).write(true).open(path) {
+                  Ok(file) => file,
+                  Err(source) if source.kind() == io::ErrorKind::NotFound => {
+                      return Ok(ReservationProbe::Missing);
+                  }
+                  Err(source) => return Err(FmError::io(path, source)),
+              };
+              match FileExt::try_lock_exclusive(&file) {
+                  Ok(()) => Ok(ReservationProbe::Abandoned(file)),
+                  Err(source) if source.kind() == io::ErrorKind::WouldBlock => {
+                      Ok(ReservationProbe::Active)
+                  }
+                  Err(source) => Err(FmError::io(path, source)),
+              }
+          }
+
+          fn staging_bundle_id(name: &str) -> Option<&str> {
+              let rest = name.strip_prefix(STAGING_PREFIX)?;
+              let (encoded_length, rest) = rest.split_once('-')?;
+              let length = encoded_length.parse::<usize>().ok()?;
+              if length == 0 || rest.len() <= length || !rest.is_char_boundary(length) {
+                  return None;
+              }
+              let (bundle_id, suffix) = rest.split_at(length);
+              if !suffix.starts_with('-') || validate_report_bundle_id(bundle_id).is_err() {
+                  return None;
+              }
+              Some(bundle_id)
+          }
+
+          fn remove_dir_all_if_exists(path: &Path) -> Result<bool, FmError> {
+              match fs::remove_dir_all(path) {
+                  Ok(()) => Ok(true),
+                  Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(false),
+                  Err(source) => Err(FmError::io(path, source)),
+              }
+          }
+
+          fn remove_file_if_exists(path: &Path) -> Result<bool, FmError> {
+              match fs::remove_file(path) {
+                  Ok(()) => Ok(true),
+                  Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(false),
+                  Err(source) => Err(FmError::io(path, source)),
+              }
+          }
+
+          '''
+          if source.count(marker) != 1:
+              raise SystemExit('expected one public-result helper marker')
+          publisher.write_text(source.replace(marker, helpers + marker, 1), encoding='utf-8')
+
+          tests = Path('tools/fmctl/tests/report_publish.rs')
+          source = tests.read_text(encoding='utf-8')
+          source = source.replace(
+              'use std::sync::{Arc, Barrier};\n',
+              'use std::sync::{mpsc, Arc, Barrier};\n',
+              1,
+          )
+          source = source.replace(
+              '    fs::create_dir(root.join(".fm-report-staging-abandoned-1-1")).expect("staging dir");\n',
+              '    fs::create_dir(root.join(".fm-report-staging-6-orphan-1-1")).expect("staging dir");\n',
+              1,
+          ).replace(
+              '    assert!(!root.join(".fm-report-staging-abandoned-1-1").exists());\n',
+              '    assert!(!root.join(".fm-report-staging-6-orphan-1-1").exists());\n',
+              1,
+          )
+
+          marker = '#[test]\nfn cleanup_removes_only_old_abandoned_publication_state() {\n'
+          additions = '''#[test]
+          fn zero_age_cleanup_skips_a_live_publisher_and_its_staging_directory() {
+              let directory = TempDir::new().expect("tempdir");
+              let root = directory.path().to_path_buf();
+              let (entered_tx, entered_rx) = mpsc::channel();
+              let (release_tx, release_rx) = mpsc::channel();
+              let publisher_root = root.clone();
+              let handle = thread::spawn(move || {
+                  publish_report_bundle_with_hook(
+                      &fixture_outcome(),
+                      &publisher_root,
+                      "live-001",
+                      |step| {
+                          if step == PublishStep::Junit {
+                              entered_tx.send(()).map_err(io::Error::other)?;
+                              release_rx.recv().map_err(io::Error::other)?;
+                          }
+                          Ok(())
+                      },
+                  )
+              });
+
+              entered_rx
+                  .recv_timeout(Duration::from_secs(10))
+                  .expect("publisher reached the paused write boundary");
+              let cleanup = cleanup_stale_publication_state(&root, Duration::ZERO)
+                  .expect("concurrent cleanup");
+              assert_eq!(cleanup.staging_directories_removed, 0);
+              assert_eq!(cleanup.reservations_removed, 0);
+              assert!(root.join(".fm-report-reservation-live-001").is_file());
+              assert!(
+                  fs::read_dir(&root)
+                      .expect("publication root")
+                      .filter_map(Result::ok)
+                      .any(|entry| entry.file_name().to_string_lossy().starts_with(".fm-report-staging-8-live-001-"))
+              );
+
+              release_tx.send(()).expect("release publisher");
+              let published = handle
+                  .join()
+                  .expect("publisher thread")
+                  .expect("publisher succeeds after cleanup");
+              assert!(published.result.is_file());
+          }
+
+          #[test]
+          fn cleanup_skips_a_locked_reservation_then_removes_it_after_unlock() {
+              use fs2::FileExt;
+              use std::fs::OpenOptions;
+
+              let directory = TempDir::new().expect("tempdir");
+              let path = directory.path().join(".fm-report-reservation-orphan");
+              let file = OpenOptions::new()
+                  .read(true)
+                  .write(true)
+                  .create_new(true)
+                  .open(&path)
+                  .expect("reservation");
+              FileExt::lock_exclusive(&file).expect("lock reservation");
+
+              let active = cleanup_stale_publication_state(directory.path(), Duration::ZERO)
+                  .expect("cleanup active reservation");
+              assert_eq!(active.reservations_removed, 0);
+              assert!(path.exists());
+
+              FileExt::unlock(&file).expect("unlock reservation");
+              drop(file);
+              let abandoned = cleanup_stale_publication_state(directory.path(), Duration::ZERO)
+                  .expect("cleanup abandoned reservation");
+              assert_eq!(abandoned.reservations_removed, 1);
+              assert!(!path.exists());
+          }
+
+          '''
+          if source.count(marker) != 1:
+              raise SystemExit('expected cleanup test marker')
+          tests.write_text(source.replace(marker, additions + marker, 1), encoding='utf-8')
+
+          doc = Path('formal/ATOMIC_REPORT_PUBLICATION.md')
+          source = doc.read_text(encoding='utf-8')
+          old = '''A create-new reservation file serializes concurrent publication of the same
+          bundle identifier. Different identifiers may publish concurrently. A collision
+          is a hard error; the previous bundle remains unchanged.
+
+          Abandoned staging directories and orphan reservations can be removed by
+          `cleanup_stale_publication_state` after a caller-selected minimum age. Cleanup
+          never removes a reservation whose final bundle directory exists and ignores
+          foreign files.
+          '''
+          new = '''A create-new reservation file serializes concurrent publication of the same
+          bundle identifier. The publisher holds an exclusive cross-platform OS lock on
+          that reservation for its full lifetime. Different identifiers may publish
+          concurrently. A collision is a hard error; the previous bundle remains unchanged.
+
+          Staging names encode the validated bundle-ID byte length, allowing cleanup to
+          recover the exact reservation identity without ambiguous delimiter parsing.
+          Before removing old staging or reservation state, cleanup probes the reservation
+          with a nonblocking exclusive lock. A lock conflict means the publisher is live
+          and the state is skipped regardless of age. Process death releases the OS lock;
+          age policy then controls eventual removal. Complete bundle reservations remain.
+          Foreign and malformed entries are ignored conservatively.
+          '''
+          if source.count(old) != 1:
+              raise SystemExit('expected one concurrency/recovery documentation block')
+          doc.write_text(source.replace(old, new, 1), encoding='utf-8')
+          PY
+
+          nix develop --command cargo check \
+            --manifest-path tools/fmctl/Cargo.toml
+          nix develop --command cargo fmt \
+            --manifest-path tools/fmctl/Cargo.toml
+          nix develop --command cargo clippy \
+            --locked \
+            --manifest-path tools/fmctl/Cargo.toml \
+            --all-targets \
+            --all-features \
+            -- -D warnings
+          nix develop --command cargo test \
+            --locked \
+            --manifest-path tools/fmctl/Cargo.toml \
+            --test report_publish
+          git diff --check
+
+      - name: Commit lock and cleanup implementation
+        env:
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            formal/ATOMIC_REPORT_PUBLICATION.md \
+            tools/fmctl/Cargo.toml \
+            tools/fmctl/Cargo.lock \
+            tools/fmctl/src/report_publish.rs \
+            tools/fmctl/tests/report_publish.rs
+          git commit -m 'DEN-1694 lock live report publications during cleanup'
+          git push origin "HEAD:${BRANCH}"
