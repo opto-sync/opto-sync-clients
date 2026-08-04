@@ -45,6 +45,17 @@ jobs:
       - name: Materialize, format, lint, and test local policy enforcement
         run: |
           set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('scripts/den-1631-materialize.py')
+          source = path.read_text(encoding='utf-8')
+          old = '''    use crate::manifest::LoadedManifest;\n'''
+          new = '''    use crate::manifest::{LoadedManifest, MAX_TIMEOUT_SECONDS};\n    use crate::resource::ResourceProfileName;\n'''
+          if source.count(old) != 1:
+              raise SystemExit(f'expected one plan test import anchor, found {source.count(old)}')
+          path.write_text(source.replace(old, new, 1), encoding='utf-8')
+          PY
           python3 scripts/den-1631-materialize.py
           nix develop --command cargo fmt \
             --manifest-path tools/fmctl/Cargo.toml
