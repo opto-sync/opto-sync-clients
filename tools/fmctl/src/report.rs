@@ -212,6 +212,19 @@ fn render_sarif(outcome: &CommandOutcome) -> Result<Value, FmError> {
             }
         })]
     };
+    let mut invocation = json!({
+        "executionSuccessful": outcome.success,
+        "properties": {
+            "status": status_text(status),
+            "timedOut": outcome.timed_out,
+            "durationMillis": outcome.duration_millis,
+            "stdoutTruncated": outcome.stdout_truncated,
+            "stderrTruncated": outcome.stderr_truncated
+        }
+    });
+    if let Some(exit_code) = outcome.exit_code {
+        invocation["exitCode"] = json!(exit_code);
+    }
     Ok(json!({
         "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
         "version": "2.1.0",
@@ -222,17 +235,7 @@ fn render_sarif(outcome: &CommandOutcome) -> Result<Value, FmError> {
                     "version": env!("CARGO_PKG_VERSION")
                 }
             },
-            "invocations": [{
-                "executionSuccessful": outcome.success,
-                "exitCode": outcome.exit_code,
-                "properties": {
-                    "status": status_text(status),
-                    "timedOut": outcome.timed_out,
-                    "durationMillis": outcome.duration_millis,
-                    "stdoutTruncated": outcome.stdout_truncated,
-                    "stderrTruncated": outcome.stderr_truncated
-                }
-            }],
+            "invocations": [invocation],
             "properties": {
                 "project": outcome.project,
                 "model": outcome.model,
@@ -359,7 +362,7 @@ fn command_name(program: &str) -> String {
     Path::new(program)
         .file_name()
         .and_then(|name| name.to_str())
-        .unwrap_or(program)
+        .unwrap_or("program")
         .to_owned()
 }
 
