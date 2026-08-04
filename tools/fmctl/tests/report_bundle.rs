@@ -95,7 +95,10 @@ fn success_failure_and_timeout_map_consistently() {
         if status == ReportStatus::TimedOut {
             assert!(invocation.get("exitCode").is_none());
         } else {
-            assert_eq!(invocation["exitCode"], outcome.exit_code);
+            assert_eq!(
+                invocation["exitCode"],
+                serde_json::to_value(outcome.exit_code).expect("exit-code JSON")
+            );
         }
         match expected_failure_type {
             Some(kind) => assert!(bundle.junit_xml.contains(&format!("type=\"{kind}\""))),
