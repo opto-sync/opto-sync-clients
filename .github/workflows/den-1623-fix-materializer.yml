@@ -23,26 +23,28 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
-      - name: Repair the exact Rustfmt-aware anchor
+      - name: Repair the Rustfmt-aware anchor
         run: |
           set -euo pipefail
           python3 - <<'PY'
+          import re
           from pathlib import Path
 
           path = Path('.github/workflows/den-1623-materialize.yml')
           source = path.read_text(encoding='utf-8')
-          old = """'''fn validate_collection_limit(
-              label: &str,
-              actual: usize,
-              maximum: usize,
-              errors: &mut Vec<String>,
-          ) {
-          '''"""
-          new = """'''fn validate_collection_limit(label: &str, actual: usize, maximum: usize, errors: &mut Vec<String>) {
-          '''"""
-          if source.count(old) != 1:
-              raise SystemExit(f'expected one multiline collection-limit anchor, found {source.count(old)}')
-          source = source.replace(old, new, 1)
+          pattern = re.compile(
+              r"'''fn validate_collection_limit\(\n"
+              r"\s+label: &str,\n"
+              r"\s+actual: usize,\n"
+              r"\s+maximum: usize,\n"
+              r"\s+errors: &mut Vec<String>,\n"
+              r"\s+\) \{\n"
+              r"\s+'''"
+          )
+          replacement = "'''fn validate_collection_limit(label: &str, actual: usize, maximum: usize, errors: &mut Vec<String>) {\n          '''"
+          source, count = pattern.subn(replacement, source, count=1)
+          if count != 1:
+              raise SystemExit(f'expected one Rustfmt-aware collection-limit anchor, found {count}')
 
           old_condition = "    if: github.actor != 'github-actions[bot]'\n"
           new_condition = "    if: github.event_name == 'push' || github.actor != 'github-actions[bot]'\n"
