@@ -65,7 +65,29 @@ struct CapturedStream {
     truncated: bool,
 }
 
+fn validate_plan_resource_limits(plan: &CommandPlan) -> Result<(), FmError> {
+    let expected_timeout = plan.resource_policy.effective.scalar.timeout_seconds;
+    if plan.timeout_seconds != expected_timeout {
+        return Err(FmError::Validation(format!(
+            "command plan timeout {} does not match effective resource policy {}",
+            plan.timeout_seconds, expected_timeout
+        )));
+    }
+    let expected_output = usize::try_from(plan.resource_policy.effective.scalar.max_output_bytes)
+        .map_err(|_| {
+        FmError::Validation("effective resource policy output limit exceeds usize".to_owned())
+    })?;
+    if plan.max_output_bytes != expected_output {
+        return Err(FmError::Validation(format!(
+            "command plan output limit {} does not match effective resource policy {}",
+            plan.max_output_bytes, expected_output
+        )));
+    }
+    Ok(())
+}
+
 pub fn execute_plan(plan: &CommandPlan) -> Result<CommandOutcome, FmError> {
+    validate_plan_resource_limits(plan)?;
     for directory in &plan.create_directories {
         fs::create_dir_all(directory).map_err(|source| FmError::io(directory, source))?;
     }
@@ -451,5 +473,47 @@ mod tests {
         assert!(outcome.timed_out);
         assert_eq!(outcome.resource_policy, resource_policy);
         assert!(started.elapsed() < Duration::from_secs(10));
+    }
+
+    #[test]
+    fn inconsistent_plan_policy_fails_before_artifact_or_process_creation() {
+        let directory = TempDir::new().expect("tempdir");
+        let workspace = fs::canonicalize(directory.path()).expect("canonical workspace");
+        let artifacts = workspace.join("must-not-exist");
+        let resource_policy = ResourceProfile::local_v1()
+            .resolve(ResourceRequest {
+                timeout_seconds: Some(1),
+                max_output_bytes: Some(1024),
+                ..ResourceRequest::absent()
+            })
+            .expect("test policy");
+        let plan = CommandPlan {
+            schema_version: 1,
+            project: "example".to_owned(),
+            model: "machine".to_owned(),
+            operation: "check".to_owned(),
+            program: "this-executable-must-not-run".to_owned(),
+            args: Vec::new(),
+            workspace: workspace.clone(),
+            cwd: workspace,
+            environment: BTreeMap::new(),
+            stdin: None,
+            timeout_seconds: 2,
+            max_output_bytes: 1024,
+            resource_policy,
+            create_directories: vec![artifacts.clone()],
+            artifacts: CommandArtifacts {
+                stdout: artifacts.join("stdout.log"),
+                stderr: artifacts.join("stderr.log"),
+                result: artifacts.join("result.json"),
+                trace_pattern: None,
+            },
+        };
+
+        let error = execute_plan(&plan).expect_err("inconsistent plan must fail");
+        assert!(error
+            .to_string()
+            .contains("does not match effective resource policy"));
+        assert!(!artifacts.exists());
     }
 }
