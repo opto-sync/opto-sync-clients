@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   materialize:
+    # Removed after the generated source and tests are committed.
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
