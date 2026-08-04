@@ -426,7 +426,18 @@ func (response Response) Validate() error {
 	if !validOperationName(response.Operation) {
 		return fmt.Errorf("unsupported response operation %q", response.Operation)
 	}
-	return response.Outcome.Validate()
+	if err := response.Outcome.Validate(); err != nil {
+		return err
+	}
+	if response.Operation == "hello" && response.Outcome.Kind == "ok" {
+		hello, err := decodeHelloResult(response.Outcome.Value)
+		if err != nil {
+			return err
+		}
+		_, err = validateCapabilities(hello.Capabilities)
+		return err
+	}
+	return nil
 }
 
 func (outcome Outcome) Validate() error {

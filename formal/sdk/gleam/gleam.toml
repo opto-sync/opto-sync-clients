@@ -1,0 +1,11 @@
+name = "fm_adapter_stream"
+version = "0.0.0"
+target = "erlang"
+description = "Thin fm.adapter.stream.v1 capability contract for Gleam"
+licences = ["MIT"]
+
+[dependencies]
+gleam_stdlib = ">= 0.68.0 and < 2.0.0"
+
+[dev-dependencies]
+gleeunit = ">= 1.9.0 and < 2.0.0"

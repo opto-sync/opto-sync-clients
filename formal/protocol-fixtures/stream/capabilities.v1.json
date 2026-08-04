@@ -1,0 +1,21 @@
+{
+  "protocol": "fm.adapter.stream.v1",
+  "protocolVersion": 1,
+  "wireRule": "strict-subsequence",
+  "registry": [
+    "reset",
+    "apply",
+    "observe",
+    "settle",
+    "snapshot",
+    "restore",
+    "fault",
+    "close"
+  ],
+  "required": [
+    "reset",
+    "apply",
+    "observe",
+    "close"
+  ]
+}

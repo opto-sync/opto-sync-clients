@@ -1,0 +1,7 @@
+name: fm_adapter_stream
+description: Thin fm.adapter.stream.v1 capability contract for Dart.
+version: 0.0.0
+publish_to: 'none'
+
+environment:
+  sdk: ^3.12.1
