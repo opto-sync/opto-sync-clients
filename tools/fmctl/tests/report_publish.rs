@@ -17,6 +17,8 @@ use fmctl::result::report::{
 use fmctl::runner::CommandOutcome;
 use tempfile::TempDir;
 
+const SECRET: &str = "publisher-must-not-leak-this";
+
 #[test]
 fn publishes_a_complete_immutable_bundle() {
     let directory = TempDir::new().expect("tempdir");
@@ -53,7 +55,29 @@ fn publishes_a_complete_immutable_bundle() {
     let result: serde_json::Value =
         serde_json::from_slice(&fs::read(&published.result).expect("result bytes"))
             .expect("result JSON");
+    assert_eq!(result["schema"], "fm.result.v1");
     assert_eq!(result["operation"], "verify");
+    assert_eq!(result["command"]["program"], "npx");
+    assert_eq!(result["command"]["argument_count"], 3);
+
+    for path in [
+        &published.result,
+        &published.junit,
+        &published.sarif,
+        &published.artifact_manifest,
+        &published.provenance,
+    ] {
+        let text = String::from_utf8(fs::read(path).expect("published report bytes"))
+            .expect("published report UTF-8");
+        assert!(
+            !text.contains(SECRET),
+            "{} leaked the fixture secret",
+            path.display()
+        );
+        assert!(!text.contains("captured stdout"));
+        assert!(!text.contains("captured stderr"));
+        assert!(!text.contains("internal failure"));
+    }
 
     let error = publish_report_bundle(&outcome, directory.path(), "verify-001")
         .expect_err("published bundle id must be immutable");
@@ -204,23 +228,27 @@ fn fixture_outcome() -> CommandOutcome {
         model: "publisher-model".to_owned(),
         operation: "verify".to_owned(),
         program: "/usr/bin/npx".to_owned(),
-        args: vec!["--yes".to_owned(), "quint".to_owned()],
+        args: vec![
+            "--yes".to_owned(),
+            format!("--token={SECRET}"),
+            "quint".to_owned(),
+        ],
         resource_policy,
         success: true,
         timed_out: false,
         exit_code: Some(0),
         duration_millis: 321,
-        stdout: String::new(),
-        stderr: String::new(),
+        stdout: format!("captured stdout {SECRET}"),
+        stderr: format!("captured stderr {SECRET}"),
         stdout_truncated: false,
         stderr_truncated: false,
         adapter_response: None,
-        failure: None,
+        failure: Some(format!("internal failure {SECRET}")),
         artifacts: CommandArtifacts {
-            stdout: PathBuf::from(".formal-artifacts/stdout.log"),
-            stderr: PathBuf::from(".formal-artifacts/stderr.log"),
-            result: PathBuf::from(".formal-artifacts/result.json"),
-            trace_pattern: Some(PathBuf::from(".formal-artifacts/trace-{seq}.json")),
+            stdout: PathBuf::from(format!("/tmp/{SECRET}/stdout.log")),
+            stderr: PathBuf::from(format!("/tmp/{SECRET}/stderr.log")),
+            result: PathBuf::from(format!("/tmp/{SECRET}/result.json")),
+            trace_pattern: Some(PathBuf::from(format!("/tmp/{SECRET}/trace-{{seq}}.json"))),
         },
     }
 }
