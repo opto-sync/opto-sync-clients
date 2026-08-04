@@ -3,11 +3,11 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use fmctl::plan::CommandArtifacts;
-use fmctl::report::{
+use fmctl::resource::{ResourceProfile, ResourceRequest};
+use fmctl::result::report::{
     render_junit_xml, render_report_bundle, render_report_bundle_json, report_status, ReportStatus,
     ARTIFACT_MANIFEST_SCHEMA, PROVENANCE_SCHEMA, REPORT_BUNDLE_SCHEMA_VERSION,
 };
-use fmctl::resource::{ResourceProfile, ResourceRequest};
 use fmctl::runner::CommandOutcome;
 use tempfile::TempDir;
 
@@ -128,16 +128,17 @@ fn report_utility_reads_result_json_and_emits_the_same_bundle() {
         .arg("bundle")
         .output()
         .expect("run report utility");
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let expected = render_report_bundle_json(&outcome).expect("expected bundle");
     assert_eq!(trim_newline(&output.stdout), expected);
 }
 
 fn trim_newline(bytes: &[u8]) -> Vec<u8> {
-    bytes
-        .strip_suffix(b"\n")
-        .unwrap_or(bytes)
-        .to_vec()
+    bytes.strip_suffix(b"\n").unwrap_or(bytes).to_vec()
 }
 
 fn fixture_outcome(status: ReportStatus) -> CommandOutcome {
