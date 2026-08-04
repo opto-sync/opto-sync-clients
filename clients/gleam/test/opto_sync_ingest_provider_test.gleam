@@ -13,16 +13,15 @@ pub fn provider_is_a_veto_gate_test() {
     opto_sync_ingest.json_schema_provider(fn(_) { Error(["blocked"]) })
   let assert Error(ValidationError(issues)) =
     opto_sync_ingest.parse_envelope_with(valid_text(), [provider])
-  should.be_true(
-    string.contains(string.join(issues, "; "), "provider[json_schema]"),
-  )
+  should.be_true(string.contains(
+    string.join(issues, "; "),
+    "provider[json_schema]",
+  ))
 }
 
 pub fn provider_audit_detects_drift_test() {
-  let assert Ok(data) = json.parse(
-    "{\"formatVersion\":1,\"records\":[]}",
-    decode.dynamic,
-  )
+  let assert Ok(data) =
+    json.parse("{\"formatVersion\":1,\"records\":[]}", decode.dynamic)
   let provider = opto_sync_ingest.regexp_provider(fn(_) { Ok(Nil) })
   let audit = opto_sync_ingest.audit_provider(data, provider)
   should.equal(audit.canonical_accepted, False)
@@ -35,9 +34,10 @@ pub fn provider_cannot_reject_silently_test() {
     opto_sync_ingest.validation_provider("silent", fn(_) { Error([]) })
   let assert Error(ValidationError(issues)) =
     opto_sync_ingest.parse_envelope_with(valid_text(), [provider])
-  should.be_true(
-    string.contains(string.join(issues, "; "), "validation rejected"),
-  )
+  should.be_true(string.contains(
+    string.join(issues, "; "),
+    "validation rejected",
+  ))
 }
 
 pub fn rejects_unsafe_integer_timestamp_test() {
