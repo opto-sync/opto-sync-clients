@@ -74,14 +74,14 @@ fn dry_run_does_not_publish_execution_reports() {
     assert!(!fixture
         .directory
         .path()
-        .join(".formal-artifacts/bundles")
+        .join(".formal-artifacts/fmctl/bundles")
         .exists());
 }
 
 #[test]
 fn publication_failure_has_a_distinct_exit_classification() {
     let fixture = Fixture::new();
-    let artifacts = fixture.directory.path().join(".formal-artifacts");
+    let artifacts = fixture.directory.path().join(".formal-artifacts/fmctl");
     fs::create_dir_all(&artifacts).expect("artifacts");
     let outside = TempDir::new().expect("outside");
     symlink(outside.path(), artifacts.join("bundles")).expect("symlink bundle root");
