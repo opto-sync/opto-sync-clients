@@ -6,6 +6,16 @@ on:
       - agent/den-1631-enforce-local-resource-policy
     paths:
       - '.github/workflows/den-1631-materialize.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/den-1631-materialize.yml'
+      - 'formal/RESOURCE_POLICY_RUNTIME.md'
+      - 'scripts/den-1631-materialize.py'
+      - 'tools/fmctl/src/lib.rs'
+      - 'tools/fmctl/src/plan.rs'
+      - 'tools/fmctl/src/runner.rs'
 
 permissions:
   contents: write
