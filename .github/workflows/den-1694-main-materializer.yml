@@ -1,46 +1,58 @@
 name: DEN-1694 exact-branch lease materializer
 
 on:
-  pull_request_target:
-    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created]
 
 permissions:
   contents: write
+  pull-requests: read
 
 concurrency:
-  group: den-1694-main-materializer-${{ github.event.pull_request.number }}
+  group: den-1694-main-materializer-pr-63
   cancel-in-progress: false
 
 jobs:
   materialize:
     if: >-
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.event.pull_request.head.ref == 'agent/den-1694-cross-platform-publication-leases' &&
-      github.actor != 'github-actions[bot]'
+      github.event.issue.number == 63 &&
+      github.event.issue.pull_request &&
+      github.actor == 'ORESoftware' &&
+      github.event.comment.user.login == 'ORESoftware' &&
+      github.event.comment.body == '/materialize-den-1694'
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
-      - name: Check out the exact same-repository feature branch
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
-          persist-credentials: true
-
-      - name: Verify the immutable event identity before executing branch code
+      - name: Resolve and verify the exact same-repository PR head
+        id: pr
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
+          PR_API_URL: ${{ github.event.issue.pull_request.url }}
           EXPECTED_REPOSITORY: ${{ github.repository }}
-          ACTUAL_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
           EXPECTED_BRANCH: agent/den-1694-cross-platform-publication-leases
-          ACTUAL_BRANCH: ${{ github.event.pull_request.head.ref }}
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          test "$ACTUAL_REPOSITORY" = "$EXPECTED_REPOSITORY"
-          test "$ACTUAL_BRANCH" = "$EXPECTED_BRANCH"
-          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          response="$(curl -fsSL \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "$PR_API_URL")"
+          head_repository="$(jq -er '.head.repo.full_name' <<<"$response")"
+          head_branch="$(jq -er '.head.ref' <<<"$response")"
+          head_sha="$(jq -er '.head.sha' <<<"$response")"
+          test "$head_repository" = "$EXPECTED_REPOSITORY"
+          test "$head_branch" = "$EXPECTED_BRANCH"
+          test "${#head_sha}" -eq 40
+          printf 'head_sha=%s\n' "$head_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the immutable feature head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ steps.pr.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: true
 
       - name: Install repository Nix toolchain
         uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31.11.0
@@ -51,6 +63,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD)" = '${{ steps.pr.outputs.head_sha }}'
           awk '
             /- name: Add OS-backed publication leases and cleanup probes/ { found=1; next }
             found && /run: \|/ { capture=1; next }
@@ -91,17 +104,21 @@ jobs:
           bash -n /tmp/den-1694-apply.sh
           bash /tmp/den-1694-apply.sh
 
-      - name: Commit only production code, tests, lockfile, and docs
+      - name: Commit only tested production code, tests, lockfile, and docs
         env:
           BRANCH: agent/den-1694-cross-platform-publication-leases
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_SHA: ${{ steps.pr.outputs.head_sha }}
         shell: bash
         run: |
           set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          remote_sha="$(git ls-remote origin "refs/heads/${BRANCH}" | awk '{print $1}')"
+          test "$remote_sha" = "$EXPECTED_SHA"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-          git checkout origin/main -- .github/workflows/formal-go-sdk.yml
+          git checkout origin/main -- \
+            .github/workflows/formal-go-sdk.yml \
+            .github/workflows/den-1694-main-materializer.yml
           rm -f \
             .github/workflows/den-1694-materialize.yml \
             .github/workflows/den-1694-pr-materializer.yml \
