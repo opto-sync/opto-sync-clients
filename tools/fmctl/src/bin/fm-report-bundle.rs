@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::{self, Read, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, ValueEnum};
@@ -62,7 +62,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn read_outcome(path: &PathBuf) -> Result<CommandOutcome, Box<dyn std::error::Error>> {
+fn read_outcome(path: &Path) -> Result<CommandOutcome, Box<dyn std::error::Error>> {
     let file = fs::File::open(path)?;
     let metadata = file.metadata()?;
     if !metadata.is_file() {
