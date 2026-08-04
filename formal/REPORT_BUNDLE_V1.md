@@ -12,8 +12,8 @@ manifest.
    resource-policy field.
 2. **SARIF 2.1.0** — one run with the full resource-policy object in run
    properties and content-free timeout/failure results.
-3. **Artifact manifest JSON** — operation identity, status, sorted artifact paths,
-   and the exact resource-policy envelope.
+3. **Artifact manifest JSON** — operation identity, status, sorted artifact basenames,
+   and the exact resource-policy envelope. Absolute runner/user directories are removed.
 4. **Provenance JSON** — operation/result identity, sanitized command identity,
    an extensible input-hash map, and the exact resource-policy envelope.
 
@@ -42,7 +42,8 @@ The reports deliberately omit:
 - failure text;
 - adapter mismatch payloads;
 - specification/source contents; and
-- generated trace payloads.
+- generated trace payloads; and
+- absolute artifact directory prefixes.
 
 Provenance records only the executable basename and argument count. Failure and
 timeout reports use fixed content-free messages. The exact resource policy is

@@ -112,7 +112,7 @@ pub fn render_provenance_json(outcome: &CommandOutcome) -> Result<Vec<u8>, FmErr
 
 pub fn render_junit_xml(outcome: &CommandOutcome) -> Result<String, FmError> {
     let status = report_status(outcome);
-    let failures = usize::from(status != ReportStatus::Passed);
+    let failures = if status == ReportStatus::Passed { 0 } else { 1 };
     let duration = seconds_text(outcome.duration_millis);
     let mut properties = resource_properties(&outcome.resource_policy)?;
     properties.insert("fm.project".to_owned(), outcome.project.clone());
@@ -219,8 +219,7 @@ fn render_sarif(outcome: &CommandOutcome) -> Result<Value, FmError> {
             "tool": {
                 "driver": {
                     "name": "fmctl",
-                    "version": env!("CARGO_PKG_VERSION"),
-                    "informationUri": "https://github.com/opto-sync/opto-sync-clients"
+                    "version": env!("CARGO_PKG_VERSION")
                 }
             },
             "invocations": [{
@@ -287,25 +286,31 @@ fn artifact_entries(artifacts: &CommandArtifacts) -> Vec<ArtifactEntry> {
     let mut entries = vec![
         ArtifactEntry {
             kind: "result".to_owned(),
-            path: artifacts.result.clone(),
+            path: report_artifact_path(&artifacts.result),
         },
         ArtifactEntry {
             kind: "stderr".to_owned(),
-            path: artifacts.stderr.clone(),
+            path: report_artifact_path(&artifacts.stderr),
         },
         ArtifactEntry {
             kind: "stdout".to_owned(),
-            path: artifacts.stdout.clone(),
+            path: report_artifact_path(&artifacts.stdout),
         },
     ];
     if let Some(path) = &artifacts.trace_pattern {
         entries.push(ArtifactEntry {
             kind: "trace_pattern".to_owned(),
-            path: path.clone(),
+            path: report_artifact_path(path),
         });
     }
     entries.sort_by(|left, right| left.kind.cmp(&right.kind));
     entries
+}
+
+fn report_artifact_path(path: &Path) -> PathBuf {
+    path.file_name()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("artifact"))
 }
 
 fn resource_properties(

@@ -112,6 +112,21 @@ fn artifact_manifest_is_sorted_and_provenance_uses_sanitized_command_identity() 
     assert_eq!(bundle.provenance.command.program, "npx");
     assert_eq!(bundle.provenance.command.argument_count, 3);
     assert!(bundle.provenance.input_hashes.is_empty());
+    let paths = bundle
+        .artifact_manifest
+        .artifacts
+        .iter()
+        .map(|artifact| artifact.path.as_path())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        paths,
+        [
+            PathBuf::from("result.json"),
+            PathBuf::from("stderr.log"),
+            PathBuf::from("stdout.log"),
+            PathBuf::from("trace-{seq}.json"),
+        ]
+    );
 }
 
 #[test]
@@ -138,6 +153,40 @@ fn report_utility_reads_result_json_and_emits_the_same_bundle() {
     );
     let expected = render_report_bundle_json(&outcome).expect("expected bundle");
     assert_eq!(trim_newline(&output.stdout), expected);
+}
+
+#[test]
+fn report_utility_rejects_directory_invalid_json_and_oversized_input() {
+    let directory = TempDir::new().expect("tempdir");
+
+    let directory_result = Command::new(env!("CARGO_BIN_EXE_fm-report-bundle"))
+        .arg(directory.path())
+        .output()
+        .expect("run utility with directory");
+    assert!(!directory_result.status.success());
+    assert!(directory_result.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&directory_result.stderr).contains("regular file"));
+
+    let invalid = directory.path().join("invalid.json");
+    fs::write(&invalid, b"{} trailing").expect("write invalid JSON");
+    let invalid_result = Command::new(env!("CARGO_BIN_EXE_fm-report-bundle"))
+        .arg(&invalid)
+        .output()
+        .expect("run utility with invalid JSON");
+    assert!(!invalid_result.status.success());
+    assert!(invalid_result.stdout.is_empty());
+
+    let oversized = directory.path().join("oversized.json");
+    let file = fs::File::create(&oversized).expect("create sparse oversized input");
+    file.set_len(64 * 1024 * 1024 + 1)
+        .expect("size sparse oversized input");
+    let oversized_result = Command::new(env!("CARGO_BIN_EXE_fm-report-bundle"))
+        .arg(&oversized)
+        .output()
+        .expect("run utility with oversized input");
+    assert!(!oversized_result.status.success());
+    assert!(oversized_result.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&oversized_result.stderr).contains("exceeds"));
 }
 
 fn trim_newline(bytes: &[u8]) -> Vec<u8> {
@@ -179,10 +228,10 @@ fn fixture_outcome(status: ReportStatus) -> CommandOutcome {
         adapter_response: None,
         failure: Some(format!("adapter mismatch payload {SECRET}")),
         artifacts: CommandArtifacts {
-            stdout: PathBuf::from(".formal-artifacts/stdout.log"),
-            stderr: PathBuf::from(".formal-artifacts/stderr.log"),
-            result: PathBuf::from(".formal-artifacts/result.json"),
-            trace_pattern: Some(PathBuf::from(".formal-artifacts/trace-{seq}.json")),
+            stdout: PathBuf::from(format!("/tmp/{SECRET}/stdout.log")),
+            stderr: PathBuf::from(format!("/tmp/{SECRET}/stderr.log")),
+            result: PathBuf::from(format!("/tmp/{SECRET}/result.json")),
+            trace_pattern: Some(PathBuf::from(format!("/tmp/{SECRET}/trace-{{seq}}.json"))),
         },
     }
 }
