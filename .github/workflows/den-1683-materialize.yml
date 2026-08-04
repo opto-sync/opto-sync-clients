@@ -16,6 +16,7 @@ concurrency:
 
 jobs:
   materialize:
+    # This one-shot branch workflow is removed after it commits the reviewed source/test diff.
     if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
