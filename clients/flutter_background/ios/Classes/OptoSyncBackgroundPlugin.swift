@@ -2,30 +2,36 @@ import BackgroundTasks
 import Flutter
 import UIKit
 
-/// BGTaskScheduler-backed background draining (iOS 13+).
-///
-/// Host app requirements (see README):
-/// - Info.plist `BGTaskSchedulerPermittedIdentifiers` must list
-///   `dev.optosync.background.refresh` and `dev.optosync.background.processing`.
-/// - Info.plist `UIBackgroundModes` must include `fetch` and `processing`.
-/// - `OptoSyncBackgroundPlugin.registerTasks()` must be called from
-///   `application(_:didFinishLaunchingWithOptions:)` BEFORE the launch method
-///   returns (BGTaskScheduler requires registration at launch). Objective-C
-///   hosts use `[OptoSyncBackgroundBridge registerTasks]`.
-public class OptoSyncBackgroundPlugin: NSObject, FlutterPlugin {
+/// BGTaskScheduler-backed background draining plus a UI-agnostic connectivity
+/// event stream. Applications own presentation; the plugin emits data only.
+public class OptoSyncBackgroundPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
   static let refreshTaskIdentifier = "dev.optosync.background.refresh"
   static let processingTaskIdentifier = "dev.optosync.background.processing"
   static let defaultsSuite = "dev.optosync.background"
   static let callbackKey = "callbackHandle"
   static let dispatcherKey = "dispatcherHandle"
   static let frequencyKey = "frequencySeconds"
+  static let periodicRegisteredKey = "periodicRegistered"
+  static let totalOfflineKey = "totalOffline"
+
+  private let connectivity = OptoSyncConnectivityWatcher.shared
+  private var connectivityToken: UUID?
+  private var connectivitySink: FlutterEventSink?
 
   public static func register(with registrar: FlutterPluginRegistrar) {
-    let channel = FlutterMethodChannel(
+    let methodChannel = FlutterMethodChannel(
       name: "dev.optosync.background/methods",
       binaryMessenger: registrar.messenger())
+    let eventChannel = FlutterEventChannel(
+      name: "dev.optosync.background/connectivity",
+      binaryMessenger: registrar.messenger())
     let instance = OptoSyncBackgroundPlugin()
-    registrar.addMethodCallDelegate(instance, channel: channel)
+    registrar.addMethodCallDelegate(instance, channel: methodChannel)
+    eventChannel.setStreamHandler(instance)
+
+    let defaults = UserDefaults(suiteName: defaultsSuite) ?? .standard
+    instance.connectivity.setTotalOffline(defaults.bool(forKey: totalOfflineKey))
+    instance.connectivity.start()
   }
 
   /// Must run during application launch. Safe to call more than once.
@@ -42,9 +48,60 @@ public class OptoSyncBackgroundPlugin: NSObject, FlutterPlugin {
     }
   }
 
+  public func onListen(
+    withArguments arguments: Any?,
+    eventSink events: @escaping FlutterEventSink
+  ) -> FlutterError? {
+    if let connectivityToken { connectivity.removeListener(connectivityToken) }
+    connectivitySink = events
+    connectivityToken = connectivity.addListener { [weak self] current, _ in
+      DispatchQueue.main.async {
+        self?.connectivitySink?(current.dictionary)
+      }
+    }
+    return nil
+  }
+
+  public func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    connectivity.removeListener(connectivityToken)
+    connectivityToken = nil
+    connectivitySink = nil
+    return nil
+  }
+
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     let defaults = UserDefaults(suiteName: Self.defaultsSuite) ?? .standard
     switch call.method {
+    case "configureConnectivity":
+      let arguments = call.arguments as? [String: Any]
+      let urlString = arguments?["probeUrl"] as? String
+      let timeout = (arguments?["probeTimeoutMilliseconds"] as? NSNumber)?.intValue ?? 4_000
+      connectivity.configureProbe(
+        urlString: urlString,
+        timeoutMilliseconds: timeout)
+      result(connectivity.snapshot().dictionary)
+    case "setConnectivityOffline":
+      guard let arguments = call.arguments as? [String: Any],
+        let enabled = arguments["enabled"] as? Bool
+      else {
+        result(FlutterError(code: "BAD_ARGS", message: "enabled required", details: nil))
+        return
+      }
+      defaults.set(enabled, forKey: Self.totalOfflineKey)
+      connectivity.setTotalOffline(enabled)
+      if enabled {
+        BGTaskScheduler.shared.cancel(
+          taskRequestWithIdentifier: Self.refreshTaskIdentifier)
+        BGTaskScheduler.shared.cancel(
+          taskRequestWithIdentifier: Self.processingTaskIdentifier)
+      } else if defaults.bool(forKey: Self.periodicRegisteredKey) {
+        let frequency = defaults.double(forKey: Self.frequencyKey)
+        Self.scheduleRefresh(after: frequency > 0 ? frequency : 3_600)
+      }
+      result(connectivity.snapshot().dictionary)
+    case "refreshConnectivity":
+      connectivity.refresh()
+      result(connectivity.snapshot().dictionary)
     case "initialize":
       guard let arguments = call.arguments as? [String: Any],
         let callback = arguments["callbackHandle"] as? Int64,
@@ -58,17 +115,22 @@ public class OptoSyncBackgroundPlugin: NSObject, FlutterPlugin {
       result(nil)
     case "registerPeriodic":
       let arguments = call.arguments as? [String: Any]
-      let frequency = arguments?["frequencySeconds"] as? Double ?? 3600
+      let frequency = (arguments?["frequencySeconds"] as? NSNumber)?.doubleValue ?? 3_600
       defaults.set(frequency, forKey: Self.frequencyKey)
-      Self.scheduleRefresh(after: frequency)
+      defaults.set(true, forKey: Self.periodicRegisteredKey)
+      if !defaults.bool(forKey: Self.totalOfflineKey) {
+        Self.scheduleRefresh(after: frequency)
+      }
       result(nil)
     case "scheduleExpedited":
-      // BGTaskScheduler has no true "now": submit with no earliest date so
-      // the system runs it at the next opportunity.
-      Self.scheduleRefresh(after: 0)
+      if !defaults.bool(forKey: Self.totalOfflineKey) {
+        Self.scheduleRefresh(after: 0)
+      }
       result(nil)
     case "cancelAll":
-      BGTaskScheduler.shared.cancelAllTaskRequests()
+      defaults.set(false, forKey: Self.periodicRegisteredKey)
+      BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.refreshTaskIdentifier)
+      BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.processingTaskIdentifier)
       result(nil)
     default:
       result(FlutterMethodNotImplemented)
@@ -83,18 +145,20 @@ public class OptoSyncBackgroundPlugin: NSObject, FlutterPlugin {
     do {
       try BGTaskScheduler.shared.submit(request)
     } catch {
-      // Duplicate submissions and simulator limitations land here; the next
-      // launch or periodic registration re-submits.
+      // The next launch, save wake, or periodic registration re-submits.
     }
   }
 
   static func handle(task: BGTask, reschedule: Bool) {
-    // Keep the refresh chain alive first: iOS grants no second chance if we
-    // crash mid-drain without having scheduled the next slot.
     let defaults = UserDefaults(suiteName: defaultsSuite) ?? .standard
+    if defaults.bool(forKey: totalOfflineKey) {
+      task.setTaskCompleted(success: true)
+      return
+    }
+
     if reschedule {
       let frequency = defaults.double(forKey: frequencyKey)
-      scheduleRefresh(after: frequency > 0 ? frequency : 3600)
+      scheduleRefresh(after: frequency > 0 ? frequency : 3_600)
     }
 
     let callback = defaults.object(forKey: callbackKey) as? Int64 ?? 0
@@ -106,7 +170,10 @@ public class OptoSyncBackgroundPlugin: NSObject, FlutterPlugin {
       return
     }
 
-    let engine = FlutterEngine(name: "opto-sync-background", project: nil, allowHeadlessExecution: true)
+    let engine = FlutterEngine(
+      name: "opto-sync-background",
+      project: nil,
+      allowHeadlessExecution: true)
     let channel = FlutterMethodChannel(
       name: "dev.optosync.background/background",
       binaryMessenger: engine.binaryMessenger)
@@ -137,5 +204,9 @@ public class OptoSyncBackgroundPlugin: NSObject, FlutterPlugin {
     engine.run(
       withEntrypoint: dispatcherInfo.callbackName,
       libraryURI: dispatcherInfo.callbackLibraryPath)
+  }
+
+  deinit {
+    connectivity.removeListener(connectivityToken)
   }
 }
