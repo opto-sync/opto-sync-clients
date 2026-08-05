@@ -41,3 +41,74 @@ exclude = [
 
 [scripts]
 test = "python3 scripts/check-package-layout.py"
+
+[dependencies]
+"opto-sync/opto-sync-interfaces" = "^0.1.0"
+"opto-sync/opto-sync-lib" = "^0.1.0"
+
+[targets.repository]
+dir = "."
+
+[targets.gleamlang]
+dir = "clients/gleamlang"
+adapter = "none"
+
+[targets.erlang]
+dir = "clients/erlang"
+adapter = "none"
+
+[targets.elixir]
+dir = "clients/elixir"
+adapter = "none"
+
+[targets.dart]
+dir = "clients/dart"
+adapter = "dart"
+
+[targets.rust]
+dir = "clients/rust"
+adapter = "rust"
+
+[targets.java]
+dir = "clients/java"
+adapter = "java"
+
+[targets.golang]
+dir = "clients/golang"
+adapter = "go"
+
+[targets.python3]
+dir = "clients/python3"
+adapter = "none"
+
+[targets.ruby]
+dir = "clients/ruby"
+adapter = "none"
+
+[targets.php]
+dir = "clients/php"
+adapter = "none"
+
+[targets.typescript-nodejs]
+dir = "clients/typescript/nodejs"
+adapter = "node"
+
+[targets.typescript-deno]
+dir = "clients/typescript/deno"
+adapter = "none"
+
+[targets.typescript-bun]
+dir = "clients/typescript/bun"
+adapter = "node"
+
+[targets.typescript-edge]
+dir = "clients/typescript/edge"
+adapter = "none"
+
+[targets.kotlin]
+dir = "clients/kotlin"
+adapter = "none"
+
+[targets.swift]
+dir = "clients/swift"
+adapter = "none"

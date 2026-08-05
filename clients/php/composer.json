@@ -1,0 +1,12 @@
+{
+  "name": "opto-sync/opto-sync-client",
+  "type": "library",
+  "require": {
+    "php": ">=8.2"
+  },
+  "autoload": {
+    "psr-4": {
+      "ZedPkg\\OptoSync\\\\": "src/"
+    }
+  }
+}
