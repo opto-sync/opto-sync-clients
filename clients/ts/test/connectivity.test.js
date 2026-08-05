@@ -88,6 +88,76 @@ test('browser watcher distinguishes link from verified internet and stops cleanl
   assert.equal(listeners.size, 0);
 });
 
+test('browser offline-mode restore revalidates before one internet transition', async () => {
+  const listeners = new Map();
+  let fetches = 0;
+  const host = {
+    navigator: { onLine: true },
+    location: {
+      href: 'https://example.test/app',
+      origin: 'https://example.test',
+    },
+    async fetch() {
+      fetches += 1;
+      return { ok: true };
+    },
+    addEventListener(type, listener) {
+      listeners.set(type, listener);
+    },
+    removeEventListener(type, listener) {
+      if (listeners.get(type) === listener) listeners.delete(type);
+    },
+  };
+  const watcher = new BrowserConnectivityWatcher({
+    host,
+    probeUrl: '/health/reachability',
+    probeIntervalMs: 0,
+  });
+  let wakeups = 0;
+  const client = new ConnectivityAwareOptoSyncClient({
+    databaseName: `browser-connectivity-restore-${Date.now()}`,
+    stampUpdatedAt: false,
+    connectivity: watcher,
+    autoStartConnectivity: false,
+    onMutationQueued: () => {
+      wakeups += 1;
+    },
+  });
+  const transitions = [];
+  const unsubscribe = watcher.subscribe(
+    (next, previous) => {
+      transitions.push([previous.state, next.state, next.mode]);
+    },
+    { emitCurrent: false },
+  );
+
+  watcher.start();
+  await watcher.refresh();
+  assert.equal(watcher.snapshot().state, 'internet');
+  assert.equal(wakeups, 1);
+
+  wakeups = 0;
+  transitions.length = 0;
+  client.setTotalOffline(true);
+  watcher.publish('internet', 'probe');
+  client.setTotalOffline(false);
+  await watcher.refresh();
+
+  assert.equal(watcher.snapshot().state, 'internet');
+  assert.equal(wakeups, 1, 'a reconnect should wake the sync loop once');
+  assert.deepEqual(transitions, [
+    ['internet', 'offline', 'offline'],
+    ['offline', 'link', 'automatic'],
+    ['link', 'internet', 'automatic'],
+  ]);
+  assert.ok(fetches >= 2);
+
+  unsubscribe();
+  watcher.stop();
+  client.dispose();
+  await client.db.delete();
+});
+
 test('browser probes must remain same-origin', () => {
   const host = {
     navigator: { onLine: true },
