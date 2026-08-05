@@ -1,6 +1,6 @@
 use opto_sync_connectivity::{
-    ConnectivityMode, ConnectivitySource, ConnectivityState, ConnectivityWatcher,
-    SaveMetadata, SaveOperation, SaveSignals,
+    ConnectivityMode, ConnectivitySource, ConnectivityState, ConnectivityWatcher, SaveMetadata,
+    SaveOperation, SaveSignals,
 };
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
