@@ -72,8 +72,8 @@ jobs:
               "let _error = cleanup_stale_publication_state(&root, Duration::ZERO)",
           )
           source = source.replace(
-              'message.contains("symlink") || message.contains("regular file")',
-              'message.contains("symlink") || message.contains("regular file") || message.contains("Too many levels of symbolic links")',
+              'message.contains("regular file")',
+              'message.contains("regular file") || message.contains("Too many levels of symbolic links")',
           )
           tests.write_text(source, encoding='utf-8')'''
           if script.count(test_write) != 1:
