@@ -11,14 +11,13 @@ export 'package:opto_sync_client/connectivity.dart';
 /// This class exposes streams and callbacks only. It never imports Material,
 /// Cupertino, or any other UI framework; applications decide how to surface a
 /// save or connectivity event.
-final class OptoSyncFlutterConnectivity
-    implements OptoSyncConnectivityWatcher {
+final class OptoSyncFlutterConnectivity implements OptoSyncConnectivityWatcher {
   OptoSyncFlutterConnectivity({
     this.probeUrl,
     this.probeTimeout = const Duration(seconds: 4),
     ManualOptoSyncConnectivityWatcher? watcher,
-  })  : _watcher = watcher ?? ManualOptoSyncConnectivityWatcher(),
-        _ownsWatcher = watcher == null {
+  }) : _watcher = watcher ?? ManualOptoSyncConnectivityWatcher(),
+       _ownsWatcher = watcher == null {
     final url = probeUrl;
     if (url != null) {
       if (url.scheme != 'https' && url.scheme != 'http') {
@@ -108,10 +107,10 @@ final class OptoSyncFlutterConnectivity
   }
 
   void setTotalOffline(bool enabled) => setMode(
-        enabled
-            ? OptoSyncConnectivityMode.offline
-            : OptoSyncConnectivityMode.automatic,
-      );
+    enabled
+        ? OptoSyncConnectivityMode.offline
+        : OptoSyncConnectivityMode.automatic,
+  );
 
   @override
   Future<OptoSyncConnectivitySnapshot> refresh() async {
@@ -132,10 +131,7 @@ final class OptoSyncFlutterConnectivity
   }
 
   /// Native-independent bridge for Flutter web/desktop or custom plugins.
-  void publish(
-    OptoSyncConnectivityState state, {
-    bool verified = false,
-  }) {
+  void publish(OptoSyncConnectivityState state, {bool verified = false}) {
     _watcher.publish(
       verified ? OptoSyncConnectivityState.internet : state,
       source: verified
