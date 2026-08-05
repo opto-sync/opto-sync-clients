@@ -244,7 +244,7 @@ pending rows are never pruned. The detailed capacity and failure contract is in
 ```sh
 npm install
 npm run build
-npm test          # 92 tests
+npm test          # full Node, WASM, worker, and browser-capable suite
 ```
 
 | File | What it covers |
@@ -256,11 +256,17 @@ npm test          # 92 tests
 | `test/engine-parity.test.mjs` | native vs wasm: byte-identical output over a 36-case corpus, 1000 randomized documents, and all 14 reconcile scenarios |
 | `test/bundle.test.mjs` | the browser entry bundles with a stock esbuild browser config; no Node builtins, no native addon, within a size budget |
 | `test/browser-e2e.test.mjs` | **real headless Chromium**: real IndexedDB, real WebAssembly, plus a real web worker |
+| `test/service-worker.test.mjs` | Background/Periodic Sync tags, retries, same-origin messages, redaction, detached ports, and migration aliases |
+| `test/core-service-worker-browser.test.mjs` | **real Chrome service worker**: concurrent MessageChannel wakes, legacy sync dispatch, forced termination, and durable restart |
+| `test/browser-lease-e2e.test.mjs` | browser-process restart durability, two-tab fencing, server-confirmed writes, and lease teardown |
 | `test/browser-fallback.test.mjs` | the browser entry under jsdom + fake-indexeddb, for CI without a browser download |
 | `test/sync-loop.test.mjs` | pull/push/pull ordering, reset installation, single-flight, and retry policy |
 
 `test/browser-e2e.test.mjs` skips (loudly, never silently) if Chromium cannot be
-launched; get it with `npx playwright install chromium`.
+launched; get it with `npx playwright install chromium`. Self-hosted or
+restricted runners can instead set `OPTO_SYNC_CHROMIUM_PATH` to an existing
+Chromium executable; CI still sets `OPTO_SYNC_REQUIRE_BROWSER=1` so a missing
+browser is a failure, never a green skip.
 
 Parity is asserted on **serialized** output, not on `deepStrictEqual` of parsed
 objects, so key order, number formatting and int64 precision differences cannot

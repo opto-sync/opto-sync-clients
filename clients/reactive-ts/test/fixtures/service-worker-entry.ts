@@ -8,6 +8,7 @@ const scope = self as unknown as {
   removeEventListener(type: string, listener: (event: any) => void): void;
   clients: { matchAll(): Promise<Array<{ postMessage(value: unknown): void }>> };
 };
+const workerInstance = crypto.randomUUID();
 
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -52,6 +53,6 @@ installOptoSyncServiceWorker({
     for (const client of await scope.clients.matchAll()) {
       client.postMessage({ type: 'opto-sync:e2e-cycle', cycles });
     }
-    return { cycles };
+    return { cycles, workerInstance };
   },
 });

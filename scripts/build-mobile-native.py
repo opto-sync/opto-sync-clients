@@ -35,7 +35,7 @@ REFERENCE = ROOT / "clients" / "reactive-dart" / "native"
 # Keep in step with clients/flutter_background/android/build.gradle: the
 # reference adapters in clients/reactive-dart/native are plain source files with
 # no build file of their own, so the gate supplies their compile dependencies.
-WORK_RUNTIME = "androidx.work:work-runtime-ktx:2.9.1"
+WORK_RUNTIME = "androidx.work:work-runtime-ktx:2.10.5"
 CONCURRENT_FUTURES = "androidx.concurrent:concurrent-futures:1.2.0"
 
 # iOS deployment target and Swift language mode declared by the podspec.

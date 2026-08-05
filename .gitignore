@@ -6,6 +6,8 @@
 **/build/
 **/_build/
 **/deps/
+**/__pycache__/
+*.py[cod]
 
 # Formal-methods runtime output
 .formal-artifacts/

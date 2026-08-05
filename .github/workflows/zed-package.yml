@@ -47,7 +47,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout package and pinned reconciliation core
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           path: package
           fetch-depth: 0
@@ -55,7 +55,7 @@ jobs:
           submodules: recursive
 
       - name: Checkout pinned Zed CLI
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zed-pkg/zed-cli
           ref: ${{ env.ZED_CLI_SHA }}
@@ -63,7 +63,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout pinned Zed interfaces
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zed-pkg/zed-interfaces
           ref: ${{ env.ZED_INTERFACES_SHA }}
@@ -166,7 +166,7 @@ jobs:
         run: ${{ github.workspace }}/zed-cli/target/release/zed r2g --clean
 
       - name: Upload deterministic package artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: opto-sync-clients-zed-package
           path: ${{ runner.temp }}/zpkg-one/${{ env.ZPKG_ARCHIVE }}

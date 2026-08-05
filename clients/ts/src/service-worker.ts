@@ -37,8 +37,12 @@
 import type { ProtocolSyncCycleResult, ProtocolSyncLoop } from './sync-loop.js';
 
 export const DEFAULT_SYNC_TAG = 'opto-sync';
+/** Accepted during migration from the first reactive-service-worker release. */
+export const LEGACY_SYNC_TAG = 'opto-sync:background';
 export const DEFAULT_PERIODIC_SYNC_TAG = 'opto-sync-periodic';
 export const SYNC_MESSAGE_TYPE = 'opto-sync:sync';
+/** Bounded, payload-free failure returned to same-origin message callers. */
+export const SYNC_FAILURE_CODE = 'SYNC_FAILED';
 
 /** Structural subset of ServiceWorkerGlobalScope used here (testable). */
 export interface ServiceWorkerScopeLike {
@@ -65,6 +69,12 @@ export interface InstallServiceWorkerSyncOptions {
     | Promise<ServiceWorkerSyncSession>;
   /** Tag accepted from `sync` events. Default {@link DEFAULT_SYNC_TAG}. */
   syncTag?: string;
+  /**
+   * Extra one-shot tags accepted by the worker. The default tag also accepts
+   * {@link LEGACY_SYNC_TAG} so an already-durable registration created by the
+   * early reactive package can still drain after an upgrade.
+   */
+  additionalSyncTags?: readonly string[];
   /** Tag accepted from `periodicsync` events. Default {@link DEFAULT_PERIODIC_SYNC_TAG}. */
   periodicSyncTag?: string;
   /** postMessage discriminator. Default {@link SYNC_MESSAGE_TYPE}. */
@@ -92,6 +102,10 @@ export function installOptoSyncServiceWorker(
   const scope =
     options.scope ?? (globalThis as unknown as ServiceWorkerScopeLike);
   const syncTag = options.syncTag ?? DEFAULT_SYNC_TAG;
+  const additionalSyncTags =
+    options.additionalSyncTags ??
+    (syncTag === DEFAULT_SYNC_TAG ? [LEGACY_SYNC_TAG] : []);
+  const acceptedSyncTags = new Set([syncTag, ...additionalSyncTags]);
   const periodicSyncTag = options.periodicSyncTag ?? DEFAULT_PERIODIC_SYNC_TAG;
   const messageType = options.messageType ?? SYNC_MESSAGE_TYPE;
 
@@ -100,6 +114,7 @@ export function installOptoSyncServiceWorker(
   const selfOrigin = (scope as unknown as { origin?: unknown }).origin;
 
   let sessionPromise: Promise<ServiceWorkerSyncSession> | undefined;
+  let activeDrain: Promise<ProtocolSyncCycleResult> | undefined;
   const session = () => {
     // A failed creation is not cached, so a transient failure (e.g. wasm
     // fetch offline) is retried by the next sync event instead of bricking
@@ -115,24 +130,33 @@ export function installOptoSyncServiceWorker(
     return sessionPromise;
   };
 
-  const drain = async (): Promise<ProtocolSyncCycleResult> => {
-    try {
-      const { loop } = await session();
-      return await loop.syncNow();
-    } catch (error) {
+  const drain = (): Promise<ProtocolSyncCycleResult> => {
+    if (activeDrain) return activeDrain;
+    const current = (async () => {
       try {
-        options.onError?.(error);
-      } catch {
-        // observability must not mask the real failure
+        const { loop } = await session();
+        return await loop.syncNow();
+      } catch (error) {
+        try {
+          options.onError?.(error);
+        } catch {
+          // observability must not mask the real failure
+        }
+        // Rethrow: for a `sync` event this makes waitUntil reject, which is the
+        // documented way to ask the browser to retry the tag later.
+        throw error;
       }
-      // Rethrow: for a `sync` event this makes waitUntil reject, which is the
-      // documented way to ask the browser to retry the tag later.
-      throw error;
-    }
+    })();
+    activeDrain = current;
+    const clear = () => {
+      if (activeDrain === current) activeDrain = undefined;
+    };
+    current.then(clear, clear);
+    return current;
   };
 
   const onSync = (event: { tag?: string; waitUntil?: (p: Promise<unknown>) => void }) => {
-    if (event.tag !== syncTag) return;
+    if (!event.tag || !acceptedSyncTags.has(event.tag)) return;
     const work = drain();
     if (event.waitUntil) {
       event.waitUntil(work);
@@ -150,7 +174,14 @@ export function installOptoSyncServiceWorker(
     if (event.tag !== periodicSyncTag) return;
     // Periodic events are best-effort catch-ups; swallow failures so the
     // browser does not deprioritize the periodic registration.
-    event.waitUntil?.(drain().catch(() => undefined));
+    const work = drain().catch(() => undefined);
+    if (event.waitUntil) {
+      event.waitUntil(work);
+    } else {
+      // Synthetic/non-standard hosts still get the drain without creating an
+      // unhandled rejection when it fails.
+      void work;
+    }
   };
   const onMessage = (event: {
     data?: { type?: string };
@@ -173,15 +204,27 @@ export function installOptoSyncServiceWorker(
       return;
     }
     const port = event.ports?.[0];
+    const reply = (value: unknown): void => {
+      try {
+        port?.postMessage(value);
+      } catch {
+        // Reply delivery is observability only. A detached MessagePort must
+        // not turn a completed durable drain into a failed sync event.
+      }
+    };
     const work = drain().then(
-      (result) => port?.postMessage({ ok: true, result }),
-      (error) =>
-        port?.postMessage({
+      (result) => reply({ ok: true, result }),
+      () =>
+        reply({
           ok: false,
-          error: error instanceof Error ? error.message : String(error),
+          // Never echo transport errors: they can contain URLs, headers,
+          // tenant identifiers, or payload fragments. Detailed errors stay in
+          // the caller-supplied onError observer.
+          error: SYNC_FAILURE_CODE,
         }),
     );
-    event.waitUntil?.(work);
+    if (event.waitUntil) event.waitUntil(work);
+    else void work;
   };
 
   scope.addEventListener('sync', onSync);

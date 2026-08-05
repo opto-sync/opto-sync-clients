@@ -39,7 +39,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout clients and the exact core gitlink
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: source
@@ -56,7 +56,7 @@ jobs:
         run: python3 scripts/stage-typescript-target.py "$RUNNER_TEMP/typescript-target"
 
       - name: Checkout pinned Zed CLI
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zed-pkg/zed-cli
           ref: ${{ env.ZED_CLI_SHA }}
@@ -64,7 +64,7 @@ jobs:
           persist-credentials: false
 
       - name: Checkout pinned Zed interfaces
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: zed-pkg/zed-interfaces
           ref: ${{ env.ZED_INTERFACES_SHA }}
@@ -156,7 +156,7 @@ jobs:
           python3 "$extracted/pkg/scripts/check-typescript-target.py" "$extracted/pkg"
           echo "EXTRACTED_TARGET=$extracted/pkg" >> "$GITHUB_ENV"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
           cache: npm
@@ -226,7 +226,7 @@ jobs:
           test "$(cat "$EXTRACTED_TARGET/syncer.c/SOURCE_SHA")" = "$expected"
 
       - name: Upload the deterministic prototype artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: opto-sync-typescript-zed-target
           path: ${{ runner.temp }}/typescript-pack-one/${{ env.TYPESCRIPT_TARGET_ARCHIVE }}

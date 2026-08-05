@@ -38,6 +38,11 @@ import 'package:flutter/widgets.dart';
 typedef BackgroundDrain = Future<bool> Function();
 
 class OptoSyncBackground {
+  /// WorkManager's cross-version periodic-work floor. The same floor is
+  /// applied before crossing the platform channel so Android and iOS callers
+  /// do not observe different behavior for an impossible cadence.
+  static const Duration minimumPeriodicFrequency = Duration(minutes: 15);
+
   static const MethodChannel _channel = MethodChannel(
     'dev.optosync.background/methods',
   );
@@ -57,8 +62,11 @@ class OptoSyncBackground {
       );
     }
     final dispatcher = PluginUtilities.getCallbackHandle(
-      setupBackgroundChannel,
-    )!;
+      optoSyncBackgroundDispatcher,
+    );
+    if (dispatcher == null) {
+      throw StateError('opto-sync background dispatcher is not an entry point');
+    }
     await channel.invokeMethod<void>('initialize', {
       'callbackHandle': handle.toRawHandle(),
       'dispatcherHandle': dispatcher.toRawHandle(),
@@ -73,44 +81,73 @@ class OptoSyncBackground {
   static Future<void> registerPeriodic({
     Duration frequency = const Duration(hours: 1),
     bool requiresNetwork = true,
-  }) => channel.invokeMethod<void>('registerPeriodic', {
-    'frequencySeconds': frequency.inSeconds,
-    'requiresNetwork': requiresNetwork,
-  });
+  }) async {
+    if (frequency.compareTo(minimumPeriodicFrequency) < 0) {
+      throw RangeError.range(
+        frequency.inSeconds,
+        minimumPeriodicFrequency.inSeconds,
+        null,
+        'frequency',
+        'must be at least $minimumPeriodicFrequency',
+      );
+    }
+    await channel.invokeMethod<void>('registerPeriodic', {
+      'frequencySeconds': frequency.inSeconds,
+      'requiresNetwork': requiresNetwork,
+    });
+  }
 
   /// Schedules a one-shot drain as soon as the OS allows (Android expedited
-  /// work; iOS submits the refresh task request immediately). Wire this to
+  /// work; iOS submits a network-bound processing request). Wire this to
   /// `OptoSyncClient.setBackgroundSyncTrigger` for evented push-on-commit.
   static Future<void> scheduleExpedited() async {
     try {
       await channel.invokeMethod<void>('scheduleExpedited');
-    } on PlatformException {
+    } on Exception {
       // A scheduling failure must never fail the durable local write; the
-      // periodic drain (or next foreground session) still delivers.
+      // periodic drain (or next foreground session) still delivers. This also
+      // covers MissingPluginException on an unsupported desktop/test host.
     }
   }
 
   /// Cancels all scheduled background drains.
   static Future<void> cancelAll() => channel.invokeMethod<void>('cancelAll');
+}
 
-  /// Entry point invoked by the native side inside the background engine.
-  /// Not for application use.
-  @pragma('vm:entry-point')
-  static Future<void> setupBackgroundChannel() async {
-    WidgetsFlutterBinding.ensureInitialized();
-    const backgroundChannel = MethodChannel(
-      'dev.optosync.background/background',
-    );
-    backgroundChannel.setMethodCallHandler((call) async {
-      if (call.method != 'runDrain') return null;
-      final rawHandle = (call.arguments as Map)['callbackHandle'] as int;
-      final handle = CallbackHandle.fromRawHandle(rawHandle);
-      final callback = PluginUtilities.getCallbackFromHandle(handle);
-      if (callback is! BackgroundDrain) {
-        throw StateError('registered callback is not a BackgroundDrain');
-      }
-      return callback();
-    });
-    await backgroundChannel.invokeMethod<void>('backgroundChannelReady');
-  }
+/// Entry point invoked by the native side inside the background engine.
+///
+/// This must remain a top-level function. Flutter's headless-engine callback
+/// cache can return a handle for a static class method even though a release
+/// engine cannot subsequently resolve that method as its root entrypoint.
+/// It is public only because Dart entrypoint lookup must survive tree shaking;
+/// applications should call [OptoSyncBackground.initialize] instead.
+@pragma('vm:entry-point')
+Future<void> optoSyncBackgroundDispatcher() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  const backgroundChannel = MethodChannel('dev.optosync.background/background');
+  backgroundChannel.setMethodCallHandler((call) async {
+    if (call.method != 'runDrain') return null;
+    final arguments = call.arguments;
+    if (arguments is! Map) {
+      throw ArgumentError.value(arguments, 'arguments', 'must be a map');
+    }
+    final rawHandle = arguments['callbackHandle'];
+    // Flutter callback handles are signed 64-bit values. Negative values are
+    // valid in generated callback caches, so only zero is the native sentinel
+    // for "not registered".
+    if (rawHandle is! int || rawHandle == 0) {
+      throw ArgumentError.value(
+        rawHandle,
+        'callbackHandle',
+        'must be a non-zero integer',
+      );
+    }
+    final handle = CallbackHandle.fromRawHandle(rawHandle);
+    final callback = PluginUtilities.getCallbackFromHandle(handle);
+    if (callback is! BackgroundDrain) {
+      throw StateError('registered callback is not a BackgroundDrain');
+    }
+    return callback();
+  });
+  await backgroundChannel.invokeMethod<void>('backgroundChannelReady');
 }

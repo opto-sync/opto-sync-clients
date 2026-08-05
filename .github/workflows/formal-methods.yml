@@ -34,7 +34,7 @@ jobs:
           nix_path: nixpkgs=channel:nixos-unstable
 
       - name: Install pinned Dart SDK
-        uses: dart-lang/setup-dart@v1
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
           sdk: '3.12.1'
 
