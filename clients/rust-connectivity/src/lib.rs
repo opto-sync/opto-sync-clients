@@ -8,10 +8,10 @@
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 #[cfg(not(target_arch = "wasm32"))]
 use std::thread::{self, JoinHandle};
 #[cfg(not(target_arch = "wasm32"))]
@@ -58,8 +58,7 @@ pub struct ConnectivitySnapshot {
 
 impl ConnectivitySnapshot {
     pub fn has_verified_internet(self) -> bool {
-        self.mode == ConnectivityMode::Automatic
-            && self.state == ConnectivityState::Internet
+        self.mode == ConnectivityMode::Automatic && self.state == ConnectivityState::Internet
     }
 }
 
@@ -122,10 +121,7 @@ impl ConnectivityWatcher {
         F: Fn(ConnectivitySnapshot, ConnectivitySnapshot) + Send + Sync + 'static,
     {
         let callback: ConnectivityCallback = Arc::new(listener);
-        let id = self
-            .inner
-            .next_listener_id
-            .fetch_add(1, Ordering::Relaxed);
+        let id = self.inner.next_listener_id.fetch_add(1, Ordering::Relaxed);
         lock(&self.inner.listeners).insert(id, callback.clone());
         if emit_current {
             let snapshot = self.snapshot();
@@ -169,8 +165,7 @@ impl ConnectivityWatcher {
                 mode: ConnectivityMode::Automatic,
                 source,
                 changed_at_ms,
-                verified_at_ms: (state == ConnectivityState::Internet)
-                    .then_some(observed_at_ms),
+                verified_at_ms: (state == ConnectivityState::Internet).then_some(observed_at_ms),
             };
             guard.automatic = automatic;
             (automatic, guard.current.mode == ConnectivityMode::Automatic)
@@ -207,11 +202,7 @@ impl ConnectivityWatcher {
     /// directly so callers can distinguish no link, captive/limited link, and
     /// verified internet. Total-offline mode suppresses probe execution.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn spawn_probe<F>(
-        &self,
-        interval: Duration,
-        probe: F,
-    ) -> Result<ProbeHandle, ProbeError>
+    pub fn spawn_probe<F>(&self, interval: Duration, probe: F) -> Result<ProbeHandle, ProbeError>
     where
         F: Fn() -> ConnectivityState + Send + Sync + 'static,
     {
@@ -250,8 +241,7 @@ impl ConnectivityWatcher {
         let (previous, next, changed) = {
             let mut state = lock(&self.inner.state);
             let previous = state.current;
-            let changed = previous.state != candidate.state
-                || previous.mode != candidate.mode;
+            let changed = previous.state != candidate.state || previous.mode != candidate.mode;
             let next = ConnectivitySnapshot {
                 changed_at_ms: if changed {
                     candidate.changed_at_ms
@@ -523,10 +513,7 @@ impl SaveSignals {
     where
         F: Fn(LocalSaveEvent) + Send + Sync + 'static,
     {
-        let id = self
-            .inner
-            .next_listener_id
-            .fetch_add(1, Ordering::Relaxed);
+        let id = self.inner.next_listener_id.fetch_add(1, Ordering::Relaxed);
         let callback: SaveCallback = Arc::new(listener);
         match kind {
             SaveListenerKind::All => {
@@ -573,10 +560,7 @@ fn invoke_connectivity(
     let _ = catch_unwind(AssertUnwindSafe(|| callback(next, previous)));
 }
 
-fn invoke_save_callbacks(
-    callbacks: &Mutex<BTreeMap<usize, SaveCallback>>,
-    event: &LocalSaveEvent,
-) {
+fn invoke_save_callbacks(callbacks: &Mutex<BTreeMap<usize, SaveCallback>>, event: &LocalSaveEvent) {
     let callbacks = lock(callbacks).values().cloned().collect::<Vec<_>>();
     for callback in callbacks {
         let event = event.clone();
@@ -592,7 +576,9 @@ fn invoke_wake(inner: &SaveSignalsInner) {
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn now_ms() -> u64 {
@@ -620,10 +606,7 @@ fn sleep_until_stopped(interval: Duration, stopped: &AtomicBool) {
 /// `record_probe_result(true)` only after an end-to-end probe succeeds.
 #[cfg(all(feature = "wasm", target_arch = "wasm32"))]
 pub mod wasm {
-    use super::{
-        ConnectivitySnapshot, ConnectivitySource, ConnectivityState,
-        ConnectivityWatcher,
-    };
+    use super::{ConnectivitySnapshot, ConnectivitySource, ConnectivityState, ConnectivityWatcher};
     use wasm_bindgen::closure::Closure;
     use wasm_bindgen::{JsCast, JsValue};
     use web_sys::{Event, Window};
@@ -637,43 +620,28 @@ pub mod wasm {
 
     impl BrowserConnectivityWatcher {
         pub fn new(watcher: ConnectivityWatcher) -> Result<Self, JsValue> {
-            let window = web_sys::window()
-                .ok_or_else(|| JsValue::from_str("window is unavailable"))?;
+            let window =
+                web_sys::window().ok_or_else(|| JsValue::from_str("window is unavailable"))?;
             let online_watcher = watcher.clone();
             let online = Closure::wrap(Box::new(move |_event: Event| {
-                if online_watcher.snapshot().mode
-                    == super::ConnectivityMode::Automatic
-                {
-                    online_watcher.publish(
-                        ConnectivityState::Link,
-                        ConnectivitySource::Platform,
-                    );
+                if online_watcher.snapshot().mode == super::ConnectivityMode::Automatic {
+                    online_watcher.publish(ConnectivityState::Link, ConnectivitySource::Platform);
                 }
             }) as Box<dyn FnMut(Event)>);
             let offline_watcher = watcher.clone();
             let offline = Closure::wrap(Box::new(move |_event: Event| {
-                if offline_watcher.snapshot().mode
-                    == super::ConnectivityMode::Automatic
-                {
-                    offline_watcher.publish(
-                        ConnectivityState::Offline,
-                        ConnectivitySource::Platform,
-                    );
+                if offline_watcher.snapshot().mode == super::ConnectivityMode::Automatic {
+                    offline_watcher
+                        .publish(ConnectivityState::Offline, ConnectivitySource::Platform);
                 }
             }) as Box<dyn FnMut(Event)>);
 
-            window.add_event_listener_with_callback(
-                "online",
-                online.as_ref().unchecked_ref(),
-            )?;
-            if let Err(error) = window.add_event_listener_with_callback(
-                "offline",
-                offline.as_ref().unchecked_ref(),
-            ) {
-                let _ = window.remove_event_listener_with_callback(
-                    "online",
-                    online.as_ref().unchecked_ref(),
-                );
+            window.add_event_listener_with_callback("online", online.as_ref().unchecked_ref())?;
+            if let Err(error) =
+                window.add_event_listener_with_callback("offline", offline.as_ref().unchecked_ref())
+            {
+                let _ = window
+                    .remove_event_listener_with_callback("online", online.as_ref().unchecked_ref());
                 return Err(error);
             }
 
@@ -692,9 +660,7 @@ pub mod wasm {
         }
 
         pub fn refresh_link_hint(&self) -> ConnectivitySnapshot {
-            if self.watcher.snapshot().mode
-                == super::ConnectivityMode::Offline
-            {
+            if self.watcher.snapshot().mode == super::ConnectivityMode::Offline {
                 return self.watcher.snapshot();
             }
             self.watcher.publish(
@@ -708,9 +674,7 @@ pub mod wasm {
         }
 
         pub fn record_probe_result(&self, reachable: bool) -> ConnectivitySnapshot {
-            if self.watcher.snapshot().mode
-                == super::ConnectivityMode::Offline
-            {
+            if self.watcher.snapshot().mode == super::ConnectivityMode::Offline {
                 return self.watcher.snapshot();
             }
             if reachable {
