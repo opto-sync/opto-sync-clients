@@ -18,6 +18,7 @@ url = "https://github.com/opto-sync/opto-sync-clients"
 
 [dependencies]
 "opto-sync/opto-sync-interfaces" = "^0.1.0"
+"opto-sync/opto-sync-lib" = "^0.1.0"
 
 [publish]
 include_readme = true
@@ -86,7 +87,7 @@ adapter = "java"
 
 [targets.kotlin]
 dir = "clients/kotlin"
-adapter = "java"
+adapter = "none"
 
 [targets.ruby]
 dir = "clients/ruby"
@@ -98,3 +99,28 @@ adapter = "none"
 
 [targets.swift]
 dir = "clients/swift"
+adapter = "none"
+
+[targets.gleamlang]
+dir = "clients/gleamlang"
+adapter = "none"
+
+[targets.python3]
+dir = "clients/python3"
+adapter = "none"
+
+[targets.typescript-nodejs]
+dir = "clients/typescript/nodejs"
+adapter = "node"
+
+[targets.typescript-deno]
+dir = "clients/typescript/deno"
+adapter = "none"
+
+[targets.typescript-bun]
+dir = "clients/typescript/bun"
+adapter = "node"
+
+[targets.typescript-edge]
+dir = "clients/typescript/edge"
+adapter = "none"
