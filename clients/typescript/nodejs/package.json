@@ -1,0 +1,6 @@
+{
+  "name": "@opto-sync/opto-sync-client-nodejs",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": "./src/index.ts"
+}

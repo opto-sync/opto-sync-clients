@@ -1,0 +1,5 @@
+{
+  "name": "@opto-sync/opto-sync-client-deno",
+  "version": "0.1.0",
+  "exports": "./mod.ts"
+}
