@@ -9,20 +9,17 @@ void main() {
     'total-offline changes local state before invoking native bridge',
     () async {
       final calls = <MethodCall>[];
-      TestDefaultBinaryMessengerBinding
-          .instance
-          .defaultBinaryMessenger
-          .setMockMethodCallHandler(
-            OptoSyncFlutterConnectivity.methods,
-            (call) async {
-              calls.add(call);
-              return <String, Object?>{
-                'state': 'offline',
-                'mode': 'offline',
-                'source': 'forced-offline',
-              };
-            },
-          );
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(OptoSyncFlutterConnectivity.methods, (
+            call,
+          ) async {
+            calls.add(call);
+            return <String, Object?>{
+              'state': 'offline',
+              'mode': 'offline',
+              'source': 'forced-offline',
+            };
+          });
 
       final connectivity = OptoSyncFlutterConnectivity();
       connectivity.setTotalOffline(true);
@@ -34,13 +31,8 @@ void main() {
       expect((calls.single.arguments as Map)['enabled'], isTrue);
 
       await connectivity.dispose();
-      TestDefaultBinaryMessengerBinding
-          .instance
-          .defaultBinaryMessenger
-          .setMockMethodCallHandler(
-            OptoSyncFlutterConnectivity.methods,
-            null,
-          );
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(OptoSyncFlutterConnectivity.methods, null);
     },
   );
 }
