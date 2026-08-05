@@ -27,6 +27,8 @@
 /// ```
 library;
 
+export 'opto_sync_connectivity.dart';
+
 import 'dart:async';
 import 'dart:ui';
 
@@ -78,9 +80,8 @@ class OptoSyncBackground {
     'requiresNetwork': requiresNetwork,
   });
 
-  /// Schedules a one-shot drain as soon as the OS allows (Android expedited
-  /// work; iOS submits the refresh task request immediately). Wire this to
-  /// `OptoSyncClient.setBackgroundSyncTrigger` for evented push-on-commit.
+  /// Schedules a one-shot drain as soon as the OS allows. Wire this to
+  /// `setBackgroundSyncTrigger`; native total-offline mode makes it a no-op.
   static Future<void> scheduleExpedited() async {
     try {
       await channel.invokeMethod<void>('scheduleExpedited');
