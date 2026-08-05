@@ -111,10 +111,8 @@ public class OptoSyncBackgroundPlugin: NSObject, FlutterPlugin, FlutterStreamHan
       defaults.set(enabled, forKey: Self.totalOfflineKey)
       connectivity.setTotalOffline(enabled)
       if enabled {
-        BGTaskScheduler.shared.cancel(
-          taskRequestWithIdentifier: Self.refreshTaskIdentifier)
-        BGTaskScheduler.shared.cancel(
-          taskRequestWithIdentifier: Self.processingTaskIdentifier)
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.refreshTaskIdentifier)
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.processingTaskIdentifier)
         result(connectivity.snapshot().dictionary)
         return
       }
@@ -207,10 +205,8 @@ public class OptoSyncBackgroundPlugin: NSObject, FlutterPlugin, FlutterStreamHan
 
     case "cancelAll":
       defaults.set(false, forKey: Self.periodicRegisteredKey)
-      BGTaskScheduler.shared.cancel(
-        taskRequestWithIdentifier: Self.refreshTaskIdentifier)
-      BGTaskScheduler.shared.cancel(
-        taskRequestWithIdentifier: Self.processingTaskIdentifier)
+      BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.refreshTaskIdentifier)
+      BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.processingTaskIdentifier)
       result(nil)
 
     default:
