@@ -44,7 +44,6 @@ test = "python3 scripts/check-package-layout.py"
 
 [dependencies]
 "opto-sync/opto-sync-interfaces" = "^0.1.0"
-"opto-sync/opto-sync-lib" = "^0.1.0"
 
 [targets.repository]
 dir = "."
