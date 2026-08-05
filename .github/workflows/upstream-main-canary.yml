@@ -24,7 +24,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Checkout clients with the release gitlink
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           path: opto-sync-clients
           fetch-depth: 0
@@ -45,7 +45,7 @@ jobs:
       # Deliberately overlay the working copy only. The committed mode-160000
       # gitlink remains unchanged and authoritative for releases.
       - name: Checkout current syncer.c main into the gitlink path
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           repository: opto-sync/syncer.c
           ref: main
@@ -62,18 +62,18 @@ jobs:
           git -C opto-sync-clients/syncer.c merge-base --is-ancestor "$PINNED_ENGINE_SHA" "$candidate"
           python3 opto-sync-clients/scripts/check-package-layout.py
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: opto-sync-clients/clients/ts/package-lock.json
 
-      - uses: dart-lang/setup-dart@v1
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
           sdk: stable
 
       - name: Install pinned OTP and Elixir
-        uses: erlef/setup-beam@v1
+        uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1
         with:
           otp-version: '27.3'
           elixir-version: '1.18.4'
@@ -91,7 +91,7 @@ jobs:
           sudo tar -xzf gleam-v1.16.0-x86_64-unknown-linux-musl.tar.gz -C /usr/local/bin gleam
 
       - name: Cache Cargo downloads only
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
             ~/.cargo/registry/index

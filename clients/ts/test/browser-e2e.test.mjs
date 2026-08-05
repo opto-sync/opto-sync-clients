@@ -37,7 +37,11 @@ const HTML = `<!doctype html>
 async function launchChromium() {
   try {
     const { chromium } = await import('playwright');
-    return await chromium.launch({ headless: true });
+    const executablePath = process.env.OPTO_SYNC_CHROMIUM_PATH?.trim();
+    return await chromium.launch({
+      headless: true,
+      ...(executablePath ? { executablePath } : {}),
+    });
   } catch (err) {
     console.log(`      chromium unavailable: ${err.message.split('\n')[0]}`);
     return null;

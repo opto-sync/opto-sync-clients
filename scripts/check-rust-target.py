@@ -100,6 +100,7 @@ def main() -> int:
         "clients/rust/src/bin/core_identity.rs",
         "schema/fixtures/valid/basic-upsert.json",
         "schema/fixtures/valid/nested-keyed-arrays.json",
+        "schema/fixtures/invalid/bad-table-identifier.json",
         "syncer.c/SOURCE_SHA",
         "syncer.c/core/include/syncer.h",
         "syncer.c/core/src/syncer.c",

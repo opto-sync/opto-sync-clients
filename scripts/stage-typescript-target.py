@@ -127,6 +127,7 @@ def main() -> int:
         "node --test smoke/indexeddb-queue.cjs smoke/native-reconcile.cjs"
     )
     scripts["test:browser"] = "node --test smoke/browser-indexeddb.mjs"
+    scripts.pop("test:service-worker-browser", None)
     write(package_path, json.dumps(package, indent=2) + "\n")
 
     copy_tree(ROOT / "syncer.c/core/include", output / "syncer.c/core/include")
@@ -150,7 +151,7 @@ def main() -> int:
         "releaseSetId": "opto-sync-typescript-target-candidate",
         "target": "typescript",
         "package": "opto-sync/opto-sync-client-typescript",
-        "clientVersion": "0.2.0",
+        "clientVersion": "0.2.1",
         "syncerVersion": "0.2.1",
         "clientSourceSha": client_sha,
         "syncerSourceSha": nested_sha,
@@ -169,7 +170,7 @@ def main() -> int:
         '''[package]
 org = "opto-sync"
 name = "opto-sync-client-typescript"
-version = "0.2.0"
+version = "0.2.1"
 description = "Self-contained TypeScript opto-sync client prototype with one pinned native/WASM core"
 license = "MIT"
 keywords = ["sync", "offline-first", "typescript", "indexeddb", "wasm"]
@@ -203,7 +204,7 @@ test = "python3 scripts/check-typescript-target.py ."
 
 This clean-room source target contains only:
 
-- `clients/ts` (`@opto-sync/client` 0.2.0);
+- `clients/ts` (`@opto-sync/client` 0.2.1);
 - `clients/ts/smoke` (credential-free extracted-artifact consumers);
 - `syncer.c/core`;
 - `syncer.c/bindings/typescript` (`@opto-sync/syncer` 0.2.1); and

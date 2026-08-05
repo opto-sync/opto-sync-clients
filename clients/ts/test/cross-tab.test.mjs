@@ -328,7 +328,7 @@ test('without Web Locks every tab leads (single-tab baseline)', async () => {
   const loop = fakeLoop();
   const coordinator = startCrossTabCoordinator({
     loop,
-    locks: undefined,
+    locks: null,
     broadcastChannelFactory: fakeChannelBus().factory,
   });
   assert.equal(coordinator.isLeader, true);

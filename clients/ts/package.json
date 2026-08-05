@@ -1,6 +1,6 @@
 {
   "name": "@opto-sync/client",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Offline-first sync client: Dexie mutation queue + CRDT reconciliation via the syncer.c merge engine (native addon in Node, WebAssembly in the browser)",
   "main": "dist/index.js",
   "module": "dist/esm/index.js",
@@ -54,7 +54,8 @@
     "build": "tsc && tsc -p tsconfig.esm.json && node scripts/postbuild.mjs",
     "test": "npm run build && node --test",
     "test:node": "node --test test/queue.test.js test/reconcile.test.js",
-    "test:browser": "node --test test/browser-e2e.test.mjs"
+    "test:browser": "node --test test/browser-e2e.test.mjs",
+    "test:service-worker-browser": "node --test test/core-service-worker-browser.test.mjs"
   },
   "keywords": [
     "sync",

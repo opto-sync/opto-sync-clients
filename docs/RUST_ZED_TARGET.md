@@ -4,6 +4,7 @@ The Rust target is a source-only package staged from a recursive
 `opto-sync-clients` checkout. It contains exactly:
 
 - `clients/rust` with its committed `Cargo.lock`;
+- `schema/fixtures` for the cross-language ingest contract tests;
 - `syncer.c/core/include` and `syncer.c/core/src`;
 - `syncer.c/bindings/rust`;
 - license, release-set metadata, and the extracted-artifact validator.

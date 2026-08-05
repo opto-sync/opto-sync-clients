@@ -100,9 +100,16 @@ return. It must not rely on a permanent WebSocket, memory-only retry state, or a
 uncommitted acknowledgement.
 
 `registerOptoSyncBackgroundWake` prefers the browser Background Sync API and
-falls back to a worker message. The Chromium test opens two tabs on one real
-origin, fires concurrent wakes, and proves the worker performs one IndexedDB
-cycle, then a later independent cycle.
+falls back to a worker message both when the API is absent and when tag
+registration fails (for example because of browser quota or permission state).
+The canonical tag is `opto-sync`; workers also accept the early
+`opto-sync:background` tag so already-durable registrations survive an upgrade.
+Message failure replies use the bounded `SYNC_FAILED` classification and never
+echo transport/storage exception text. The Chromium test opens two tabs on one
+real origin, fires concurrent wakes, dispatches the legacy Background Sync tag
+through Chrome's service-worker protocol, forcibly terminates the worker, and
+proves a fresh worker resumes the durable IndexedDB cycle counter. Set
+`OPTO_SYNC_CHROMIUM_PATH` when Chromium exists outside Playwright's cache.
 
 ## Authentication
 

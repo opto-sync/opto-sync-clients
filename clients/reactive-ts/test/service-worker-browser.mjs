@@ -73,6 +73,16 @@ const pageHtml = Buffer.from(`<!doctype html>
       database.close();
     }
   };
+  window.waitForCycleNotice = (expected) => new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('cycle notice timeout')), 5000);
+    const listener = (event) => {
+      if (event.data?.type !== 'opto-sync:e2e-cycle' || event.data.cycles !== expected) return;
+      clearTimeout(timeout);
+      navigator.serviceWorker.removeEventListener('message', listener);
+      resolve(event.data);
+    };
+    navigator.serviceWorker.addEventListener('message', listener);
+  });
   window.deleteTestDatabase = () => new Promise((resolve, reject) => {
     const request = indexedDB.deleteDatabase('opto-sync-service-worker-e2e');
     request.onerror = () => reject(request.error);
@@ -104,7 +114,11 @@ const origin = `http://127.0.0.1:${address.port}`;
 
 let browser;
 try {
-  browser = await chromium.launch({ headless: true });
+  const executablePath = process.env.OPTO_SYNC_CHROMIUM_PATH?.trim();
+  browser = await chromium.launch({
+    headless: true,
+    ...(executablePath ? { executablePath } : {}),
+  });
   const context = await browser.newContext();
   const first = await context.newPage();
   const second = await context.newPage();
@@ -137,6 +151,79 @@ try {
   assert.equal(later.ok, true);
   assert.equal(await second.evaluate(() => window.readCycles()), 2);
 
+  // Dispatch a real Background Sync event through Chromium's DevTools
+  // protocol. This covers the browser-owned event lifetime and proves an
+  // already-persisted legacy tag still drains after the canonical tag changed.
+  const cdp = await context.newCDPSession(first);
+  const registrationIdPromise = new Promise((resolveRegistration, reject) => {
+    const timeout = setTimeout(
+      () => reject(new Error('service-worker registration id timeout')),
+      5_000,
+    );
+    const onRegistrations = ({ registrations }) => {
+      const registration = registrations.find(
+        (candidate) =>
+          candidate.scopeURL === `${origin}/` && !candidate.isDeleted,
+      );
+      if (!registration) return;
+      clearTimeout(timeout);
+      cdp.off('ServiceWorker.workerRegistrationUpdated', onRegistrations);
+      resolveRegistration(registration.registrationId);
+    };
+    cdp.on('ServiceWorker.workerRegistrationUpdated', onRegistrations);
+  });
+  await cdp.send('ServiceWorker.enable');
+  const registrationId = await registrationIdPromise;
+  const legacyCycleNotice = first.evaluate(() => window.waitForCycleNotice(3));
+  await cdp.send('ServiceWorker.dispatchSyncEvent', {
+    origin,
+    registrationId,
+    tag: 'opto-sync:background',
+    lastChance: false,
+  });
+  await legacyCycleNotice;
+  await first.waitForFunction(
+    async (expected) => (await window.readCycles()) === expected,
+    3,
+  );
+
+  // A ServiceWorker object can stay registered while Chrome tears down its
+  // execution context. Force that lifecycle boundary through CDP, then prove
+  // the next message boots a fresh worker and resumes from durable IndexedDB
+  // state rather than an in-memory counter.
+  const workerStoppedPromise = new Promise((resolveStopped, reject) => {
+    const timeout = setTimeout(
+      () => reject(new Error('service worker did not reach stopped state')),
+      5_000,
+    );
+    const onVersions = ({ versions }) => {
+      const stopped = versions.some(
+        (version) =>
+          version.registrationId === registrationId &&
+          version.runningStatus === 'stopped',
+      );
+      if (!stopped) return;
+      clearTimeout(timeout);
+      cdp.off('ServiceWorker.workerVersionUpdated', onVersions);
+      resolveStopped();
+    };
+    cdp.on('ServiceWorker.workerVersionUpdated', onVersions);
+  });
+  await cdp.send('ServiceWorker.stopAllWorkers');
+  await workerStoppedPromise;
+  const afterRestart = await first.evaluate(() =>
+    window.wakeWorker('after-worker-restart'),
+  );
+  assert.equal(afterRestart.ok, true);
+  assert.notEqual(
+    afterRestart.value.workerInstance,
+    later.value.workerInstance,
+    'Chrome must have evaluated a fresh service-worker global after stop',
+  );
+  assert.equal(afterRestart.value.cycles, 4);
+  assert.equal(await second.evaluate(() => window.readCycles()), 4);
+  await cdp.detach();
+
   const environment = await first.evaluate(() => ({
     indexedDbTag: Object.prototype.toString.call(indexedDB),
     controlled: Boolean(navigator.serviceWorker.controller),
@@ -156,7 +243,7 @@ try {
   });
   await context.close();
   console.log(
-    'service worker: two tabs, one bounded IndexedDB cycle, then one later cycle',
+    'service worker: two tabs coalesced, legacy sync dispatched, forced restart resumed IndexedDB',
   );
 } finally {
   await browser?.close();
