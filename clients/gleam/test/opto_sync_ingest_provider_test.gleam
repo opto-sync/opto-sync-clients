@@ -45,3 +45,9 @@ pub fn rejects_unsafe_integer_timestamp_test() {
     "{\"formatVersion\":1,\"records\":[{\"table\":\"notes\",\"recordId\":\"n1\",\"payload\":{\"updatedAt\":9007199254740992}}]}"
   let assert Error(ValidationError(_)) = opto_sync_ingest.parse_envelope(text)
 }
+
+pub fn accepts_integral_float_timestamp_test() {
+  let text =
+    "{\"formatVersion\":1,\"records\":[{\"table\":\"notes\",\"recordId\":\"n1\",\"payload\":{\"updatedAt\":1.0,\"createdAt\":1e3}}]}"
+  let assert Ok(_) = opto_sync_ingest.parse_envelope(text)
+}

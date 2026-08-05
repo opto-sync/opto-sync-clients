@@ -300,6 +300,75 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function providerName(provider: unknown): string {
+  try {
+    if (provider === null || typeof provider !== 'object') return '<invalid-provider>';
+    const name = (provider as { readonly name?: unknown }).name;
+    return typeof name === 'string' && name.length > 0 ? name : '<unnamed-provider>';
+  } catch {
+    return '<unreadable-provider>';
+  }
+}
+
+function normalizeProviderIssue(name: string, entry: unknown): IngestValidationIssue {
+  if (typeof entry === 'string') return issue(name, entry, [], 'provider_issue');
+  if (entry === null || typeof entry !== 'object') {
+    return issue(name, 'provider returned an invalid issue', [], 'provider_issue');
+  }
+  const candidate = entry as Partial<IngestValidationIssue>;
+  return {
+    code: typeof candidate.code === 'string' ? candidate.code : 'provider_issue',
+    path: Array.isArray(candidate.path)
+      ? candidate.path.map((segment) => (typeof segment === 'number' ? segment : String(segment)))
+      : [],
+    message: typeof candidate.message === 'string' ? candidate.message : 'validation failed',
+    provider:
+      typeof candidate.provider === 'string' && candidate.provider.length > 0
+        ? candidate.provider
+        : name,
+  };
+}
+
+async function runProvider(
+  provider: unknown,
+  value: unknown,
+): Promise<{ readonly name: string; readonly result: ProviderResult }> {
+  const name = providerName(provider);
+  try {
+    if (
+      provider === null ||
+      typeof provider !== 'object' ||
+      typeof (provider as { readonly validate?: unknown }).validate !== 'function'
+    ) {
+      throw new TypeError('provider does not expose validate(value)');
+    }
+    const raw: unknown = await (provider as EnvelopeValidationProvider).validate(value);
+    if (raw === null || typeof raw !== 'object') {
+      throw new TypeError('provider returned an invalid result');
+    }
+    const success = (raw as { readonly success?: unknown }).success;
+    if (success === true) return { name, result: { success: true } };
+    if (success !== false) throw new TypeError('provider result must contain boolean success');
+    const rawIssues = (raw as { readonly issues?: unknown }).issues;
+    if (!Array.isArray(rawIssues)) throw new TypeError('rejecting provider must return an issues array');
+    return {
+      name,
+      result: {
+        success: false,
+        issues: rawIssues.map((entry) => normalizeProviderIssue(name, entry)),
+      },
+    };
+  } catch (error) {
+    return {
+      name,
+      result: {
+        success: false,
+        issues: [issue(name, `provider threw: ${errorMessage(error)}`, [], 'provider_exception')],
+      },
+    };
+  }
+}
+
 async function decodeInput(input: unknown | string | { text(): Promise<string> }): Promise<unknown> {
   try {
     if (typeof input === 'string') return JSON.parse(input);
@@ -329,11 +398,11 @@ export async function parseEnvelope(
   let providerRejected = false;
 
   for (const provider of options.validationProviders ?? []) {
-    const result = await provider.validate(candidate);
+    const { name, result } = await runProvider(provider, candidate);
     if (!result.success) {
       providerRejected = true;
       if (result.issues.length === 0) {
-        issues.push(issue(provider.name, 'validation rejected the envelope', [], 'provider_rejected'));
+        issues.push(issue(name, 'validation rejected the envelope', [], 'provider_rejected'));
       } else {
         issues.push(...result.issues);
       }
@@ -361,10 +430,10 @@ export async function auditEnvelopeProvider(
 ): Promise<ProviderAuditResult> {
   const candidate = await decodeInput(input);
   const canonicalAccepted = envelopeSchema.safeParse(candidate).success;
-  const result = await provider.validate(candidate);
+  const { name, result } = await runProvider(provider, candidate);
   const providerAccepted = result.success;
   return {
-    provider: provider.name,
+    provider: name,
     canonicalAccepted,
     providerAccepted,
     drift: canonicalAccepted !== providerAccepted,

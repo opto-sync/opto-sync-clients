@@ -103,8 +103,11 @@ class ProviderAuditResult {
 int _codePointLength(String value) => value.runes.length;
 
 bool _isTimestamp(Object? value) {
-  if (value is int) {
-    return value >= 0 && value <= maxSafeTimestampInteger;
+  if (value is num) {
+    return value.isFinite &&
+        value >= 0 &&
+        value <= maxSafeTimestampInteger &&
+        value == value.truncateToDouble();
   }
   if (value is String) {
     return _digits.hasMatch(value) ||
@@ -112,6 +115,17 @@ bool _isTimestamp(Object? value) {
         _iso8601Hlc.hasMatch(value);
   }
   return false;
+}
+
+List<String> _providerIssues(
+  EnvelopeValidationProvider provider,
+  Object? value,
+) {
+  try {
+    return provider.validate(value).toList(growable: false);
+  } catch (error) {
+    return ['provider[${provider.name}]: provider threw: $error'];
+  }
 }
 
 Object? _decodeInput(Object? input) {
@@ -136,7 +150,7 @@ IngestEnvelope parseEnvelope(
   }
 
   for (final provider in validationProviders) {
-    issues.addAll(provider.validate(decoded));
+    issues.addAll(_providerIssues(provider, decoded));
   }
 
   const allowedTop = {'formatVersion', 'source', 'records'};
@@ -265,7 +279,7 @@ ProviderAuditResult auditEnvelopeProvider(
   } on IngestValidationException {
     canonicalAccepted = false;
   }
-  final providerIssues = provider.validate(decoded);
+  final providerIssues = _providerIssues(provider, decoded);
   return ProviderAuditResult(
     provider: provider.name,
     canonicalAccepted: canonicalAccepted,

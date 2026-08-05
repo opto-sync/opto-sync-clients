@@ -9,6 +9,13 @@ import (
 	"testing"
 )
 
+type panicProvider struct{}
+
+func (panicProvider) Name() string { return "panic-provider" }
+func (panicProvider) Validate(any) []Issue {
+	panic("boom")
+}
+
 func fixtureRoot(t *testing.T) string {
 	t.Helper()
 	root := filepath.Clean(filepath.Join("..", "..", "schema", "fixtures"))
@@ -78,5 +85,26 @@ func TestAuditDetectsDrift(t *testing.T) {
 	audit := AuditProvider(value, provider)
 	if !audit.Drift || audit.CanonicalAccepted || !audit.ProviderAccepted {
 		t.Fatalf("unexpected audit result: %+v", audit)
+	}
+}
+
+func TestProviderPanicsAndNilProvidersAreContained(t *testing.T) {
+	text := []byte(`{"formatVersion":1,"records":[{"table":"notes","recordId":"n1","payload":{"updatedAt":"1"}}]}`)
+	_, err := ParseJSON(text, panicProvider{})
+	if err == nil || !strings.Contains(err.Error(), "provider[panic-provider]") || !strings.Contains(err.Error(), "provider panicked") {
+		t.Fatalf("expected normalized provider panic, got %v", err)
+	}
+
+	value, decodeErr := decodeJSON(text)
+	if decodeErr != nil {
+		t.Fatal(decodeErr)
+	}
+	panicAudit := AuditProvider(value, panicProvider{})
+	if panicAudit.ProviderAccepted || !panicAudit.Drift || len(panicAudit.ProviderIssues) != 1 {
+		t.Fatalf("unexpected panic audit: %+v", panicAudit)
+	}
+	nilAudit := AuditProvider(value, nil)
+	if nilAudit.ProviderAccepted || !nilAudit.Drift || nilAudit.Provider != "<nil>" {
+		t.Fatalf("unexpected nil audit: %+v", nilAudit)
 	}
 }

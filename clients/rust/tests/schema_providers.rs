@@ -39,6 +39,12 @@ fn accepts_unicode_code_point_boundaries() {
 }
 
 #[test]
+fn accepts_integral_json_number_timestamps() {
+    parse_envelope(&fixture("valid", "integral-number-timestamps.json"))
+        .expect("integral JSON numbers should satisfy the integer schema");
+}
+
+#[test]
 fn named_library_adapters_are_veto_gates() {
     let reject = |_: &Value| Err(vec!["blocked by policy".to_string()]);
     let validator = validator_provider(reject);
@@ -69,4 +75,21 @@ fn audit_reports_acceptance_drift() {
     assert!(audit.drift);
     assert!(!audit.canonical_accepted);
     assert!(audit.provider_accepted);
+}
+
+#[test]
+fn provider_panics_are_normalized_during_parse_and_audit() {
+    let provider = validator_provider(|_| -> Result<(), Vec<String>> { panic!("boom") });
+    let text = fixture("valid", "optional-fields-omitted.json");
+    let error = parse_envelope_with(&text, &[&provider]).unwrap_err();
+    assert!(error
+        .issues
+        .iter()
+        .any(|issue| issue.contains("provider[validator]: provider panicked")));
+
+    let value: Value = serde_json::from_str(&text).expect("fixture is JSON");
+    let audit = audit_provider(&value, &provider);
+    assert!(!audit.provider_accepted);
+    assert!(audit.drift);
+    assert_eq!(audit.provider_issues, vec!["provider panicked"]);
 }

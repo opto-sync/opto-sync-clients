@@ -6,7 +6,10 @@
 //! before the canonical Serde validator returns an [`IngestEnvelope`].
 
 use serde_json::Value;
-use std::fmt;
+use std::{
+    fmt,
+    panic::{catch_unwind, AssertUnwindSafe},
+};
 
 /// Largest integer represented exactly by every supported runtime.
 pub const MAX_SAFE_TIMESTAMP_INTEGER: u64 = 9_007_199_254_740_991;
@@ -233,6 +236,28 @@ where
     FnValidationProvider::new("jsonschema", validate)
 }
 
+fn provider_name(provider: &dyn EnvelopeValidationProvider) -> String {
+    catch_unwind(AssertUnwindSafe(|| provider.name().to_string()))
+        .unwrap_or_else(|_| "<panicked-provider-name>".to_string())
+}
+
+fn run_provider(
+    provider: &dyn EnvelopeValidationProvider,
+    value: &Value,
+) -> (String, Result<(), Vec<String>>) {
+    let name = provider_name(provider);
+    let result = catch_unwind(AssertUnwindSafe(|| provider.validate(value)));
+    let normalized = match result {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(issues)) if issues.is_empty() => {
+            Err(vec!["validation rejected the envelope".to_string()])
+        }
+        Ok(Err(issues)) => Err(issues),
+        Err(_) => Err(vec!["provider panicked".to_string()]),
+    };
+    (name, normalized)
+}
+
 const ENVELOPE_KEYS: [&str; 3] = ["formatVersion", "source", "records"];
 const RECORD_KEYS: [&str; 5] = ["table", "recordId", "operation", "baseRevision", "payload"];
 
@@ -412,19 +437,13 @@ pub fn validate_envelope_with(
         .map_or_else(Vec::new, |error| error.issues.clone());
 
     for provider in providers {
-        if let Err(provider_issues) = provider.validate(value) {
-            if provider_issues.is_empty() {
-                issues.push(format!(
-                    "provider[{}]: validation rejected the envelope",
-                    provider.name()
-                ));
-            } else {
-                issues.extend(
-                    provider_issues
-                        .into_iter()
-                        .map(|entry| format!("provider[{}]: {entry}", provider.name())),
-                );
-            }
+        let (name, result) = run_provider(*provider, value);
+        if let Err(provider_issues) = result {
+            issues.extend(
+                provider_issues
+                    .into_iter()
+                    .map(|entry| format!("provider[{name}]: {entry}")),
+            );
         }
     }
 
@@ -466,10 +485,10 @@ pub fn audit_provider(
     provider: &dyn EnvelopeValidationProvider,
 ) -> ProviderAuditResult {
     let canonical_accepted = validate_envelope(value).is_ok();
-    let result = provider.validate(value);
+    let (name, result) = run_provider(provider, value);
     let provider_accepted = result.is_ok();
     ProviderAuditResult {
-        provider: provider.name().to_string(),
+        provider: name,
         canonical_accepted,
         provider_accepted,
         drift: canonical_accepted != provider_accepted,

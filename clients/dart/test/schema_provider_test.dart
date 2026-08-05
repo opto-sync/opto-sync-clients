@@ -3,6 +3,13 @@ import 'dart:io';
 import 'package:opto_sync_client/schema.dart' as schema;
 import 'package:test/test.dart';
 
+class ThrowingProvider extends schema.EnvelopeValidationProvider {
+  ThrowingProvider() : super('throwing-provider', (_) => const []);
+
+  @override
+  List<String> validate(Object? value) => throw StateError('boom');
+}
+
 Directory locateFixtures() {
   var dir = Directory.current.absolute;
   for (var i = 0; i < 10; i++) {
@@ -37,6 +44,14 @@ void main() {
     );
     expect(envelope.source!.runes.length, 200);
     expect(envelope.records.single.recordId.runes.length, 512);
+  });
+
+  test('accepts mathematically integral JSON number timestamps', () {
+    final envelope = schema.parseEnvelope(
+      fixture('valid', 'integral-number-timestamps.json'),
+    );
+    expect(envelope.records.single.payload['updatedAt'], 1.0);
+    expect(envelope.records.single.payload['createdAt'], 1000.0);
   });
 
   test('rejects null optionals and unsafe integers', () {
@@ -89,5 +104,28 @@ void main() {
     expect(result.drift, isTrue);
     expect(result.canonicalAccepted, isFalse);
     expect(result.providerAccepted, isTrue);
+  });
+
+  test('overridden provider failures are normalized', () {
+    final provider = ThrowingProvider();
+    expect(
+      () => schema.parseEnvelope(
+        fixture('valid', 'optional-fields-omitted.json'),
+        validationProviders: [provider],
+      ),
+      throwsA(
+        isA<schema.IngestValidationException>().having(
+          (error) => error.issues.join('; '),
+          'provider failure',
+          contains('provider[throwing-provider]: provider threw:'),
+        ),
+      ),
+    );
+    final audit = schema.auditEnvelopeProvider(
+      fixture('valid', 'optional-fields-omitted.json'),
+      provider,
+    );
+    expect(audit.providerAccepted, isFalse);
+    expect(audit.drift, isTrue);
   });
 }

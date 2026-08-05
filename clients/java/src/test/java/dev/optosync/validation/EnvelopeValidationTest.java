@@ -17,8 +17,10 @@ public final class EnvelopeValidationTest {
         Path fixtures = Path.of(args[0]);
         testCorpus(fixtures);
         testMalformedJson();
+        testMalformedNumberToken();
         testProviderGate();
         testProviderAudit();
+        testProviderFailureContainment();
         testReflectiveDecoders();
         System.out.println("Java envelope validation tests passed");
     }
@@ -61,11 +63,16 @@ public final class EnvelopeValidationTest {
         expectValidationFailure(() -> EnvelopeValidator.parse("{ not json"));
     }
 
+    private static void testMalformedNumberToken() {
+        String text = "{\"formatVersion\":1,\"records\":[{\"table\":\"notes\","
+                + "\"recordId\":\"n1\",\"payload\":{\"updatedAt\":1e+-2}}]}";
+        expectValidationFailure(() -> EnvelopeValidator.parse(text));
+    }
+
     private static void testProviderGate() {
         ValidationProvider provider = ValidationAdapters.jakartaBeanValidation(
                 value -> List.of("blocked by bean policy"));
-        String text = "{\"formatVersion\":1,\"records\":[{\"table\":\"notes\","
-                + "\"recordId\":\"n1\",\"payload\":{\"updatedAt\":\"1\"}}]}";
+        String text = validText();
         try {
             EnvelopeValidator.parse(text, new StrictJsonDecoder(), List.of(provider));
             throw new AssertionError("provider should veto a valid envelope");
@@ -84,6 +91,36 @@ public final class EnvelopeValidationTest {
         if (!audit.drift() || audit.canonicalAccepted() || !audit.providerAccepted()) {
             throw new AssertionError("unexpected audit result: " + audit);
         }
+    }
+
+    private static void testProviderFailureContainment() throws Exception {
+        ValidationProvider throwing = new ValidationProvider() {
+            @Override
+            public String name() {
+                return "throwing-provider";
+            }
+
+            @Override
+            public List<ValidationIssue> validate(Object decoded) {
+                throw new IllegalStateException("boom");
+            }
+        };
+        Object decoded = new StrictJsonDecoder().decode(validText());
+        expectValidationFailure(() -> EnvelopeValidator.validate(decoded, List.of(throwing)));
+        EnvelopeValidator.ProviderAuditResult audit = EnvelopeValidator.auditProvider(decoded, throwing);
+        if (audit.providerAccepted() || !audit.drift() || audit.providerIssues().isEmpty()) {
+            throw new AssertionError("provider failure escaped audit normalization: " + audit);
+        }
+
+        EnvelopeValidator.ProviderAuditResult nilAudit = EnvelopeValidator.auditProvider(decoded, null);
+        if (nilAudit.providerAccepted() || !nilAudit.drift() || !nilAudit.provider().equals("<null>")) {
+            throw new AssertionError("nil provider was not normalized: " + nilAudit);
+        }
+    }
+
+    private static String validText() {
+        return "{\"formatVersion\":1,\"records\":[{\"table\":\"notes\","
+                + "\"recordId\":\"n1\",\"payload\":{\"updatedAt\":\"1\"}}]}";
     }
 
     private static void testReflectiveDecoders() throws Exception {

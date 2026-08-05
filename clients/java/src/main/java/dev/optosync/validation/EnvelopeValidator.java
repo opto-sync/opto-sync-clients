@@ -88,23 +88,11 @@ public final class EnvelopeValidator {
             List<? extends ValidationProvider> providers) {
         CanonicalResult canonical = validateCanonical(decoded);
         List<ValidationIssue> issues = new ArrayList<>(canonical.issues());
-        for (ValidationProvider provider : providers) {
-            if (provider == null) {
-                issues.add(new ValidationIssue("", "nil provider", "<null>"));
-                continue;
-            }
-            try {
-                for (ValidationIssue providerIssue : provider.validate(decoded)) {
-                    issues.add(new ValidationIssue(
-                            providerIssue.path(),
-                            providerIssue.message(),
-                            providerIssue.provider().isEmpty()
-                                    ? provider.name()
-                                    : providerIssue.provider()));
-                }
-            } catch (RuntimeException error) {
-                issues.add(new ValidationIssue(
-                        "", "provider threw: " + error.getMessage(), provider.name()));
+        if (providers == null) {
+            issues.add(new ValidationIssue("", "provider list must not be null", "<null>"));
+        } else {
+            for (ValidationProvider provider : providers) {
+                issues.addAll(runProvider(provider, decoded).issues());
             }
         }
         if (!issues.isEmpty()) {
@@ -115,15 +103,67 @@ public final class EnvelopeValidator {
 
     public static ProviderAuditResult auditProvider(Object decoded, ValidationProvider provider) {
         CanonicalResult canonical = validateCanonical(decoded);
-        List<ValidationIssue> providerIssues = provider.validate(decoded);
+        ProviderRun providerRun = runProvider(provider, decoded);
         boolean canonicalAccepted = canonical.issues().isEmpty();
-        boolean providerAccepted = providerIssues.isEmpty();
+        boolean providerAccepted = providerRun.issues().isEmpty();
         return new ProviderAuditResult(
-                provider.name(),
+                providerRun.name(),
                 canonicalAccepted,
                 providerAccepted,
                 canonicalAccepted != providerAccepted,
-                providerIssues);
+                providerRun.issues());
+    }
+
+    private record ProviderRun(String name, List<ValidationIssue> issues) {
+        private ProviderRun {
+            issues = List.copyOf(issues);
+        }
+    }
+
+    private static ProviderRun runProvider(ValidationProvider provider, Object decoded) {
+        if (provider == null) {
+            return new ProviderRun(
+                    "<null>",
+                    List.of(new ValidationIssue("", "nil provider", "<null>")));
+        }
+        String name = providerName(provider);
+        try {
+            List<ValidationIssue> rawIssues = provider.validate(decoded);
+            if (rawIssues == null) {
+                return new ProviderRun(
+                        name,
+                        List.of(new ValidationIssue(
+                                "", "provider returned a null issue list", name)));
+            }
+            List<ValidationIssue> normalized = new ArrayList<>(rawIssues.size());
+            for (ValidationIssue issue : rawIssues) {
+                if (issue == null) {
+                    normalized.add(new ValidationIssue("", "validation failed", name));
+                } else {
+                    normalized.add(new ValidationIssue(
+                            issue.path(),
+                            issue.message(),
+                            issue.provider().isEmpty() ? name : issue.provider()));
+                }
+            }
+            return new ProviderRun(name, normalized);
+        } catch (RuntimeException error) {
+            return new ProviderRun(
+                    name,
+                    List.of(new ValidationIssue(
+                            "",
+                            "provider threw: " + error.getClass().getSimpleName(),
+                            name)));
+        }
+    }
+
+    private static String providerName(ValidationProvider provider) {
+        try {
+            String name = provider.name();
+            return name == null || name.isBlank() ? "<unnamed-provider>" : name;
+        } catch (RuntimeException error) {
+            return "<unreadable-provider>";
+        }
     }
 
     private record CanonicalResult(Envelope envelope, List<ValidationIssue> issues) {}

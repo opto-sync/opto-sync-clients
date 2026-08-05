@@ -41,6 +41,14 @@ test('counts source and recordId by Unicode code point', async () => {
   assert.equal(Array.from(envelope.records[0].recordId).length, 512);
 });
 
+test('accepts mathematically integral JSON number timestamps', async () => {
+  const envelope = await parseEnvelope(
+    await fixture('valid', 'integral-number-timestamps.json'),
+  );
+  assert.equal(envelope.records[0].payload.updatedAt, 1);
+  assert.equal(envelope.records[0].payload.createdAt, 1000);
+});
+
 test('rejects unsafe integer timestamps instead of rounding them', async () => {
   await assert.rejects(
     parseEnvelope(await fixture('invalid', 'unsafe-integer-timestamp.json')),
@@ -106,4 +114,26 @@ test('a provider cannot reject silently with an empty issue list', async () => {
       error instanceof IngestValidationError &&
       error.issues.some((entry) => entry.code === 'provider_rejected'),
   );
+});
+
+test('arbitrary provider failures are normalized during parse and audit', async () => {
+  const provider = {
+    name: 'throwing-provider',
+    validate() {
+      throw new Error('boom');
+    },
+  };
+  const text = await fixture('valid', 'optional-fields-omitted.json');
+  await assert.rejects(
+    parseEnvelope(text, { validationProviders: [provider] }),
+    (error) =>
+      error instanceof IngestValidationError &&
+      error.issues.some(
+        (entry) => entry.provider === 'throwing-provider' && entry.code === 'provider_exception',
+      ),
+  );
+  const audit = await auditEnvelopeProvider(text, provider);
+  assert.equal(audit.providerAccepted, false);
+  assert.equal(audit.drift, true);
+  assert.equal(audit.providerIssues[0].code, 'provider_exception');
 });

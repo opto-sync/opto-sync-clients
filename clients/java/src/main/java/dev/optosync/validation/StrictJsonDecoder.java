@@ -165,8 +165,9 @@ public final class StrictJsonDecoder implements JsonDecoder {
                 requireDigits();
             }
             if (tryConsume('e') || tryConsume('E')) {
-                tryConsume('+');
-                tryConsume('-');
+                if (!tryConsume('+')) {
+                    tryConsume('-');
+                }
                 requireDigits();
             }
             try {

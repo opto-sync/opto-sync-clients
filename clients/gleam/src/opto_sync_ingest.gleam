@@ -8,6 +8,7 @@
 import gleam/dict.{type Dict}
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode
+import gleam/float
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -91,6 +92,10 @@ fn as_string(data: Dynamic) -> Result(String, Nil) {
 
 fn as_int(data: Dynamic) -> Result(Int, Nil) {
   decode.run(data, decode.int) |> result.replace_error(Nil)
+}
+
+fn as_float(data: Dynamic) -> Result(Float, Nil) {
+  decode.run(data, decode.float) |> result.replace_error(Nil)
 }
 
 fn as_list(data: Dynamic) -> Result(List(Dynamic), Nil) {
@@ -217,10 +222,17 @@ fn is_timestamp(data: Dynamic) -> Bool {
   case as_int(data) {
     Ok(value) -> value >= 0 && value <= max_safe_timestamp_integer
     Error(Nil) ->
-      case as_string(data) {
+      case as_float(data) {
         Ok(value) ->
-          is_digits(value) || is_native_hlc(value) || is_iso8601(value)
-        Error(Nil) -> False
+          value >=. 0.0
+          && value <=. 9_007_199_254_740_991.0
+          && float.floor(value) == value
+        Error(Nil) ->
+          case as_string(data) {
+            Ok(value) ->
+              is_digits(value) || is_native_hlc(value) || is_iso8601(value)
+            Error(Nil) -> False
+          }
       }
   }
 }

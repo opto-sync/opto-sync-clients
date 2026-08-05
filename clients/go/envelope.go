@@ -125,6 +125,46 @@ func errorProvider(name string, validate func(any) error) Provider {
 	}
 }
 
+func safeProviderName(provider Provider) (name string) {
+	if provider == nil {
+		return "<nil>"
+	}
+	name = "<unnamed-provider>"
+	defer func() {
+		if recover() != nil {
+			name = "<panicked-provider-name>"
+		}
+	}()
+	if found := provider.Name(); found != "" {
+		name = found
+	}
+	return name
+}
+
+func runProvider(provider Provider, value any) (name string, issues []Issue) {
+	name = safeProviderName(provider)
+	if provider == nil {
+		return name, []Issue{{Provider: name, Message: "nil provider"}}
+	}
+	defer func() {
+		if recover() != nil {
+			issues = []Issue{{Provider: name, Message: "provider panicked"}}
+		}
+	}()
+	raw := provider.Validate(value)
+	issues = make([]Issue, len(raw))
+	for index, issue := range raw {
+		if issue.Provider == "" {
+			issue.Provider = name
+		}
+		if issue.Message == "" {
+			issue.Message = "validation failed"
+		}
+		issues[index] = issue
+	}
+	return name, issues
+}
+
 func decodeJSON(text []byte) (any, error) {
 	decoder := json.NewDecoder(bytes.NewReader(text))
 	decoder.UseNumber()
@@ -154,11 +194,8 @@ func Validate(value any, providers ...Provider) (*Envelope, error) {
 	envelope, canonicalIssues := validateCanonical(value)
 	issues := append([]Issue(nil), canonicalIssues...)
 	for _, provider := range providers {
-		if provider == nil {
-			issues = append(issues, Issue{Provider: "<nil>", Message: "nil provider"})
-			continue
-		}
-		issues = append(issues, provider.Validate(value)...)
+		_, providerIssues := runProvider(provider, value)
+		issues = append(issues, providerIssues...)
 	}
 	if len(issues) != 0 {
 		return nil, &ValidationError{Issues: issues}
@@ -176,11 +213,11 @@ type ProviderAudit struct {
 
 func AuditProvider(value any, provider Provider) ProviderAudit {
 	_, canonicalIssues := validateCanonical(value)
-	providerIssues := provider.Validate(value)
+	name, providerIssues := runProvider(provider, value)
 	canonicalAccepted := len(canonicalIssues) == 0
 	providerAccepted := len(providerIssues) == 0
 	return ProviderAudit{
-		Provider:          provider.Name(),
+		Provider:          name,
 		CanonicalAccepted: canonicalAccepted,
 		ProviderAccepted:  providerAccepted,
 		Drift:             canonicalAccepted != providerAccepted,
