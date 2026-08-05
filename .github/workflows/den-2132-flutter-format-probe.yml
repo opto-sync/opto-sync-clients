@@ -1,0 +1,47 @@
+name: DEN-2132 Flutter format probe
+
+on:
+  pull_request:
+    paths:
+      - 'clients/flutter_background/test/opto_sync_connectivity_test.dart'
+      - '.github/workflows/den-2132-flutter-format-probe.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: den-2132-flutter-format-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: '3.44.2'
+
+jobs:
+  print-canonical-format:
+    name: Print canonical Dart formatter output
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout clients and exact core
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Install the pinned Flutter SDK
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Print exact formatted test
+        working-directory: clients/flutter_background
+        run: |
+          set -euo pipefail
+          flutter pub get
+          dart format test/opto_sync_connectivity_test.dart
+          echo '----- BEGIN CANONICAL TEST -----'
+          cat test/opto_sync_connectivity_test.dart
+          echo '----- END CANONICAL TEST -----'
+          exit 1
