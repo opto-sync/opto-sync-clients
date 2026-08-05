@@ -325,9 +325,10 @@ export class BrowserConnectivityWatcher
 
   override setMode(mode: ConnectivityMode): void {
     const previous = this.snapshot().mode;
-    super.setMode(mode);
     if (mode === previous) return;
+
     if (mode === 'offline') {
+      super.setMode(mode);
       this.cancelProbe();
       if (this.timer !== undefined) {
         clearInterval(this.timer);
@@ -335,7 +336,18 @@ export class BrowserConnectivityWatcher
       }
       return;
     }
-    this.observeBrowserLink();
+
+    // While the explicit offline override is still authoritative, replace any
+    // cached, previously verified internet state with the browser's current
+    // link observation. Then restoring automatic mode exposes Link/Offline,
+    // and a fresh bounded probe can promote it to Internet exactly once. This
+    // avoids a stale Internet -> Link -> Internet sequence and duplicate sync
+    // wake hints when total-offline mode is disabled.
+    this.publish(
+      this.isBrowserOffline() ? 'offline' : 'link',
+      'browser-event',
+    );
+    super.setMode(mode);
     if (this.started) {
       this.schedulePeriodicProbe();
       void this.refresh();
