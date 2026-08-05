@@ -1,0 +1,13 @@
+{
+  "formatVersion": 1,
+  "records": [
+    {
+      "table": "notes",
+      "recordId": "nullable-payload",
+      "payload": {
+        "updatedAt": "1",
+        "body": null
+      }
+    }
+  ]
+}

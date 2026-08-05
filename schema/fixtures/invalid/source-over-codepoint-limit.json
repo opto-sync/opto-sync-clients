@@ -1,0 +1,13 @@
+{
+  "formatVersion": 1,
+  "source": "ssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssssss😀",
+  "records": [
+    {
+      "table": "events",
+      "recordId": "e-1",
+      "payload": {
+        "updatedAt": "1"
+      }
+    }
+  ]
+}
