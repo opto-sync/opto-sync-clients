@@ -70,14 +70,18 @@ class OptoSyncConnectivityWatcher(context: Context) {
     private var automatic = current
 
     private val callback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) = refresh()
+        override fun onAvailable(network: Network) {
+            refresh()
+        }
 
         override fun onCapabilitiesChanged(
             network: Network,
             networkCapabilities: NetworkCapabilities,
         ) = publishAutomatic(snapshotFromCapabilities(networkCapabilities))
 
-        override fun onLost(network: Network) = refresh()
+        override fun onLost(network: Network) {
+            refresh()
+        }
 
         override fun onUnavailable() = publishAutomatic(
             OptoSyncConnectivitySnapshot(
