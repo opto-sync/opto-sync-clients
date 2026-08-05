@@ -1,9 +1,8 @@
 /// Envelope validation + ingestion (Dart mirror of the shared contract).
 ///
-/// The source of truth is `opto-sync-clients/schema/opto-sync-envelope.schema.json`;
-/// this validator MUST accept/reject exactly the shared fixture corpus in
-/// `schema/fixtures/` (enforced by test/schema_ingest_test.dart), keeping it
-/// in lockstep with the TS (zod), Rust, and Gleam validators.
+/// The source of truth is `schema/opto-sync-envelope.schema.json`; this
+/// validator and every optional provider must accept/reject exactly the shared
+/// fixture corpus.
 library;
 
 import 'dart:convert';
@@ -11,17 +10,14 @@ import 'dart:convert';
 import '../../opto_sync_client.dart';
 import '../rx/write.dart';
 
+const int maxSafeTimestampInteger = 9007199254740991;
+
 final _identifier = RegExp(r'^[A-Za-z_][A-Za-z0-9_]{0,62}$');
 final _digits = RegExp(r'^[0-9]{1,20}$');
 final _decimal = RegExp(r'^(?:0|[1-9][0-9]*)$');
 final _iso8601Hlc = RegExp(
   r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z(-[0-9A-Za-z._~-]+)*$',
 );
-
-/// Native HLC, as emitted by [formatHlc] in `src/clock.dart`. Not redundant
-/// with [_iso8601Hlc]: `1753876800123-0001-devA.t1` matches neither that
-/// pattern nor [_digits], so without this branch the validator rejects the
-/// timestamps this very client produces.
 final _nativeHlc = RegExp(r'^[0-9]{13}-[0-9a-f]{4}-[^-]{1,128}$');
 
 class IngestValidationException implements Exception {
@@ -44,7 +40,7 @@ class IngestRecord {
 
   final String table;
   final String recordId;
-  final String operation; // 'upsert' | 'delete'
+  final String operation;
   final Map<String, dynamic> payload;
   final String? baseRevision;
 }
@@ -56,8 +52,63 @@ class IngestEnvelope {
   final String? source;
 }
 
+typedef EnvelopeValidationCallback = Iterable<String> Function(Object? value);
+
+/// Veto-only adapter for an additional validation library.
+class EnvelopeValidationProvider {
+  const EnvelopeValidationProvider(this.name, this._validate);
+
+  factory EnvelopeValidationProvider.jsonSchema2(
+    EnvelopeValidationCallback validate,
+  ) => EnvelopeValidationProvider('json_schema2', validate);
+
+  factory EnvelopeValidationProvider.validify(
+    EnvelopeValidationCallback validate,
+  ) => EnvelopeValidationProvider('validify', validate);
+
+  factory EnvelopeValidationProvider.formz(
+    EnvelopeValidationCallback validate,
+  ) => EnvelopeValidationProvider('formz', validate);
+
+  final String name;
+  final EnvelopeValidationCallback _validate;
+
+  List<String> validate(Object? value) {
+    try {
+      return _validate(value)
+          .map((message) => 'provider[$name]: $message')
+          .toList(growable: false);
+    } catch (error) {
+      return ['provider[$name]: provider threw: $error'];
+    }
+  }
+}
+
+class ProviderAuditResult {
+  const ProviderAuditResult({
+    required this.provider,
+    required this.canonicalAccepted,
+    required this.providerAccepted,
+    required this.providerIssues,
+  });
+
+  final String provider;
+  final bool canonicalAccepted;
+  final bool providerAccepted;
+  final List<String> providerIssues;
+
+  bool get drift => canonicalAccepted != providerAccepted;
+}
+
+int _codePointLength(String value) => value.runes.length;
+
 bool _isTimestamp(Object? value) {
-  if (value is int) return value >= 0;
+  if (value is num) {
+    return value.isFinite &&
+        value >= 0 &&
+        value <= maxSafeTimestampInteger &&
+        value == value.truncateToDouble();
+  }
   if (value is String) {
     return _digits.hasMatch(value) ||
         _nativeHlc.hasMatch(value) ||
@@ -66,113 +117,190 @@ bool _isTimestamp(Object? value) {
   return false;
 }
 
+List<String> _providerIssues(
+  EnvelopeValidationProvider provider,
+  Object? value,
+) {
+  try {
+    return provider.validate(value).toList(growable: false);
+  } catch (error) {
+    return ['provider[${provider.name}]: provider threw: $error'];
+  }
+}
+
+Object? _decodeInput(Object? input) {
+  if (input is! String) return input;
+  try {
+    return jsonDecode(input);
+  } on FormatException catch (error) {
+    throw IngestValidationException(['<root>: invalid JSON: ${error.message}']);
+  }
+}
+
 /// Validates a decoded JSON envelope (or a JSON string).
-IngestEnvelope parseEnvelope(Object? input) {
-  final Object? decoded = input is String ? jsonDecode(input) : input;
+IngestEnvelope parseEnvelope(
+  Object? input, {
+  Iterable<EnvelopeValidationProvider> validationProviders = const [],
+}) {
+  final decoded = _decodeInput(input);
   final issues = <String>[];
 
   if (decoded is! Map<String, dynamic>) {
     throw IngestValidationException(['<root>: envelope must be an object']);
   }
-  final allowedTop = {'formatVersion', 'source', 'records'};
+
+  for (final provider in validationProviders) {
+    issues.addAll(_providerIssues(provider, decoded));
+  }
+
+  const allowedTop = {'formatVersion', 'source', 'records'};
   for (final key in decoded.keys) {
-    if (!allowedTop.contains(key)) issues.add('$key: unknown property');
+    if (!allowedTop.contains(key)) issues.add('<root>.$key: unknown property');
   }
+
   if (decoded['formatVersion'] != 1) {
-    issues.add('formatVersion: must be 1');
+    issues.add('<root>.formatVersion: must be 1');
   }
-  final source = decoded['source'];
-  if (source != null && (source is! String || source.length > 200)) {
-    issues.add('source: must be a string of at most 200 characters');
+
+  String? parsedSource;
+  if (decoded.containsKey('source')) {
+    final source = decoded['source'];
+    if (source is String && _codePointLength(source) <= 200) {
+      parsedSource = source;
+    } else {
+      issues.add('<root>.source: must be a string of at most 200 characters');
+    }
   }
 
   final rawRecords = decoded['records'];
   final records = <IngestRecord>[];
-  if (rawRecords is! List || rawRecords.isEmpty) {
-    issues.add('records: must be a non-empty array');
+  if (rawRecords is! List) {
+    issues.add('<root>.records: must be an array');
+  } else if (rawRecords.isEmpty) {
+    issues.add('<root>.records: must be a non-empty array');
   } else {
-    final allowed = {
+    const allowed = {
       'table',
       'recordId',
       'operation',
       'baseRevision',
       'payload',
     };
-    for (var i = 0; i < rawRecords.length; i++) {
-      final raw = rawRecords[i];
-      final where = 'records.$i';
+    for (var index = 0; index < rawRecords.length; index++) {
+      final raw = rawRecords[index];
+      final path = 'records.$index';
+      final recordIssues = <String>[];
       if (raw is! Map<String, dynamic>) {
-        issues.add('$where: must be an object');
+        issues.add('$path: must be an object');
         continue;
       }
+
       for (final key in raw.keys) {
-        if (!allowed.contains(key)) issues.add('$where.$key: unknown property');
+        if (!allowed.contains(key)) recordIssues.add('$path.$key: unknown property');
       }
+
       final table = raw['table'];
       if (table is! String || !_identifier.hasMatch(table)) {
-        issues.add('$where.table: must be a SQL-safe identifier');
+        recordIssues.add('$path.table: must be a SQL-safe identifier');
       }
+
       final recordId = raw['recordId'];
-      if (recordId is! String || recordId.isEmpty || recordId.length > 512) {
-        issues.add('$where.recordId: must be a string of 1..512 characters');
+      if (recordId is! String ||
+          _codePointLength(recordId) < 1 ||
+          _codePointLength(recordId) > 512) {
+        recordIssues.add('$path.recordId: must be a string of 1..512 characters');
       }
-      final operation = raw['operation'] ?? 'upsert';
+
+      Object? operation = 'upsert';
+      if (raw.containsKey('operation')) operation = raw['operation'];
       if (operation != 'upsert' && operation != 'delete') {
-        issues.add('$where.operation: must be upsert or delete');
+        recordIssues.add('$path.operation: must be upsert or delete');
       }
-      final baseRevision = raw['baseRevision'];
-      if (baseRevision != null &&
-          (baseRevision is! String || !_decimal.hasMatch(baseRevision))) {
-        issues.add('$where.baseRevision: must be a canonical decimal string');
+
+      Object? baseRevision;
+      if (raw.containsKey('baseRevision')) {
+        baseRevision = raw['baseRevision'];
+        if (baseRevision is! String || !_decimal.hasMatch(baseRevision)) {
+          recordIssues.add(
+            '$path.baseRevision: must be a canonical decimal string',
+          );
+        }
       }
+
       final payload = raw['payload'];
       if (payload is! Map<String, dynamic>) {
-        issues.add('$where.payload: must be an object');
-        continue;
-      }
-      if (operation == 'delete') {
+        recordIssues.add('$path.payload: must be an object');
+      } else if (operation == 'delete') {
         if (payload.isNotEmpty) {
-          issues.add('$where.payload: a delete record must carry an empty payload');
+          recordIssues.add(
+            '$path.payload: a delete record must carry an empty payload',
+          );
         }
       } else {
-        if (!_isTimestamp(payload['updatedAt'])) {
-          issues.add('$where.payload.updatedAt: required timestamp '
-              '(epoch int, digit string, or fixed-width ISO-8601 UTC/HLC)');
+        if (!payload.containsKey('updatedAt') ||
+            !_isTimestamp(payload['updatedAt'])) {
+          recordIssues.add('$path.payload.updatedAt: invalid or missing timestamp');
         }
         for (final key in const ['createdAt', 'syncedAt']) {
-          final value = payload[key];
-          if (value != null && !_isTimestamp(value)) {
-            issues.add('$where.payload.$key: invalid timestamp');
+          if (payload.containsKey(key) && !_isTimestamp(payload[key])) {
+            recordIssues.add('$path.payload.$key: invalid timestamp');
           }
         }
       }
-      if (issues.isEmpty) {
+
+      if (recordIssues.isEmpty) {
         records.add(
           IngestRecord(
             table: table as String,
             recordId: recordId as String,
             operation: operation as String,
-            payload: payload,
+            payload: payload as Map<String, dynamic>,
             baseRevision: baseRevision as String?,
           ),
         );
+      } else {
+        issues.addAll(recordIssues);
       }
     }
   }
 
   if (issues.isNotEmpty) throw IngestValidationException(issues);
-  return IngestEnvelope(records: records, source: source as String?);
+  return IngestEnvelope(records: records, source: parsedSource);
 }
 
-/// Validates and queues every record of an envelope through the standard
-/// optimism-level write path (nothing queues if any record is invalid).
+ProviderAuditResult auditEnvelopeProvider(
+  Object? input,
+  EnvelopeValidationProvider provider,
+) {
+  final decoded = _decodeInput(input);
+  var canonicalAccepted = true;
+  try {
+    parseEnvelope(decoded);
+  } on IngestValidationException {
+    canonicalAccepted = false;
+  }
+  final providerIssues = _providerIssues(provider, decoded);
+  return ProviderAuditResult(
+    provider: provider.name,
+    canonicalAccepted: canonicalAccepted,
+    providerAccepted: providerIssues.isEmpty,
+    providerIssues: providerIssues,
+  );
+}
+
+/// Validates and queues every record through the standard optimism-level write
+/// path. Nothing queues if the envelope or any provider rejects it.
 Future<List<WriteReceipt>> ingestEnvelope(
   OptoSyncClient client,
   Object? input, {
   Optimism optimism = Optimism.localFirst,
   SyncKicker? loop,
+  Iterable<EnvelopeValidationProvider> validationProviders = const [],
 }) async {
-  final envelope = parseEnvelope(input);
+  final envelope = parseEnvelope(
+    input,
+    validationProviders: validationProviders,
+  );
   final receipts = <WriteReceipt>[];
   for (final record in envelope.records) {
     if (record.operation == 'delete') {

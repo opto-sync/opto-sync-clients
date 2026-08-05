@@ -1,0 +1,12 @@
+{
+  "formatVersion": 1,
+  "records": [
+    {
+      "table": "notes",
+      "recordId": "n-1",
+      "payload": {
+        "updatedAt": "9007199254740992"
+      }
+    }
+  ]
+}
