@@ -100,6 +100,7 @@ jobs:
           dart format --output=none --set-exit-if-changed lib tool
           dart analyze
           dart run tool/self_test.dart
+          dart run tool/background_failure_test.dart
           python3 tool/check_native_background_adapters.py
 
   rust-c-abi-differential:

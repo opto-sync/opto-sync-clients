@@ -72,7 +72,11 @@ final class BackgroundSyncRunner<R> {
     if (visible != null) return visible;
 
     final context = BackgroundSyncContext(budget);
-    final operation = _syncOnce(context);
+    // Future.sync converts setup-time exceptions (credential restoration,
+    // database opening, dependency construction) into the same asynchronous
+    // failure channel as later protocol errors. This ensures every caller sees
+    // one shared Future and the runner can clear ownership consistently.
+    final operation = Future<R>.sync(() => _syncOnce(context));
     final bounded = operation.timeout(
       budget,
       onTimeout: () {

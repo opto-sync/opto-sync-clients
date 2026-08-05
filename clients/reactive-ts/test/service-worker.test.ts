@@ -157,6 +157,19 @@ test('registration uses native Background Sync and falls back to a worker messag
   ]);
 });
 
+test('rejected Background Sync registration reports when no worker is usable', async () => {
+  await assert.rejects(
+    registerOptoSyncBackgroundWake({
+      sync: {
+        register: async () => {
+          throw new DOMException('registration denied', 'NotAllowedError');
+        },
+      },
+    }),
+    /no service worker is available for opto-sync wake-up/,
+  );
+});
+
 test('message failure responses never echo transport credentials', async () => {
   const scope = new FakeScope();
   const responses: unknown[] = [];
