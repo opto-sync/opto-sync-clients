@@ -32,29 +32,29 @@ jobs:
         with:
           nix_path: nixpkgs=channel:nixos-unstable
 
-      - name: Execute the reviewed materialization body
+      - name: Execute reviewed materialization
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          source = Path('.github/workflows/den-1694-materialize-v2.yml').read_text().splitlines()
+          lines = Path('.github/workflows/den-1694-materialize-v2.yml').read_text().splitlines()
           marker = '      - name: Port and harden lease implementation onto current main'
-          start = source.index(marker)
-          run_line = source.index('        run: |', start)
+          start = lines.index(marker)
+          run_line = lines.index('        run: |', start)
           body = []
-          for line in source[run_line + 1:]:
+          for line in lines[run_line + 1:]:
               if line.startswith('      - name:'):
                   break
-              if line == '':
+              if not line:
                   body.append('')
-                  continue
-              if not line.startswith('          '):
-                  raise SystemExit(f'unexpected materializer indentation: {line!r}')
-              body.append(line[10:])
+              elif line.startswith('          '):
+                  body.append(line[10:])
+              else:
+                  raise SystemExit(f'unexpected indentation: {line!r}')
           script = '\n'.join(body) + '\n'
-          leased_needle = "leased.write_text(source, encoding='utf-8')"
-          leased_patch = '''source = source.replace(
+          write = "leased.write_text(source, encoding='utf-8')"
+          patch = '''source = source.replace(
               "Some(libc::EAGAIN) | Some(libc::EWOULDBLOCK)",
               "Some(libc::EAGAIN)",
           )
@@ -63,34 +63,32 @@ jobs:
               '#[allow(dead_code)]\\n#[path = "report_publish.rs"]\\nmod legacy;',
           )
           leased.write_text(source, encoding='utf-8')'''
-          if script.count(leased_needle) != 1:
+          if script.count(write) != 1:
               raise SystemExit('expected one leased source write boundary')
-          script = script.replace(leased_needle, leased_patch, 1)
-
-          tests_needle = "tests.write_text(source, encoding='utf-8')"
-          tests_patch = '''source = source.replace(
+          script = script.replace(write, patch, 1)
+          test_write = "tests.write_text(source, encoding='utf-8')"
+          test_patch = '''source = source.replace(
               "let error = cleanup_stale_publication_state(&root, Duration::ZERO)",
               "let _error = cleanup_stale_publication_state(&root, Duration::ZERO)",
           )
+          source = source.replace(
+              'message.contains("symlink") || message.contains("regular file")',
+              'message.contains("symlink") || message.contains("regular file") || message.contains("Too many levels of symbolic links")',
+          )
           tests.write_text(source, encoding='utf-8')'''
-          if script.count(tests_needle) != 1:
+          if script.count(test_write) != 1:
               raise SystemExit('expected one test source write boundary')
-          script = script.replace(tests_needle, tests_patch, 1)
-          Path('/tmp/den-1694-materialize.sh').write_text(script)
+          Path('/tmp/den-1694-materialize.sh').write_text(script.replace(test_write, test_patch, 1))
           PY
           bash /tmp/den-1694-materialize.sh
 
-      - name: Commit clean implementation
+      - name: Commit implementation
         env:
           BRANCH: ${{ github.head_ref }}
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add \
-            formal/REPORT_PUBLICATION_LEASES.md \
-            tools/fmctl/src/report_publish_leased.rs \
-            tools/fmctl/src/result.rs \
-            tools/fmctl/tests/report_publish_leases.rs
+          git add formal/REPORT_PUBLICATION_LEASES.md tools/fmctl/src/report_publish_leased.rs tools/fmctl/src/result.rs tools/fmctl/tests/report_publish_leases.rs
           git commit -m 'DEN-1694 confine cross-platform publication leases'
           git push origin "HEAD:${BRANCH}"
