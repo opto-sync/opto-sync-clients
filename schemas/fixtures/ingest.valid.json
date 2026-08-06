@@ -1,0 +1,25 @@
+{
+  "format": "opto-sync.ingest.v1",
+  "batchId": "import-2026-07-30",
+  "createdAt": "2026-07-30T12:00:00Z",
+  "mutations": [
+    {
+      "operation": "upsert",
+      "table": "docs",
+      "recordId": "doc-1",
+      "record": {
+        "title": "Imported once, synchronized everywhere",
+        "createdAt": "1721822400000000000",
+        "updatedAt": "1721822400000-0000-device.tab"
+      },
+      "baseRevision": "0"
+    },
+    {
+      "operation": "delete",
+      "table": "docs",
+      "recordId": "doc-obsolete",
+      "deletedAt": "1721822400000000001",
+      "baseRevision": "7"
+    }
+  ]
+}

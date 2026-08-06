@@ -40,6 +40,12 @@ export * from './client.js';
 export * from './clock.js';
 export * from './protocol.js';
 export * from './sync-loop.js';
+export * from './http-transport.js';
+export * from './reactive.js';
+export * from './service-worker.js';
+export * from './session.js';
+export * from './cross-context.js';
+export * from './ingest.js';
 
 /** Options forwarded to the wasm engine's own initializer. */
 export interface InitOptoSyncOptions {
