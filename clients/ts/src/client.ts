@@ -149,6 +149,22 @@ export type AtomicOptimisticWriter = (
   stampedPayload: Readonly<JsonRecord>,
 ) => void | Promise<void>;
 
+export type QueueBatchMutation =
+  | {
+      operation: 'upsert';
+      tableName: string;
+      recordId: string;
+      payload: JsonRecord;
+      baseRevision?: string;
+      resurrect?: boolean;
+    }
+  | {
+      operation: 'delete';
+      tableName: string;
+      recordId: string;
+      baseRevision?: string;
+    };
+
 /**
  * Resolve a timestamp selector against one candidate merge node.
  *
@@ -240,6 +256,19 @@ export class OptoSyncClient {
       throw new QueueQuotaError(
         'QUEUE_FULL',
         `pending queue has reached its ${this.maxPendingMutations}-mutation limit`,
+      );
+    }
+  }
+
+  private async assertPendingBatchQuota(additional: number): Promise<void> {
+    const pending = await this.db.localMutations
+      .where('syncStatus')
+      .equals(SYNC_STATUS.PENDING)
+      .count();
+    if (pending + additional > this.maxPendingMutations) {
+      throw new QueueQuotaError(
+        'QUEUE_FULL',
+        `queue has ${pending} pending mutations; adding ${additional} exceeds its ${this.maxPendingMutations}-mutation limit`,
       );
     }
   }
@@ -463,6 +492,81 @@ export class OptoSyncClient {
     );
     this.triggerBackgroundSync();
     return row;
+  }
+
+  /**
+   * Validate payload quotas, then enqueue one whole import as a single
+   * IndexedDB transaction with contiguous protocol identities.
+   *
+   * This is the durable boundary used by the shared JSON ingest API. Either
+   * every mutation is visible to the foreground/service-worker loop or none
+   * are; a malformed/quota-exceeding record cannot leave a partial batch.
+   */
+  async queueBatch(
+    mutations: readonly QueueBatchMutation[],
+  ): Promise<readonly number[]> {
+    if (mutations.length === 0) {
+      throw new TypeError('queueBatch requires at least one mutation');
+    }
+    const prepared: Array<
+      QueueBatchMutation & { jsonPayload: string; clientId: string }
+    > = [];
+    for (const mutation of mutations) {
+      if (mutation.operation === 'delete') {
+        this.assertPayloadQuota('{}');
+        prepared.push({
+          ...mutation,
+          jsonPayload: '{}',
+          clientId: await this.clientId(),
+        });
+      } else {
+        const upsert = await this.prepareUpsert(mutation.payload);
+        prepared.push({
+          ...mutation,
+          jsonPayload: upsert.jsonPayload,
+          clientId: upsert.clientId,
+        });
+      }
+    }
+
+    const rows = await this.db.transaction(
+      'rw',
+      [this.db.localMutations, this.db.meta],
+      async () => {
+        await this.assertPendingBatchQuota(prepared.length);
+        let sequence = BigInt(
+          (await this.db.meta.get(META_MUTATION_SEQ))?.value ?? '0',
+        );
+        const ids: number[] = [];
+        for (const mutation of prepared) {
+          sequence += 1n;
+          const id = await this.db.localMutations.add({
+            tableName: mutation.tableName,
+            recordId: mutation.recordId,
+            jsonPayload: mutation.jsonPayload,
+            createdAt: Date.now(),
+            syncStatus: SYNC_STATUS.PENDING,
+            clientId: mutation.clientId,
+            mutationId: sequence.toString(),
+            operation: mutation.operation,
+            baseRevision: mutation.baseRevision,
+            resurrect:
+              mutation.operation === 'upsert'
+                ? mutation.resurrect
+                : undefined,
+            attempts: 0,
+          });
+          ids.push(id);
+        }
+        await this.db.meta.put({
+          key: META_MUTATION_SEQ,
+          value: sequence.toString(),
+        });
+        return ids;
+      },
+    );
+    this.triggerBackgroundSync();
+    return rows;
   }
 
   private async insertDelete(
