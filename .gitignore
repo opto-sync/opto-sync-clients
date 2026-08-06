@@ -20,3 +20,7 @@ _apalache-out/
 *.swp
 .vscode/
 .idea/
+tmp
+temp
+tmp/worktrees
+temp/worktrees
