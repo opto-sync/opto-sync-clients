@@ -14,6 +14,7 @@ import assert from 'node:assert';
 
 import { bundleBrowserClient, serveBundle } from './helpers/bundle.mjs';
 import { RECONCILE_SCENARIOS } from './helpers/corpus.mjs';
+import { launchChromium, reportBrowserUsage } from './helpers/browser.mjs';
 
 /* Native results computed in Node, to compare the browser's against. */
 import * as nativeClient from '../dist/reconcile.js';
@@ -33,31 +34,7 @@ const HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>opto-sync browser harness</title></head>
 <body><script src="/opto-sync.browser.js"></script></body></html>`;
 
-/** @returns {Promise<import('playwright').Browser|null>} */
-async function launchChromium() {
-  try {
-    const { chromium } = await import('playwright');
-    const executablePath = process.env.OPTO_SYNC_CHROMIUM_PATH?.trim();
-    return await chromium.launch({
-      headless: true,
-      ...(executablePath ? { executablePath } : {}),
-    });
-  } catch (err) {
-    console.log(`      chromium unavailable: ${err.message.split('\n')[0]}`);
-    return null;
-  }
-}
-
 const browser = await launchChromium();
-
-/* CI sets OPTO_SYNC_REQUIRE_BROWSER=1 so an environment that cannot launch
-   Chromium fails loudly instead of reporting a green, entirely skipped run. */
-if (!browser && process.env.OPTO_SYNC_REQUIRE_BROWSER === '1') {
-  throw new Error(
-    'OPTO_SYNC_REQUIRE_BROWSER=1 but Chromium could not be launched; ' +
-      'run `npx playwright install --with-deps chromium`',
-  );
-}
 
 /* Without this the browser process keeps the event loop alive and the test
    file never exits. */
@@ -392,13 +369,6 @@ test(
   },
 );
 
-test('report whether a real browser was exercised', () => {
-  // Recorded as an explicit assertion so a skipped browser run is visible in
-  // the output instead of being mistaken for coverage.
-  if (browser) {
-    console.log(`      real browser exercised: Chromium ${browser.version()}`);
-  } else {
-    console.log('      real browser NOT exercised (Chromium unavailable)');
-  }
-  assert.ok(true);
-});
+// Makes a skipped browser run visible instead of mistakable for coverage, and
+// fatal when OPTO_SYNC_REQUIRE_BROWSER is set (CI sets it).
+reportBrowserUsage(browser, 'browser e2e');
