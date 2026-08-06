@@ -12,7 +12,13 @@ export 'src/syncer_backend_stub.dart'
     if (dart.library.io) 'src/syncer_backend_native.dart'
     show ArrayMergeStrategy, ArrayStrategy, resolveSyncerLibraryPath;
 export 'src/clock.dart';
+export 'src/ingest.dart';
+export 'src/mobile_background_sync.dart';
+export 'src/native_transports_stub.dart'
+    if (dart.library.io) 'src/native_transports.dart';
 export 'src/protocol_sync_loop.dart';
+export 'src/reactive_sync.dart';
+export 'src/session_sync.dart';
 
 part 'opto_sync_client.g.dart';
 
@@ -305,6 +311,46 @@ class DriftClockPersistence implements ClockPersistence {
   }
 }
 
+sealed class QueueBatchMutation {
+  final String tableName;
+  final String recordId;
+  final String? baseRevision;
+
+  const QueueBatchMutation({
+    required this.tableName,
+    required this.recordId,
+    this.baseRevision,
+  });
+}
+
+final class QueueBatchUpsert extends QueueBatchMutation {
+  final Map<String, dynamic> payload;
+  final bool resurrect;
+
+  const QueueBatchUpsert({
+    required super.tableName,
+    required super.recordId,
+    required this.payload,
+    super.baseRevision,
+    this.resurrect = false,
+  });
+}
+
+final class QueueBatchDelete extends QueueBatchMutation {
+  const QueueBatchDelete({
+    required super.tableName,
+    required super.recordId,
+    super.baseRevision,
+  });
+}
+
+final class _PreparedQueueBatchMutation {
+  final QueueBatchMutation mutation;
+  final String jsonPayload;
+
+  const _PreparedQueueBatchMutation(this.mutation, this.jsonPayload);
+}
+
 class OptoSyncClient implements ProtocolQueueAdapter {
   final OptoSyncDatabase db;
   final ISyncer syncer;
@@ -403,6 +449,23 @@ class OptoSyncClient implements ProtocolQueueAdapter {
       throw QueueQuotaException(
         'QUEUE_FULL',
         'pending queue has reached its '
+            '$maxPendingMutations-mutation limit',
+      );
+    }
+  }
+
+  Future<void> _assertPendingBatchQuota(int additional) async {
+    final countExpression = db.localMutations.id.count();
+    final countQuery = db.selectOnly(db.localMutations)
+      ..addColumns([countExpression])
+      ..where(db.localMutations.syncStatus.equals(SyncStatus.pending));
+    final pending = await countQuery
+        .map((row) => row.read(countExpression) ?? 0)
+        .getSingle();
+    if (pending + additional > maxPendingMutations) {
+      throw QueueQuotaException(
+        'QUEUE_FULL',
+        'queue has $pending pending mutations; adding $additional exceeds its '
             '$maxPendingMutations-mutation limit',
       );
     }
@@ -679,6 +742,83 @@ class OptoSyncClient implements ProtocolQueueAdapter {
     });
     _triggerBackgroundSync();
     return rowId;
+  }
+
+  /// Enqueue a complete validated import in one SQLite transaction.
+  ///
+  /// The foreground loop and WorkManager/BGTaskScheduler can observe either
+  /// every row with contiguous protocol identities or none of them.
+  Future<List<int>> queueBatch(
+    List<QueueBatchMutation> mutations,
+  ) async {
+    if (mutations.isEmpty) {
+      throw ArgumentError.value(mutations, 'mutations', 'must not be empty');
+    }
+    final prepared = <_PreparedQueueBatchMutation>[];
+    for (final mutation in mutations) {
+      if (mutation is QueueBatchDelete) {
+        _assertPayloadQuota('{}');
+        prepared.add(_PreparedQueueBatchMutation(mutation, '{}'));
+        continue;
+      }
+      final upsert = mutation as QueueBatchUpsert;
+      var stamped = upsert.payload;
+      if (stampUpdatedAt && upsert.payload['updatedAt'] == null) {
+        final clock = await this.clock();
+        stamped = {...upsert.payload, 'updatedAt': await clock.next()};
+      }
+      final jsonPayload = jsonEncode(stamped);
+      _assertPayloadQuota(jsonPayload);
+      prepared.add(_PreparedQueueBatchMutation(mutation, jsonPayload));
+    }
+
+    final stableClientId = await clientId();
+    final ids = await db.transaction(() async {
+      await _assertPendingBatchQuota(prepared.length);
+      final storedSequence =
+          await (db.select(db.meta)..where(
+                (t) => t.key.equals(metaMutationSequenceKey),
+              ))
+              .getSingleOrNull();
+      var sequence =
+          BigInt.tryParse(storedSequence?.value ?? '0') ?? BigInt.zero;
+      final inserted = <int>[];
+      for (final item in prepared) {
+        sequence += BigInt.one;
+        final mutation = item.mutation;
+        inserted.add(
+          await db
+              .into(db.localMutations)
+              .insert(
+                LocalMutationsCompanion.insert(
+                  targetTable: mutation.tableName,
+                  recordId: mutation.recordId,
+                  jsonPayload: item.jsonPayload,
+                  clientId: Value(stableClientId),
+                  mutationId: Value('$sequence'),
+                  operation: Value(
+                    mutation is QueueBatchUpsert ? 'upsert' : 'delete',
+                  ),
+                  baseRevision: Value(mutation.baseRevision),
+                  resurrect: Value(
+                    mutation is QueueBatchUpsert && mutation.resurrect,
+                  ),
+                ),
+              ),
+        );
+      }
+      await db
+          .into(db.meta)
+          .insertOnConflictUpdate(
+            MetaEntry(
+              key: metaMutationSequenceKey,
+              value: '$sequence',
+            ),
+          );
+      return inserted;
+    });
+    _triggerBackgroundSync();
+    return ids;
   }
 
   /// Delete the oldest acknowledged rows, retaining recent diagnostics.
