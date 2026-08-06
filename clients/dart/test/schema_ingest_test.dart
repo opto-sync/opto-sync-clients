@@ -41,7 +41,9 @@ Directory locateFixtures() {
     if (parent.path == dir.path) break;
     dir = parent;
   }
-  throw StateError('could not locate schema/fixtures above ${Directory.current.path}');
+  throw StateError(
+    'could not locate schema/fixtures above ${Directory.current.path}',
+  );
 }
 
 void main() {
@@ -80,7 +82,11 @@ void main() {
     final syncer = FfiSyncer(libraryPath: locateCoreLibrary());
     final db = OptoSyncDatabase(NativeDatabase.memory());
     addTearDown(db.close);
-    final client = OptoSyncClient(db: db, syncer: syncer, stampUpdatedAt: false);
+    final client = OptoSyncClient(
+      db: db,
+      syncer: syncer,
+      stampUpdatedAt: false,
+    );
 
     final raw = File(
       '${fixtures.path}${Platform.pathSeparator}valid${Platform.pathSeparator}nested-keyed-arrays.json',

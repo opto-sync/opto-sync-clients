@@ -34,13 +34,13 @@ final class OptoSyncConnectivitySnapshot {
       state == OptoSyncConnectivityState.internet;
 
   Map<String, Object?> toJson() => <String, Object?>{
-        'state': state.name,
-        'mode': mode.name,
-        'source': source.name,
-        'changedAt': changedAt.millisecondsSinceEpoch,
-        if (verifiedAt case final value?)
-          'verifiedAt': value.millisecondsSinceEpoch,
-      };
+    'state': state.name,
+    'mode': mode.name,
+    'source': source.name,
+    'changedAt': changedAt.millisecondsSinceEpoch,
+    if (verifiedAt case final value?)
+      'verifiedAt': value.millisecondsSinceEpoch,
+  };
 }
 
 abstract interface class OptoSyncConnectivityWatcher {
@@ -57,10 +57,8 @@ abstract interface class OptoSyncConnectivityWatcher {
 final class ManualOptoSyncConnectivityWatcher
     implements OptoSyncConnectivityWatcher {
   ManualOptoSyncConnectivityWatcher({
-    OptoSyncConnectivityState initialState =
-        OptoSyncConnectivityState.unknown,
-    OptoSyncConnectivityMode initialMode =
-        OptoSyncConnectivityMode.automatic,
+    OptoSyncConnectivityState initialState = OptoSyncConnectivityState.unknown,
+    OptoSyncConnectivityMode initialMode = OptoSyncConnectivityMode.automatic,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now {
     final timestamp = _now();
@@ -94,7 +92,9 @@ final class ManualOptoSyncConnectivityWatcher
   Stream<OptoSyncConnectivitySnapshot> get changes => _controller.stream;
 
   @override
-  Stream<OptoSyncConnectivitySnapshot> snapshots({bool emitCurrent = true}) async* {
+  Stream<OptoSyncConnectivitySnapshot> snapshots({
+    bool emitCurrent = true,
+  }) async* {
     if (emitCurrent) yield _current;
     yield* changes;
   }
@@ -128,10 +128,10 @@ final class ManualOptoSyncConnectivityWatcher
   }
 
   void setTotalOffline(bool enabled) => setMode(
-        enabled
-            ? OptoSyncConnectivityMode.offline
-            : OptoSyncConnectivityMode.automatic,
-      );
+    enabled
+        ? OptoSyncConnectivityMode.offline
+        : OptoSyncConnectivityMode.automatic,
+  );
 
   /// Records a platform observation or successful end-to-end probe.
   OptoSyncConnectivitySnapshot publish(
@@ -207,9 +207,8 @@ final class OptoSyncLocalSaveEvent {
   final OptoSyncConnectivitySnapshot connectivity;
 }
 
-typedef OptoSyncLocalSaveHook = FutureOr<void> Function(
-  OptoSyncLocalSaveEvent event,
-);
+typedef OptoSyncLocalSaveHook =
+    FutureOr<void> Function(OptoSyncLocalSaveEvent event);
 typedef OptoSyncWakeHint = FutureOr<void> Function();
 
 /// Adds post-commit save hooks to any Dart/Flutter opto-sync client without
@@ -240,7 +239,7 @@ final class OptoSyncConnectivitySaveSignals {
       StreamController<OptoSyncLocalSaveEvent>.broadcast(sync: true);
   late OptoSyncConnectivitySnapshot _lastConnectivity;
   late final StreamSubscription<OptoSyncConnectivitySnapshot>
-      _connectivitySubscription;
+  _connectivitySubscription;
   bool _disposed = false;
 
   Stream<OptoSyncLocalSaveEvent> get saves => _saveController.stream;
@@ -249,10 +248,10 @@ final class OptoSyncConnectivitySaveSignals {
       saves.where((event) => event.connectivity.hasVerifiedInternet);
 
   void setTotalOffline(bool enabled) => watcher.setMode(
-        enabled
-            ? OptoSyncConnectivityMode.offline
-            : OptoSyncConnectivityMode.automatic,
-      );
+    enabled
+        ? OptoSyncConnectivityMode.offline
+        : OptoSyncConnectivityMode.automatic,
+  );
 
   Future<T> afterDurableSave<T>({
     required Future<T> Function() save,
@@ -309,21 +308,14 @@ final class OptoSyncConnectivitySaveSignals {
     await _saveController.close();
   }
 
-  void _callHook(
-    OptoSyncLocalSaveHook? hook,
-    OptoSyncLocalSaveEvent event,
-  ) {
+  void _callHook(OptoSyncLocalSaveHook? hook, OptoSyncLocalSaveEvent event) {
     if (hook == null) return;
-    unawaited(
-      Future<void>.sync(() => hook(event)).catchError((Object _) {}),
-    );
+    unawaited(Future<void>.sync(() => hook(event)).catchError((Object _) {}));
   }
 
   void _callWake() {
     final wake = onMutationQueued;
     if (wake == null) return;
-    unawaited(
-      Future<void>.sync(wake).catchError((Object _) {}),
-    );
+    unawaited(Future<void>.sync(wake).catchError((Object _) {}));
   }
 }
