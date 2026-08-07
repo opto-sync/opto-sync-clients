@@ -27,9 +27,9 @@ const SENTINEL: &str = "@@OPTO@@";
 fn emit(event: &str, fields: &BTreeMap<&str, String>) {
     let mut line = format!("{SENTINEL} {{\"event\":\"{event}\",\"runtime\":\"rust\"");
     for (key, value) in fields {
-        if value.starts_with('#') {
-            // '#' marks an already-encoded literal (number or bool).
-            line.push_str(&format!(",\"{key}\":{}", &value[1..]));
+        // '#' marks an already-encoded literal (number or bool).
+        if let Some(literal) = value.strip_prefix('#') {
+            line.push_str(&format!(",\"{key}\":{literal}"));
         } else {
             line.push_str(&format!(",\"{key}\":\"{}\"", escape(value)));
         }
