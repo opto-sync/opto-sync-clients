@@ -24,6 +24,16 @@ void _expect(bool condition, String message) {
   if (!condition) throw StateError(message);
 }
 
+/// `dart run` writes native-asset build progress ("Running build hooks...") to
+/// the child's stderr. That chatter is toolchain output, not a child failure,
+/// so it must not be mistaken for one when asserting a clean exit.
+String _childDiagnostics(String stderr) {
+  return stderr
+      .replaceAll('Running build hooks...', '')
+      .replaceAll('\r', '')
+      .trim();
+}
+
 SqliteDesktopLeaseGrant _acquired(SqliteDesktopAcquireResult result) {
   if (result case SqliteDesktopAcquired(:final grant)) return grant;
   throw StateError('expected SQLite lease acquisition');
@@ -304,9 +314,12 @@ Future<void> _multiprocessContentionTest() async {
       ),
     );
     for (final contender in contenders) {
-      _expect(contender.exitCode == 0, contender.stderr.toString());
       _expect(
-        contender.stdout.toString().trim().startsWith('busy:'),
+        contender.exitCode == 0,
+        _childDiagnostics(contender.stderr.toString()),
+      );
+      _expect(
+        _childDiagnostics(contender.stdout.toString()).contains('busy:'),
         'independent process bypassed the active lease',
       );
     }

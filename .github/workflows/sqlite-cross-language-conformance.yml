@@ -1,0 +1,75 @@
+name: SQLite cross-language conformance
+
+# DEN-1078 residual acceptance: one deterministic corpus in which Node, Dart,
+# and Rust open the same SQLite database and prove mutual exclusion, monotonic
+# fencing, and lossless wake handoff. The per-language suites in
+# desktop-background-sync.yml prove each runtime against itself; this workflow
+# is the only place they are proven against each other.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sqlite-cross-language-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  corpus:
+    name: cross-language corpus (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            clients/desktop-rust/target
+          key: ${{ runner.os }}-cargo-conformance-${{ hashFiles('clients/desktop-rust/Cargo.lock') }}
+
+      - name: Build the Rust conformance child
+        working-directory: clients/desktop-rust
+        run: cargo build --bin opto_sync_sqlite_child
+
+      - name: Build the Dart conformance child
+        working-directory: clients/reactive-dart
+        shell: bash
+        run: |
+          dart pub get
+          mkdir -p build
+          # Compiled rather than `dart run`: the JIT path writes build-hook
+          # progress onto the same streams the child protocol uses.
+          dart compile exe tool/sqlite_conformance_child.dart \
+            -o build/sqlite_conformance_child
+
+      - name: Run the cross-language corpus
+        run: node conformance/sqlite-cross-language/run-corpus.mjs
+
+      - name: Re-run the corpus to prove determinism
+        run: node conformance/sqlite-cross-language/run-corpus.mjs
