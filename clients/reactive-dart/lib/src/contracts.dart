@@ -98,17 +98,18 @@ SyncSessionIdentity requireAuthenticated(SyncSession session) {
     );
   }
   throw StateError(
-      'sync requires an authenticated session: ${session.runtimeType}');
+    'sync requires an authenticated session: ${session.runtimeType}',
+  );
 }
 
 String _component(String value) => Uri.encodeComponent(value);
 
 /// Durable storage/queue partition. Session rotation does not strand work.
 String storagePartitionKey(SyncSessionIdentity identity) => <String>[
-      identity.provider,
-      identity.providerTenant,
-      identity.sharedUserId,
-    ].map(_component).join(':');
+  identity.provider,
+  identity.providerTenant,
+  identity.sharedUserId,
+].map(_component).join(':');
 
 /// Live transport generation. Session rotation cancels stale streams.
 String transportSessionKey(SyncSessionIdentity identity) =>
@@ -145,10 +146,13 @@ final class SyncRecordEvent<T> {
 Object? _stable(Object? value) {
   if (value is List<Object?>) return value.map(_stable).toList(growable: false);
   if (value is Map<Object?, Object?>) {
-    final entries = value.entries
-        .map((entry) => MapEntry(entry.key.toString(), _stable(entry.value)))
-        .toList(growable: false)
-      ..sort((left, right) => left.key.compareTo(right.key));
+    final entries =
+        value.entries
+            .map(
+              (entry) => MapEntry(entry.key.toString(), _stable(entry.value)),
+            )
+            .toList(growable: false)
+          ..sort((left, right) => left.key.compareTo(right.key));
     return Map<String, Object?>.fromEntries(entries);
   }
   return value;

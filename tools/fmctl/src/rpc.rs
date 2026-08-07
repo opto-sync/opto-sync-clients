@@ -233,7 +233,8 @@ fn dispatch(app: &App, method: &str, params: Value) -> Result<Value, RpcFault> {
                 "fm.replay",
                 "fm.shutdown"
             ],
-            "execution": "serial"
+            "execution": "serial",
+            "report_bundle_schema": "fm.report-bundle.v1"
         })),
         "fm.validate" => serde_json::to_value(app.validate().map_err(RpcFault::from_fm)?)
             .map_err(RpcFault::from_json),
@@ -257,8 +258,10 @@ fn dispatch(app: &App, method: &str, params: Value) -> Result<Value, RpcFault> {
                 let plan = app.plan(&operation).map_err(RpcFault::from_fm)?;
                 Ok(json!({ "kind": "plan", "plan": plan }))
             } else {
-                let outcome = app.execute(&operation).map_err(RpcFault::from_fm)?;
-                Ok(json!({ "kind": "outcome", "outcome": outcome }))
+                let execution = app
+                    .execute_with_report_bundle(&operation)
+                    .map_err(RpcFault::from_fm)?;
+                Ok(json!({ "kind": "execution", "execution": execution }))
             }
         }
         "fm.shutdown" => Ok(json!({ "shutdown": true })),

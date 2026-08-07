@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -7,6 +8,30 @@ use serde::{Deserialize, Serialize};
 use crate::error::FmError;
 
 pub const MANIFEST_SCHEMA_VERSION: u32 = 1;
+pub const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
+pub const MAX_INVARIANTS: usize = 256;
+pub const MAX_WITNESSES: usize = 256;
+pub const MAX_ADAPTERS: usize = 32;
+pub const MAX_REQUIRED_ACTIONS: usize = 256;
+pub const MAX_OBSERVABLE_FIELDS: usize = 256;
+pub const MAX_COMMAND_ARGUMENTS: usize = 64;
+pub const MAX_ENVIRONMENT_ENTRIES: usize = 64;
+pub const MAX_LABEL_BYTES: usize = 128;
+pub const MAX_IDENTIFIER_BYTES: usize = 128;
+pub const MAX_TOOLCHAIN_TOKEN_BYTES: usize = 256;
+pub const MAX_COMMAND_ARGUMENT_BYTES: usize = 4096;
+pub const MAX_ENVIRONMENT_KEY_BYTES: usize = 128;
+pub const MAX_ENVIRONMENT_VALUE_BYTES: usize = 4096;
+pub const MAX_TIMEOUT_SECONDS: u64 = 21_600;
+pub const MAX_OUTPUT_BYTES: usize = 64 * 1024 * 1024;
+pub const MAX_SIMULATION_SAMPLES: u64 = 1_000_000;
+pub const MAX_SIMULATION_STEPS: u64 = 100_000;
+pub const MAX_SIMULATION_WORK: u64 = 100_000_000;
+pub const MAX_VERIFICATION_STEPS: u64 = 100_000;
+pub const MAX_TRACE_COUNT: u64 = 10_000;
+pub const MAX_TRACE_STEPS: u64 = 100_000;
+pub const MAX_TRACE_SAMPLES: u64 = 1_000_000;
+pub const MAX_TRACE_WORK: u64 = 100_000_000;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -181,8 +206,7 @@ impl LoadedManifest {
             fs::canonicalize(workspace).map_err(|source| FmError::io(workspace, source))?;
         let manifest_path =
             canonicalize_existing_under_workspace(&workspace, manifest_path, "manifest")?;
-        let source = fs::read_to_string(&manifest_path)
-            .map_err(|error| FmError::io(&manifest_path, error))?;
+        let source = read_bounded_utf8_file(&manifest_path, MAX_MANIFEST_BYTES, "manifest")?;
         let manifest: Manifest =
             toml::from_str(&source).map_err(|source| FmError::ManifestSyntax {
                 path: manifest_path.clone(),
@@ -294,6 +318,57 @@ impl LoadedManifest {
     }
 }
 
+fn read_bounded_utf8_file(path: &Path, maximum: usize, label: &str) -> Result<String, FmError> {
+    let file = fs::File::open(path).map_err(|error| FmError::io(path, error))?;
+    let metadata = file
+        .metadata()
+        .map_err(|source| FmError::io(path, source))?;
+    if !metadata.is_file() {
+        return Err(FmError::Validation(format!(
+            "{label} input must be a regular file: {}",
+            path.display()
+        )));
+    }
+
+    let reported_bytes = usize::try_from(metadata.len()).unwrap_or(usize::MAX);
+    validate_bounded_file_size(label, path, reported_bytes, reported_bytes, maximum)?;
+
+    let read_limit = u64::try_from(maximum).unwrap_or(u64::MAX).saturating_add(1);
+    let mut source = Vec::with_capacity(reported_bytes.min(maximum));
+    file.take(read_limit)
+        .read_to_end(&mut source)
+        .map_err(|error| FmError::io(path, error))?;
+    validate_bounded_file_size(label, path, reported_bytes, source.len(), maximum)?;
+    String::from_utf8(source).map_err(|error| {
+        FmError::Validation(format!(
+            "{label} input must be UTF-8: {}: {error}",
+            path.display()
+        ))
+    })
+}
+
+fn validate_bounded_file_size(
+    label: &str,
+    path: &Path,
+    reported_bytes: usize,
+    actual_bytes: usize,
+    maximum: usize,
+) -> Result<(), FmError> {
+    if reported_bytes > maximum {
+        return Err(FmError::Validation(format!(
+            "{label} input exceeds the {maximum}-byte limit before reading: {}",
+            path.display()
+        )));
+    }
+    if actual_bytes > maximum {
+        return Err(FmError::Validation(format!(
+            "{label} input grew beyond the {maximum}-byte limit while reading: {}",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
 fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
     let mut errors = Vec::new();
 
@@ -313,6 +388,24 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
     if manifest.invariants.is_empty() {
         errors.push("at least one invariant is required".to_owned());
     }
+    validate_collection_limit(
+        "invariants",
+        manifest.invariants.len(),
+        MAX_INVARIANTS,
+        &mut errors,
+    );
+    validate_collection_limit(
+        "witnesses",
+        manifest.witnesses.len(),
+        MAX_WITNESSES,
+        &mut errors,
+    );
+    validate_collection_limit(
+        "adapters",
+        manifest.adapters.len(),
+        MAX_ADAPTERS,
+        &mut errors,
+    );
     validate_unique_identifiers("invariants", &manifest.invariants, &mut errors);
     validate_unique_identifiers("witnesses", &manifest.witnesses, &mut errors);
 
@@ -322,9 +415,7 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
             manifest.toolchain.quint
         ));
     }
-    if manifest.toolchain.java.trim().is_empty() {
-        errors.push("toolchain.java must not be empty".to_owned());
-    }
+    validate_label("toolchain.java", &manifest.toolchain.java, &mut errors);
     if let Some(node) = &manifest.toolchain.node {
         if !is_safe_version(node) {
             errors.push(format!(
@@ -348,9 +439,17 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
 
     if manifest.execution.timeout_seconds == 0 {
         errors.push("execution.timeout_seconds must be greater than zero".to_owned());
+    } else if manifest.execution.timeout_seconds > MAX_TIMEOUT_SECONDS {
+        errors.push(format!(
+            "execution.timeout_seconds must be at most {MAX_TIMEOUT_SECONDS}"
+        ));
     }
     if manifest.execution.max_output_bytes < 1_024 {
         errors.push("execution.max_output_bytes must be at least 1024".to_owned());
+    } else if manifest.execution.max_output_bytes > MAX_OUTPUT_BYTES {
+        errors.push(format!(
+            "execution.max_output_bytes must be at most {MAX_OUTPUT_BYTES}"
+        ));
     }
     if let Err(message) =
         validate_relative_path("execution.artifacts_dir", &manifest.execution.artifacts_dir)
@@ -367,10 +466,25 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
         }
         if simulation.max_samples == 0 {
             errors.push("simulation.max_samples must be greater than zero".to_owned());
+        } else if simulation.max_samples > MAX_SIMULATION_SAMPLES {
+            errors.push(format!(
+                "simulation.max_samples must be at most {MAX_SIMULATION_SAMPLES}"
+            ));
         }
         if simulation.max_steps == 0 {
             errors.push("simulation.max_steps must be greater than zero".to_owned());
+        } else if simulation.max_steps > MAX_SIMULATION_STEPS {
+            errors.push(format!(
+                "simulation.max_steps must be at most {MAX_SIMULATION_STEPS}"
+            ));
         }
+        validate_work_product(
+            "simulation.max_samples * simulation.max_steps",
+            simulation.max_samples,
+            simulation.max_steps,
+            MAX_SIMULATION_WORK,
+            &mut errors,
+        );
     }
 
     if let Some(verification) = &manifest.verification {
@@ -386,9 +500,23 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
         if verification.max_steps == Some(0) {
             errors.push("verification.max_steps must be greater than zero when set".to_owned());
         }
+        if verification
+            .max_steps
+            .is_some_and(|steps| steps > MAX_VERIFICATION_STEPS)
+        {
+            errors.push(format!(
+                "verification.max_steps must be at most {MAX_VERIFICATION_STEPS}"
+            ));
+        }
     }
 
     if let Some(traces) = &manifest.traces {
+        validate_collection_limit(
+            "traces.required_actions",
+            traces.required_actions.len(),
+            MAX_REQUIRED_ACTIONS,
+            &mut errors,
+        );
         if traces.format != "itf" {
             errors.push(format!(
                 "traces.format must be 'itf', got {:?}",
@@ -411,12 +539,42 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
         }
         if traces.count == 0 {
             errors.push("traces.count must be greater than zero".to_owned());
+        } else if traces.count > MAX_TRACE_COUNT {
+            errors.push(format!("traces.count must be at most {MAX_TRACE_COUNT}"));
         }
         if traces.max_steps == 0 {
             errors.push("traces.max_steps must be greater than zero".to_owned());
+        } else if traces.max_steps > MAX_TRACE_STEPS {
+            errors.push(format!(
+                "traces.max_steps must be at most {MAX_TRACE_STEPS}"
+            ));
         }
         if traces.max_samples == Some(0) {
             errors.push("traces.max_samples must be greater than zero when set".to_owned());
+        }
+        if traces
+            .max_samples
+            .is_some_and(|samples| samples > MAX_TRACE_SAMPLES)
+        {
+            errors.push(format!(
+                "traces.max_samples must be at most {MAX_TRACE_SAMPLES}"
+            ));
+        }
+        validate_work_product(
+            "traces.count * traces.max_steps",
+            traces.count,
+            traces.max_steps,
+            MAX_TRACE_WORK,
+            &mut errors,
+        );
+        if let Some(samples) = traces.max_samples {
+            validate_work_product(
+                "traces.max_samples * traces.max_steps",
+                samples,
+                traces.max_steps,
+                MAX_TRACE_WORK,
+                &mut errors,
+            );
         }
         validate_unique_identifiers(
             "traces.required_actions",
@@ -427,9 +585,29 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
 
     for (name, adapter) in &manifest.adapters {
         validate_identifier("adapter name", name, &mut errors);
-        if adapter.strategy.trim().is_empty() {
-            errors.push(format!("adapter '{name}' strategy must not be empty"));
-        }
+        validate_label(
+            &format!("adapter '{name}' strategy"),
+            &adapter.strategy,
+            &mut errors,
+        );
+        validate_collection_limit(
+            &format!("adapter '{name}' observable_state"),
+            adapter.observable_state.len(),
+            MAX_OBSERVABLE_FIELDS,
+            &mut errors,
+        );
+        validate_collection_limit(
+            &format!("adapter '{name}' command"),
+            adapter.command.len(),
+            MAX_COMMAND_ARGUMENTS,
+            &mut errors,
+        );
+        validate_collection_limit(
+            &format!("adapter '{name}' environment"),
+            adapter.environment.len(),
+            MAX_ENVIRONMENT_ENTRIES,
+            &mut errors,
+        );
         if let Some(target) = &adapter.target {
             if let Err(message) =
                 validate_relative_path(&format!("adapter '{name}' target"), target)
@@ -473,19 +651,32 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
                 "active adapter '{name}' must declare a command array"
             ));
         }
-        if adapter
-            .command
-            .iter()
-            .any(|part| part.is_empty() || part.contains('\0'))
-        {
-            errors.push(format!(
-                "adapter '{name}' command contains an empty or NUL-bearing argument"
-            ));
+        for (index, part) in adapter.command.iter().enumerate() {
+            if part.is_empty() || part.contains('\0') {
+                errors.push(format!(
+                    "adapter '{name}' command argument {index} is empty or contains NUL"
+                ));
+            }
+            if part.len() > MAX_COMMAND_ARGUMENT_BYTES {
+                errors.push(format!(
+                    "adapter '{name}' command argument {index} must be at most {MAX_COMMAND_ARGUMENT_BYTES} bytes"
+                ));
+            }
         }
         for (key, value) in &adapter.environment {
             if key.is_empty() || key.contains('=') || key.contains('\0') || value.contains('\0') {
                 errors.push(format!(
                     "adapter '{name}' has an invalid environment entry {key:?}"
+                ));
+            }
+            if key.len() > MAX_ENVIRONMENT_KEY_BYTES {
+                errors.push(format!(
+                    "adapter '{name}' environment key must be at most {MAX_ENVIRONMENT_KEY_BYTES} bytes, got {key:?}"
+                ));
+            }
+            if value.len() > MAX_ENVIRONMENT_VALUE_BYTES {
+                errors.push(format!(
+                    "adapter '{name}' environment value for {key:?} must be at most {MAX_ENVIRONMENT_VALUE_BYTES} bytes"
                 ));
             }
         }
@@ -494,12 +685,34 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
     errors
 }
 
+fn validate_work_product(
+    label: &str,
+    left: u64,
+    right: u64,
+    maximum: u64,
+    errors: &mut Vec<String>,
+) {
+    match left.checked_mul(right) {
+        Some(actual) if actual <= maximum => {}
+        Some(actual) => errors.push(format!("{label} must be at most {maximum}, got {actual}")),
+        None => errors.push(format!("{label} overflows u64")),
+    }
+}
+
+fn validate_collection_limit(label: &str, actual: usize, maximum: usize, errors: &mut Vec<String>) {
+    if actual > maximum {
+        errors.push(format!(
+            "{label} must contain at most {maximum} entries, got {actual}"
+        ));
+    }
+}
+
 fn validate_label(label: &str, value: &str, errors: &mut Vec<String>) {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         errors.push(format!("{label} must not be empty"));
-    } else if trimmed.len() > 128 {
-        errors.push(format!("{label} must be at most 128 bytes"));
+    } else if trimmed.len() > MAX_LABEL_BYTES {
+        errors.push(format!("{label} must be at most {MAX_LABEL_BYTES} bytes"));
     } else if trimmed.chars().any(char::is_control) {
         errors.push(format!("{label} must not contain control characters"));
     }
@@ -516,6 +729,12 @@ fn validate_unique_identifiers(label: &str, values: &[String], errors: &mut Vec<
 }
 
 fn validate_identifier(label: &str, value: &str, errors: &mut Vec<String>) {
+    if value.len() > MAX_IDENTIFIER_BYTES {
+        errors.push(format!(
+            "{label} must be at most {MAX_IDENTIFIER_BYTES} bytes"
+        ));
+        return;
+    }
     let mut chars = value.chars();
     let Some(first) = chars.next() else {
         errors.push(format!("{label} must not be empty"));
@@ -532,13 +751,17 @@ fn validate_identifier(label: &str, value: &str, errors: &mut Vec<String>) {
 
 fn is_safe_version(version: &str) -> bool {
     !version.is_empty()
+        && version.len() <= MAX_TOOLCHAIN_TOKEN_BYTES
         && version
             .chars()
             .all(|character| character.is_ascii_alphanumeric() || ".+-_".contains(character))
 }
 
 fn is_safe_program(program: &str) -> bool {
-    !program.is_empty() && !program.contains('\0') && !program.chars().any(char::is_whitespace)
+    !program.is_empty()
+        && program.len() <= MAX_COMMAND_ARGUMENT_BYTES
+        && !program.contains('\0')
+        && !program.chars().any(char::is_whitespace)
 }
 
 pub fn validate_relative_path(label: &str, path: &Path) -> Result<(), String> {
@@ -659,5 +882,317 @@ mod tests {
         )
         .expect_err("symlink escape must fail");
         assert!(error.to_string().contains("symlinked ancestor"));
+    }
+
+    #[test]
+    fn rejects_oversized_manifest_before_toml_parsing() {
+        let workspace = TempDir::new().expect("workspace");
+        let manifest_path = workspace.path().join("oversized.toml");
+        fs::write(&manifest_path, vec![b'x'; MAX_MANIFEST_BYTES + 1]).expect("oversized manifest");
+
+        let error = LoadedManifest::load(workspace.path(), Path::new("oversized.toml"))
+            .expect_err("oversized manifest must fail");
+        let message = error.to_string();
+        assert!(message.contains("exceeds"), "{message}");
+        assert!(
+            message.contains(&MAX_MANIFEST_BYTES.to_string()),
+            "{message}"
+        );
+        assert!(!message.contains("failed to parse manifest"), "{message}");
+    }
+
+    #[test]
+    fn rejects_manifest_path_that_is_not_a_regular_file() {
+        let workspace = TempDir::new().expect("workspace");
+        fs::create_dir(workspace.path().join("manifest-dir")).expect("manifest directory");
+
+        let error = LoadedManifest::load(workspace.path(), Path::new("manifest-dir"))
+            .expect_err("directory manifest must fail");
+        assert!(error.to_string().contains("regular file"));
+    }
+
+    #[test]
+    fn rejects_invalid_utf8_before_toml_parsing() {
+        let workspace = TempDir::new().expect("workspace");
+        fs::write(workspace.path().join("invalid.toml"), [0xff, 0xfe])
+            .expect("invalid UTF-8 manifest");
+
+        let error = LoadedManifest::load(workspace.path(), Path::new("invalid.toml"))
+            .expect_err("invalid UTF-8 manifest must fail");
+        let message = error.to_string();
+        assert!(message.contains("must be UTF-8"), "{message}");
+        assert!(!message.contains("failed to parse manifest"), "{message}");
+    }
+
+    #[test]
+    fn post_read_size_check_rejects_growth_after_metadata() {
+        let error = validate_bounded_file_size(
+            "manifest",
+            Path::new("formal/fm.toml"),
+            MAX_MANIFEST_BYTES,
+            MAX_MANIFEST_BYTES + 1,
+            MAX_MANIFEST_BYTES,
+        )
+        .expect_err("post-read growth must fail");
+        assert!(error.to_string().contains("grew beyond"));
+    }
+
+    fn valid_manifest() -> Manifest {
+        toml::from_str(include_str!("../../../formal/fm.toml")).expect("repository formal manifest")
+    }
+
+    fn identifiers(prefix: &str, count: usize) -> Vec<String> {
+        (0..count)
+            .map(|index| format!("{prefix}_{index}"))
+            .collect()
+    }
+
+    fn assert_valid(manifest: &Manifest) {
+        let errors = validate_manifest_shape(manifest);
+        assert!(
+            errors.is_empty(),
+            "unexpected validation errors: {errors:#?}"
+        );
+    }
+
+    fn assert_error(manifest: &Manifest, expected: &str) {
+        let errors = validate_manifest_shape(manifest);
+        assert!(
+            errors.iter().any(|error| error.contains(expected)),
+            "expected error containing {expected:?}, got {errors:#?}"
+        );
+    }
+
+    #[test]
+    fn invariant_and_witness_boundaries_are_exact() {
+        let mut manifest = valid_manifest();
+        manifest.invariants = identifiers("invariant", MAX_INVARIANTS);
+        manifest.witnesses = identifiers("witness", MAX_WITNESSES);
+        assert_valid(&manifest);
+
+        manifest.invariants.push("invariant_overflow".to_owned());
+        manifest.witnesses.push("witness_overflow".to_owned());
+        assert_error(&manifest, "invariants must contain at most");
+        assert_error(&manifest, "witnesses must contain at most");
+    }
+
+    #[test]
+    fn adapter_and_trace_collection_boundaries_are_exact() {
+        let mut manifest = valid_manifest();
+        let template = manifest
+            .adapters
+            .values()
+            .next()
+            .cloned()
+            .expect("adapter template");
+        manifest.adapters = (0..MAX_ADAPTERS)
+            .map(|index| (format!("adapter_{index}"), template.clone()))
+            .collect();
+        manifest
+            .traces
+            .as_mut()
+            .expect("trace config")
+            .required_actions = identifiers("action", MAX_REQUIRED_ACTIONS);
+        assert_valid(&manifest);
+
+        manifest
+            .adapters
+            .insert("adapter_overflow".to_owned(), template);
+        manifest
+            .traces
+            .as_mut()
+            .expect("trace config")
+            .required_actions
+            .push("action_overflow".to_owned());
+        assert_error(&manifest, "adapters must contain at most");
+        assert_error(&manifest, "traces.required_actions must contain at most");
+    }
+
+    #[test]
+    fn adapter_local_collection_boundaries_are_exact() {
+        let mut manifest = valid_manifest();
+        let adapter = manifest.adapters.values_mut().next().expect("adapter");
+        adapter.observable_state = (0..MAX_OBSERVABLE_FIELDS)
+            .map(|index| format!("field {index}"))
+            .collect();
+        adapter.command = vec!["argument".to_owned(); MAX_COMMAND_ARGUMENTS];
+        adapter.environment = (0..MAX_ENVIRONMENT_ENTRIES)
+            .map(|index| (format!("KEY_{index}"), "value".to_owned()))
+            .collect();
+        assert_valid(&manifest);
+
+        let adapter = manifest.adapters.values_mut().next().expect("adapter");
+        adapter.observable_state.push("field overflow".to_owned());
+        adapter.command.push("argument".to_owned());
+        adapter
+            .environment
+            .insert("KEY_OVERFLOW".to_owned(), "value".to_owned());
+        assert_error(&manifest, "observable_state must contain at most");
+        assert_error(&manifest, "command must contain at most");
+        assert_error(&manifest, "environment must contain at most");
+    }
+
+    #[test]
+    fn scalar_boundaries_are_exact() {
+        let mut errors = Vec::new();
+        validate_label("label", &"x".repeat(MAX_LABEL_BYTES), &mut errors);
+        validate_identifier(
+            "identifier",
+            &format!("a{}", "x".repeat(MAX_IDENTIFIER_BYTES - 1)),
+            &mut errors,
+        );
+        assert!(errors.is_empty(), "boundary values must pass: {errors:#?}");
+        assert!(is_safe_version(&"1".repeat(MAX_TOOLCHAIN_TOKEN_BYTES)));
+        assert!(is_safe_program(&"x".repeat(MAX_COMMAND_ARGUMENT_BYTES)));
+
+        validate_label("label", &"x".repeat(MAX_LABEL_BYTES + 1), &mut errors);
+        validate_identifier(
+            "identifier",
+            &format!("a{}", "x".repeat(MAX_IDENTIFIER_BYTES)),
+            &mut errors,
+        );
+        assert!(errors
+            .iter()
+            .any(|error| error.contains("label must be at most")));
+        assert!(errors
+            .iter()
+            .any(|error| error.contains("identifier must be at most")));
+        assert!(!is_safe_version(&"1".repeat(MAX_TOOLCHAIN_TOKEN_BYTES + 1)));
+        assert!(!is_safe_program(
+            &"x".repeat(MAX_COMMAND_ARGUMENT_BYTES + 1)
+        ));
+    }
+
+    #[test]
+    fn command_and_environment_scalar_boundaries_are_exact() {
+        let mut manifest = valid_manifest();
+        let adapter = manifest.adapters.values_mut().next().expect("adapter");
+        adapter.command = vec!["x".repeat(MAX_COMMAND_ARGUMENT_BYTES)];
+        adapter.environment = BTreeMap::from([(
+            "K".repeat(MAX_ENVIRONMENT_KEY_BYTES),
+            "v".repeat(MAX_ENVIRONMENT_VALUE_BYTES),
+        )]);
+        assert_valid(&manifest);
+
+        let adapter = manifest.adapters.values_mut().next().expect("adapter");
+        adapter.command = vec!["x".repeat(MAX_COMMAND_ARGUMENT_BYTES + 1)];
+        adapter.environment = BTreeMap::from([(
+            "K".repeat(MAX_ENVIRONMENT_KEY_BYTES + 1),
+            "v".repeat(MAX_ENVIRONMENT_VALUE_BYTES + 1),
+        )]);
+        assert_error(&manifest, "command argument 0 must be at most");
+        assert_error(&manifest, "environment key must be at most");
+        assert_error(&manifest, "environment value");
+    }
+
+    #[test]
+    fn execution_budget_boundaries_are_exact() {
+        let mut manifest = valid_manifest();
+        manifest.execution.timeout_seconds = MAX_TIMEOUT_SECONDS;
+        manifest.execution.max_output_bytes = MAX_OUTPUT_BYTES;
+        assert_valid(&manifest);
+
+        manifest.execution.timeout_seconds = MAX_TIMEOUT_SECONDS + 1;
+        manifest.execution.max_output_bytes = MAX_OUTPUT_BYTES + 1;
+        assert_error(&manifest, "execution.timeout_seconds must be at most");
+        assert_error(&manifest, "execution.max_output_bytes must be at most");
+    }
+
+    #[test]
+    fn simulation_scalar_and_aggregate_boundaries_are_exact() {
+        let mut manifest = valid_manifest();
+        let simulation = manifest.simulation.as_mut().expect("simulation");
+        simulation.max_samples = MAX_SIMULATION_SAMPLES;
+        simulation.max_steps = 1;
+        assert_valid(&manifest);
+
+        let simulation = manifest.simulation.as_mut().expect("simulation");
+        simulation.max_samples = 1;
+        simulation.max_steps = MAX_SIMULATION_STEPS;
+        assert_valid(&manifest);
+
+        let simulation = manifest.simulation.as_mut().expect("simulation");
+        simulation.max_samples = 10_000;
+        simulation.max_steps = 10_000;
+        assert_valid(&manifest);
+
+        manifest
+            .simulation
+            .as_mut()
+            .expect("simulation")
+            .max_samples = 10_001;
+        assert_error(
+            &manifest,
+            "simulation.max_samples * simulation.max_steps must be at most",
+        );
+
+        let simulation = manifest.simulation.as_mut().expect("simulation");
+        simulation.max_samples = MAX_SIMULATION_SAMPLES + 1;
+        simulation.max_steps = MAX_SIMULATION_STEPS + 1;
+        assert_error(&manifest, "simulation.max_samples must be at most");
+        assert_error(&manifest, "simulation.max_steps must be at most");
+    }
+
+    #[test]
+    fn verification_step_boundary_is_exact() {
+        let mut manifest = valid_manifest();
+        let verification = manifest.verification.as_mut().expect("verification");
+        verification.backend = "apalache".to_owned();
+        verification.max_steps = Some(MAX_VERIFICATION_STEPS);
+        assert_valid(&manifest);
+
+        manifest
+            .verification
+            .as_mut()
+            .expect("verification")
+            .max_steps = Some(MAX_VERIFICATION_STEPS + 1);
+        assert_error(&manifest, "verification.max_steps must be at most");
+    }
+
+    #[test]
+    fn trace_scalar_and_aggregate_boundaries_are_exact() {
+        let mut manifest = valid_manifest();
+        let traces = manifest.traces.as_mut().expect("traces");
+        traces.count = MAX_TRACE_COUNT;
+        traces.max_steps = 1;
+        traces.max_samples = Some(1);
+        assert_valid(&manifest);
+
+        let traces = manifest.traces.as_mut().expect("traces");
+        traces.count = 1;
+        traces.max_steps = MAX_TRACE_STEPS;
+        traces.max_samples = Some(1);
+        assert_valid(&manifest);
+
+        let traces = manifest.traces.as_mut().expect("traces");
+        traces.count = 10_000;
+        traces.max_steps = 10_000;
+        traces.max_samples = Some(10_000);
+        assert_valid(&manifest);
+
+        let traces = manifest.traces.as_mut().expect("traces");
+        traces.count = 10_000;
+        traces.max_steps = 10_001;
+        traces.max_samples = Some(10_001);
+        assert_error(&manifest, "traces.count * traces.max_steps must be at most");
+        assert_error(
+            &manifest,
+            "traces.max_samples * traces.max_steps must be at most",
+        );
+
+        let traces = manifest.traces.as_mut().expect("traces");
+        traces.count = MAX_TRACE_COUNT + 1;
+        traces.max_steps = MAX_TRACE_STEPS + 1;
+        traces.max_samples = Some(MAX_TRACE_SAMPLES + 1);
+        assert_error(&manifest, "traces.count must be at most");
+        assert_error(&manifest, "traces.max_steps must be at most");
+        assert_error(&manifest, "traces.max_samples must be at most");
+    }
+
+    #[test]
+    fn aggregate_work_overflow_is_rejected() {
+        let mut errors = Vec::new();
+        validate_work_product("overflowing work", u64::MAX, 2, u64::MAX, &mut errors);
+        assert_eq!(errors, ["overflowing work overflows u64"]);
     }
 }

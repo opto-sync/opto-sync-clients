@@ -169,3 +169,13 @@ adds RxJS type/unit tests, a real two-tab Service Worker + IndexedDB test, RxDar
 behavioral tests, mobile adapter contract checks, 750 randomized Rust-wrapper vs
 raw-C ABI comparisons, and the Postgres/Supabase integration profiles using the
 current client branch.
+
+[`.github/workflows/mobile-native-build.yml`](.github/workflows/mobile-native-build.yml)
+compiles the mobile background-sync native sources rather than only inspecting
+them: the Kotlin plugin, the Kotlin worker, and the plain-Java worker go through
+Gradle on `ubuntu-latest`, and the Swift plugin plus its Objective-C bridge go
+through Xcode on `macos-15`, with the reference adapters in
+`clients/reactive-dart/native` compiled alongside. Both jobs build a throwaway
+Flutter host app that depends on the plugin by path, so no device, emulator,
+simulator, or signing identity is involved. Reproduce either leg locally with
+`python3 scripts/build-mobile-native.py android` or `... ios`.

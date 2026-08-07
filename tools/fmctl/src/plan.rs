@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::FmError;
 use crate::manifest::{validate_relative_path, AdapterStatus, LoadedManifest, SpecLanguage};
+use crate::resource::{EffectiveResourcePolicy, ResourceProfile, ResourceRequest};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
@@ -50,6 +51,7 @@ pub struct CommandPlan {
     pub stdin: Option<String>,
     pub timeout_seconds: u64,
     pub max_output_bytes: usize,
+    pub resource_policy: EffectiveResourcePolicy,
     pub create_directories: Vec<PathBuf>,
     pub artifacts: CommandArtifacts,
 }
@@ -74,17 +76,62 @@ pub struct ReplayRequest {
 }
 
 pub fn build_plan(loaded: &LoadedManifest, operation: &Operation) -> Result<CommandPlan, FmError> {
+    let resource_policy = resolve_local_resource_policy(loaded)?;
     match loaded.manifest.language {
         SpecLanguage::Quint => match operation {
-            Operation::Replay { adapter, traces } => build_replay_plan(loaded, adapter, traces),
-            _ => build_quint_plan(loaded, operation),
+            Operation::Replay { adapter, traces } => {
+                build_replay_plan(loaded, adapter, traces, &resource_policy)
+            }
+            _ => build_quint_plan(loaded, operation, &resource_policy),
         },
     }
+}
+
+fn resolve_local_resource_policy(
+    loaded: &LoadedManifest,
+) -> Result<EffectiveResourcePolicy, FmError> {
+    let manifest = &loaded.manifest;
+    let trace_max_samples = manifest.traces.as_ref().map(|traces| {
+        traces
+            .max_samples
+            .or_else(|| {
+                manifest
+                    .simulation
+                    .as_ref()
+                    .map(|simulation| simulation.max_samples)
+            })
+            .unwrap_or(500)
+    });
+    let request = ResourceRequest {
+        timeout_seconds: Some(manifest.execution.timeout_seconds),
+        max_output_bytes: Some(
+            u64::try_from(manifest.execution.max_output_bytes).unwrap_or(u64::MAX),
+        ),
+        simulation_max_samples: manifest
+            .simulation
+            .as_ref()
+            .map(|simulation| simulation.max_samples),
+        simulation_max_steps: manifest
+            .simulation
+            .as_ref()
+            .map(|simulation| simulation.max_steps),
+        verification_max_steps: manifest
+            .verification
+            .as_ref()
+            .and_then(|verification| verification.max_steps),
+        trace_count: manifest.traces.as_ref().map(|traces| traces.count),
+        trace_max_steps: manifest.traces.as_ref().map(|traces| traces.max_steps),
+        trace_max_samples,
+    };
+    ResourceProfile::local_v1()
+        .resolve(request)
+        .map_err(|error| FmError::Validation(error.to_string()))
 }
 
 fn build_quint_plan(
     loaded: &LoadedManifest,
     operation: &Operation,
+    resource_policy: &EffectiveResourcePolicy,
 ) -> Result<CommandPlan, FmError> {
     let manifest = &loaded.manifest;
     let mut args = vec![
@@ -116,8 +163,14 @@ fn build_quint_plan(
             args.push(path_argument(&manifest.spec));
             push_machine_arguments(&mut args, loaded);
             args.push(format!("--backend={}", simulation.backend));
-            args.push(format!("--max-samples={}", simulation.max_samples));
-            args.push(format!("--max-steps={}", simulation.max_steps));
+            args.push(format!(
+                "--max-samples={}",
+                resource_policy.effective.scalar.simulation_max_samples
+            ));
+            args.push(format!(
+                "--max-steps={}",
+                resource_policy.effective.scalar.simulation_max_steps
+            ));
             push_named_values(&mut args, "--invariants", &manifest.invariants);
             push_named_values(&mut args, "--witnesses", &manifest.witnesses);
         }
@@ -135,8 +188,11 @@ fn build_quint_plan(
             push_machine_arguments(&mut args, loaded);
             args.push(format!("--backend={}", verification.backend));
             push_named_values(&mut args, "--invariants", &manifest.invariants);
-            if let Some(max_steps) = verification.max_steps {
-                args.push(format!("--max-steps={max_steps}"));
+            if verification.max_steps.is_some() {
+                args.push(format!(
+                    "--max-steps={}",
+                    resource_policy.effective.scalar.verification_max_steps
+                ));
             }
         }
         Operation::Trace { output } => {
@@ -192,13 +248,16 @@ fn build_quint_plan(
             }
             args.push(format!(
                 "--max-samples={}",
-                traces
-                    .max_samples
-                    .or_else(|| manifest.simulation.as_ref().map(|value| value.max_samples))
-                    .unwrap_or(500)
+                resource_policy.effective.scalar.trace_max_samples
             ));
-            args.push(format!("--max-steps={}", traces.max_steps));
-            args.push(format!("--n-traces={}", traces.count));
+            args.push(format!(
+                "--max-steps={}",
+                resource_policy.effective.scalar.trace_max_steps
+            ));
+            args.push(format!(
+                "--n-traces={}",
+                resource_policy.effective.scalar.trace_count
+            ));
             if traces.model_based_testing_metadata {
                 args.push("--mbt".to_owned());
             }
@@ -211,6 +270,7 @@ fn build_quint_plan(
     finalize_plan(
         loaded,
         operation,
+        resource_policy,
         manifest.toolchain.npx.clone(),
         args,
         loaded.workspace.clone(),
@@ -225,6 +285,7 @@ fn build_replay_plan(
     loaded: &LoadedManifest,
     adapter_name: &str,
     traces: &[PathBuf],
+    resource_policy: &EffectiveResourcePolicy,
 ) -> Result<CommandPlan, FmError> {
     let adapter =
         loaded
@@ -256,8 +317,7 @@ fn build_replay_plan(
         }
         let metadata =
             fs::metadata(&canonical).map_err(|source| FmError::io(&canonical, source))?;
-        let max_trace_bytes =
-            u64::try_from(loaded.manifest.execution.max_output_bytes).unwrap_or(u64::MAX);
+        let max_trace_bytes = resource_policy.effective.scalar.max_output_bytes;
         if !metadata.is_file() || metadata.len() == 0 || metadata.len() > max_trace_bytes {
             return Err(FmError::Validation(format!(
                 "replay trace must be a non-empty regular file no larger than {max_trace_bytes} bytes: {}",
@@ -312,6 +372,7 @@ fn build_replay_plan(
             adapter: adapter_name.to_owned(),
             traces: traces.to_vec(),
         },
+        resource_policy,
         program,
         args,
         cwd,
@@ -326,6 +387,7 @@ fn build_replay_plan(
 fn finalize_plan(
     loaded: &LoadedManifest,
     operation: &Operation,
+    resource_policy: &EffectiveResourcePolicy,
     program: String,
     args: Vec<String>,
     cwd: PathBuf,
@@ -427,6 +489,9 @@ fn finalize_plan(
         }
         _ => operation_name.to_owned(),
     };
+    let max_output_bytes = usize::try_from(resource_policy.effective.scalar.max_output_bytes)
+        .map_err(|_| FmError::Validation("effective output limit exceeds usize".to_owned()))?;
+
     Ok(CommandPlan {
         schema_version: 1,
         project: loaded.manifest.project.clone(),
@@ -438,8 +503,9 @@ fn finalize_plan(
         cwd,
         environment,
         stdin,
-        timeout_seconds: loaded.manifest.execution.timeout_seconds,
-        max_output_bytes: loaded.manifest.execution.max_output_bytes,
+        timeout_seconds: resource_policy.effective.scalar.timeout_seconds,
+        max_output_bytes,
+        resource_policy: resource_policy.clone(),
         create_directories,
         artifacts: CommandArtifacts {
             stdout: artifact_root.join(format!("{artifact_name}.stdout.log")),
@@ -503,7 +569,8 @@ fn file_component(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::LoadedManifest;
+    use crate::manifest::{LoadedManifest, MAX_TIMEOUT_SECONDS};
+    use crate::resource::ResourceProfileName;
     use std::fs;
     use tempfile::TempDir;
 
@@ -566,6 +633,17 @@ max_steps = 10
         assert!(plan.args.contains(&"--invariants".to_owned()));
         assert!(plan.args.contains(&"safe".to_owned()));
         assert!(plan.args.contains(&"--witnesses".to_owned()));
+        assert!(plan.args.contains(&"--max-samples=100".to_owned()));
+        assert!(plan.args.contains(&"--max-steps=20".to_owned()));
+        assert_eq!(plan.resource_policy.profile, ResourceProfileName::Local);
+        assert_eq!(
+            plan.timeout_seconds,
+            plan.resource_policy.effective.scalar.timeout_seconds
+        );
+        assert_eq!(
+            plan.max_output_bytes as u64,
+            plan.resource_policy.effective.scalar.max_output_bytes
+        );
     }
 
     #[test]
@@ -590,5 +668,43 @@ max_steps = 10
         assert!(plan.args.contains(&"--backend=rust".to_owned()));
         assert!(plan.args.contains(&"--seed=0x1234".to_owned()));
         assert!(!plan.args.contains(&"--backend=typescript".to_owned()));
+    }
+
+    #[test]
+    fn trace_sample_fallback_is_resolved_before_command_construction() {
+        let (_directory, mut loaded) = fixture();
+        loaded.manifest.traces.as_mut().expect("traces").max_samples = None;
+        let plan = build_plan(&loaded, &Operation::Trace { output: None }).expect("trace plan");
+        assert!(plan.args.contains(&"--max-samples=100".to_owned()));
+        assert_eq!(plan.resource_policy.effective.scalar.trace_max_samples, 100);
+    }
+
+    #[test]
+    fn over_policy_manifest_cannot_build_a_plan_or_create_runtime_artifacts() {
+        let (_directory, mut loaded) = fixture();
+        loaded.manifest.execution.timeout_seconds = MAX_TIMEOUT_SECONDS + 1;
+        let artifact_root = loaded
+            .workspace
+            .join(&loaded.manifest.execution.artifacts_dir)
+            .join("fmctl");
+        let error = build_plan(&loaded, &Operation::Check).expect_err("over-policy plan must fail");
+        assert!(error.to_string().contains("exceeds Local maximum"));
+        assert!(!artifact_root.exists());
+    }
+
+    #[test]
+    fn command_plan_json_contains_complete_resource_policy() {
+        let (_directory, loaded) = fixture();
+        let plan = build_plan(&loaded, &Operation::Simulate).expect("simulation plan");
+        let value = serde_json::to_value(&plan).expect("plan JSON");
+        assert_eq!(value["resource_policy"]["profile"], "local");
+        assert_eq!(
+            value["resource_policy"]["effective"]["scalar"]["simulation_max_samples"],
+            100
+        );
+        assert_eq!(
+            value["resource_policy"]["requested"]["simulation_max_steps"],
+            20
+        );
     }
 }

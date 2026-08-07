@@ -4,7 +4,7 @@ description: >-
   WorkManager (Kotlin, with a plain-Java worker variant) and iOS
   BGTaskScheduler (Swift, with an Objective-C registration shim) run the sync
   drain while the app is backgrounded or terminated.
-version: 0.1.0
+version: 0.1.3
 publish_to: 'none'
 
 environment:

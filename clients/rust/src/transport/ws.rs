@@ -211,11 +211,68 @@ impl FrameSink for WsSink {
     }
 }
 
+/// Loopback, private/link-local IPs, and in-cluster names — hosts the session
+/// token may reach over cleartext because the traffic never leaves the trust
+/// boundary.
+fn internal_host_allowed(host: &str) -> bool {
+    let host = host.to_ascii_lowercase();
+    let host = host.trim_matches(|c| c == '[' || c == ']');
+    if host.is_empty() || host == "localhost" || host.ends_with(".localhost") {
+        return true;
+    }
+    if host == "::1" || host.starts_with("fc") || host.starts_with("fd") || host.starts_with("fe8")
+    {
+        return true;
+    }
+    if let Some(octets) = host
+        .split('.')
+        .map(str::parse::<u8>)
+        .collect::<core::result::Result<Vec<_>, _>>()
+        .ok()
+        .filter(|octets| octets.len() == 4)
+    {
+        return matches!(
+            (octets[0], octets[1]),
+            (127, _) | (10, _) | (172, 16..=31) | (192, 168) | (169, 254)
+        );
+    }
+    !host.contains('.') || host.ends_with(".svc.cluster.local") || host.ends_with(".internal")
+}
+
+/// Host of a cleartext `ws://` or `http://` URL, else `None`.
+fn cleartext_host(url: &str) -> Option<&str> {
+    let rest = ["ws://", "http://"].iter().find_map(|scheme| {
+        url.get(..scheme.len())
+            .filter(|p| p.eq_ignore_ascii_case(scheme))
+            .map(|p| &url[p.len()..])
+    })?;
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+    let host_port = authority.rsplit('@').next().unwrap_or(authority);
+    if let Some(v6) = host_port.strip_prefix('[') {
+        return Some(v6.split(']').next().unwrap_or(v6));
+    }
+    Some(host_port.split(':').next().unwrap_or(host_port))
+}
+
 fn dial(config: &WsConfig) -> Result<Link, String> {
     let mut url = config.url.clone();
     if let Some(auth) = &config.auth {
         if let Some(token) = auth.token() {
             if !token.is_empty() {
+                // The token rides in the query string, so on a cleartext hop it
+                // is readable by anyone on the path and — unlike a header —
+                // lands in proxy and server access logs too. This build links
+                // no TLS backend, so a public endpoint has no secure form here:
+                // the fix is a local/in-cluster endpoint, or a build with TLS.
+                if let Some(host) = cleartext_host(&url) {
+                    if !internal_host_allowed(host) {
+                        return Err(format!(
+                            "refusing to send a session token over cleartext to public host \
+                             {host:?}: use a loopback or in-cluster endpoint (this build links \
+                             no TLS backend, so wss:// is unavailable)"
+                        ));
+                    }
+                }
                 url.push(if url.contains('?') { '&' } else { '?' });
                 url.push_str("token=");
                 url.push_str(&encode_query_component(&token));

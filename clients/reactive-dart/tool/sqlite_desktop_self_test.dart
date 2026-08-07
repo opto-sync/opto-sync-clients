@@ -24,47 +24,120 @@ void _expect(bool condition, String message) {
   if (!condition) throw StateError(message);
 }
 
-/// `dart run` writes native-asset build progress ("Running build hooks...") to
-/// the child's stderr. That chatter is toolchain output, not a child failure,
-/// so it must not be mistaken for one when asserting a clean exit.
-String _childDiagnostics(String stderr) {
-  return stderr
-      .replaceAll('Running build hooks...', '')
-      .replaceAll('\r', '')
-      .trim();
-}
-
 SqliteDesktopLeaseGrant _acquired(SqliteDesktopAcquireResult result) {
   if (result case SqliteDesktopAcquired(:final grant)) return grant;
   throw StateError('expected SQLite lease acquisition');
 }
 
-Future<ProcessResult> _runChild(List<String> arguments) {
-  return Process.run(Platform.resolvedExecutable, <String>[
-    'run',
-    'tool/sqlite_desktop_child.dart',
-    ...arguments,
+/// Child stderr with the Dart SDK's own informational chatter removed.
+///
+/// `dart run` prints "Running build hooks..." progress to stderr on SDKs with
+/// native build hooks; only output beyond that indicates a child failure.
+String _meaningfulStderr(String stderr) {
+  return stderr
+      .replaceAll('Running build hooks...', '')
+      .split('\n')
+      .map((line) => line.trim())
+      .where((line) => line.isNotEmpty)
+      .join('\n');
+}
+
+/// The child built as a standalone bundle, set by [_buildChild].
+///
+/// `dart run` re-bundles native assets into the SHARED `.dart_tool/lib/` on
+/// every invocation, so spawning children that way makes concurrent processes
+/// fight over one directory: Windows refuses to delete a DLL the parent has
+/// loaded (PathAccessException), and macOS races re-codesigning the dylib.
+/// Neither is lease contention — the behavior under test — so the child is
+/// built once and every spawn reuses that immutable bundle.
+///
+/// `dart build cli`, not `dart compile exe`: the sqlite3 package ships a
+/// build hook, and `dart compile` refuses those outright ("does not support
+/// build hooks, use 'dart build' instead"). `dart build cli` runs the hook and
+/// copies the resulting library into the bundle, so the child carries its own
+/// SQLite instead of resolving one from the shared directory — or, as on
+/// macOS, silently from the host system.
+late final String _childExecutable;
+
+Future<Directory> _buildChild() async {
+  final buildDir = Directory.systemTemp.createTempSync('opto-sync-dart-child-');
+  final result = await Process.run(Platform.resolvedExecutable, <String>[
+    'build',
+    'cli',
+    '--target',
+    'bin/sqlite_desktop_child.dart',
+    '--output',
+    buildDir.path,
   ], workingDirectory: Directory.current.path);
+  if (result.exitCode != 0) {
+    buildDir.deleteSync(recursive: true);
+    throw StateError(
+      'could not build the coordination child '
+      '(exit ${result.exitCode}): ${result.stderr}',
+    );
+  }
+  // `--output <dir>` writes <dir>/bundle/bin/<name>, with the host's
+  // executable suffix.
+  final binDir = Directory(
+    <String>[buildDir.path, 'bundle', 'bin'].join(Platform.pathSeparator),
+  );
+  final executable = binDir
+      .listSync()
+      .whereType<File>()
+      .map((entry) => entry.path)
+      .firstWhere(
+        (path) => path.contains('sqlite_desktop_child'),
+        orElse: () => throw StateError(
+          'the child bundle has no executable in ${binDir.path}',
+        ),
+      );
+  _childExecutable = executable;
+  return buildDir;
+}
+
+Future<ProcessResult> _runChild(List<String> arguments) {
+  return Process.run(
+    _childExecutable,
+    arguments,
+    workingDirectory: Directory.current.path,
+  );
 }
 
 Future<({Process process, Future<String> stderr})> _startHolder(
   List<String> arguments,
 ) async {
-  final process = await Process.start(Platform.resolvedExecutable, <String>[
-    'run',
-    'tool/sqlite_desktop_child.dart',
-    ...arguments,
-  ], workingDirectory: Directory.current.path);
+  final process = await Process.start(
+    _childExecutable,
+    arguments,
+    workingDirectory: Directory.current.path,
+  );
   final stderr = process.stderr.transform(utf8.decoder).join();
   return (process: process, stderr: stderr);
 }
 
-Future<String> _firstLine(Process process) {
-  return process.stdout
+/// First stdout line of [process], or a diagnosable failure.
+///
+/// A child that dies before printing closes stdout empty, and a bare
+/// `Stream.first` then throws `Bad state: No element` — hiding the child's
+/// exit code and stderr, which carry the actual reason. Race the line
+/// against process exit and surface both instead.
+Future<String> _firstLine(Process process, Future<String> stderr) async {
+  // When the child dies silently its stdout closes empty and `.first`
+  // REJECTS — Future.any would propagate that error before the exit code
+  // resolves, so translate the rejection into waiting for the exit code
+  // instead of racing it.
+  final winner = await process.stdout
       .transform(utf8.decoder)
       .transform(const LineSplitter())
       .first
+      .then<Object>((line) => line, onError: (Object _) => process.exitCode)
       .timeout(const Duration(seconds: 20));
+  if (winner is String) return winner;
+  final detail = _meaningfulStderr(await stderr);
+  throw StateError(
+    'child exited (code $winner) before its first line'
+    '${detail.isEmpty ? '' : '; stderr: $detail'}',
+  );
 }
 
 Future<void> _terminate(Process process) async {
@@ -213,12 +286,11 @@ Future<void> _multiprocessContentionTest() async {
     ]);
     holder = started.process;
     holderStderr = started.stderr;
-    final holderLine = await _firstLine(holder);
-    _expect(
-      _childDiagnostics(holderLine).endsWith('acquired:1'),
-      'holder did not acquire first fence (got "$holderLine")',
-    );
+    final holderLine = await _firstLine(holder, holderStderr);
+    _expect(holderLine == 'acquired:1', 'holder did not acquire first fence');
 
+    // Genuinely concurrent: the children are one prebuilt executable, so
+    // they contend for the lease and nothing else.
     final contenders = await Future.wait<ProcessResult>(
       List<Future<ProcessResult>>.generate(
         3,
@@ -232,18 +304,15 @@ Future<void> _multiprocessContentionTest() async {
       ),
     );
     for (final contender in contenders) {
+      _expect(contender.exitCode == 0, contender.stderr.toString());
       _expect(
-        contender.exitCode == 0,
-        _childDiagnostics(contender.stderr.toString()),
-      );
-      _expect(
-        _childDiagnostics(contender.stdout.toString()).contains('busy:'),
+        contender.stdout.toString().trim().startsWith('busy:'),
         'independent process bypassed the active lease',
       );
     }
 
     await _terminate(holder);
-    final stderr = _childDiagnostics(await holderStderr!);
+    final stderr = _meaningfulStderr(await holderStderr);
     _expect(stderr.isEmpty, 'holder failed before termination: $stderr');
     holder = null;
 
@@ -283,10 +352,10 @@ Future<void> _terminationReplayTest() async {
     ]);
     child = started.process;
     childStderr = started.stderr;
-    final firstLine = await _firstLine(child);
+    final firstLine = await _firstLine(child, childStderr);
     _expect(firstLine == 'acquired:1', 'doomed process did not acquire');
     await _terminate(child);
-    final stderr = _childDiagnostics(await childStderr!);
+    final stderr = _meaningfulStderr(await childStderr);
     _expect(
       stderr.isEmpty,
       'doomed process failed before termination: $stderr',
@@ -385,11 +454,19 @@ Future<void> _runnerHandoffTest() async {
 }
 
 Future<void> main() async {
-  await _storeClockTest();
-  await _trailingWakeTest();
-  await _staleFenceTest();
-  await _multiprocessContentionTest();
-  await _terminationReplayTest();
-  await _runnerHandoffTest();
+  // Build before any test opens a coordinator: compilation is the last step
+  // that may touch .dart_tool/lib/, and on Windows that directory cannot be
+  // rewritten once this process has the SQLite library loaded.
+  final childBuild = await _buildChild();
+  try {
+    await _storeClockTest();
+    await _trailingWakeTest();
+    await _staleFenceTest();
+    await _multiprocessContentionTest();
+    await _terminationReplayTest();
+    await _runnerHandoffTest();
+  } finally {
+    if (childBuild.existsSync()) childBuild.deleteSync(recursive: true);
+  }
   stdout.writeln('Dart SQLite desktop coordination self-test passed');
 }

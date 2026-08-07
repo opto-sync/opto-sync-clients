@@ -8,8 +8,14 @@ sync is safe: pushes dedupe on `(clientId, mutationId)`.
 
 | Platform | Mechanism | Notes |
 |---|---|---|
-| Android | WorkManager (`androidx.work` 2.9+) | periodic (≥15 min floor) + expedited one-shot on queue commit; network constraint; exponential backoff via `Result.retry` |
-| iOS 13+ | BGTaskScheduler | `BGAppRefreshTask` (cadence is an OS hint) + `BGProcessingTask` for large drains; reschedules itself first, expiration-safe |
+| Android | WorkManager (`androidx.work` 2.10.5) | periodic (≥15 min floor) + expedited one-shot on queue commit; network constraint; exponential backoff; at most five consecutive attempts per failed run |
+| iOS 13+ | BGTaskScheduler | periodic `BGAppRefreshTask` (cadence is an OS hint) + network-bound `BGProcessingTask` on queue commit; refresh reschedules itself first and both tear down safely on expiration |
+
+WorkManager 2.10.5 is intentional: it is the newest stable line that preserves
+this plugin's Android API 21 minimum. WorkManager 2.11 raises its own minimum to
+API 23. The plugin compiles against API 35 with Android Gradle Plugin 8.6, as
+required by the 2.10 line; this does not raise its runtime API 21 minimum. A
+future min-SDK bump must therefore be an explicit versioned decision.
 
 ## Flutter setup
 
@@ -57,6 +63,9 @@ OptoSyncBackgroundPlugin.registerTasks()
 [OptoSyncBackgroundBridge registerTasks];
 ```
 
+The registration hook is process-idempotent, so overlapping host integration
+paths cannot register either task identifier twice.
+
 ## Android host app
 
 Kotlin hosts need nothing beyond the plugin (WorkManager is initialized by
@@ -72,16 +81,44 @@ WorkManager.getInstance(context).enqueueUniquePeriodicWork(
         .setConstraints(new Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED).build())
         .setBackoffCriteria(BackoffPolicy.EXPONENTIAL,
-            WorkManager.MIN_BACKOFF_MILLIS, TimeUnit.MILLISECONDS)
+            WorkRequest.MIN_BACKOFF_MILLIS, TimeUnit.MILLISECONDS)
         .build());
+```
+
+## Native build gate
+
+The Kotlin, Java, Swift, and Objective-C sources here are compiled in CI by
+[`.github/workflows/mobile-native-build.yml`](../../.github/workflows/mobile-native-build.yml),
+which builds a throwaway Flutter host app that depends on this plugin by path.
+No device, emulator, simulator, or signing identity is involved. Reproduce
+locally with a JDK 17 plus Android SDK, or with Xcode:
+
+```sh
+python3 scripts/build-mobile-native.py android
+python3 scripts/build-mobile-native.py ios
 ```
 
 ## Semantics
 
 - The drain returning `false` (or throwing) maps to `Result.retry` (Android)
-  or `success: false` (iOS) — the OS retries with backoff. Self-correcting:
-  a later success resets the chain.
+  or `success: false` (iOS). Android stops retrying a persistently failing
+  run after five consecutive attempts; the next periodic interval or a later
+  durable commit can wake the queue again.
 - `scheduleExpedited` never throws into your write path: a scheduling failure
-  degrades to the periodic drain / next foreground session.
+  or unsupported host degrades to the periodic drain / next foreground session.
+- Android emits fixed `OptoSyncBackground` scheduler/worker lifecycle events
+  for host and CI diagnostics. Callback exception messages, details, queue
+  contents, credentials, and record data are never logged.
+- Android headless workers initialize the same injected `FlutterLoader` used
+  by their `FlutterEngine`, so the engine cannot observe a divergent loader.
+- The plugin dispatcher is a tree-shake-safe top-level Dart entrypoint. Android
+  bounds dispatcher readiness separately, so a startup failure releases the
+  headless engine and enters bounded retry instead of waiting for the drain cap.
 - iOS schedules the *next* refresh before running the drain, so a crash
   mid-drain cannot break the chain.
+- `cancelAll` is package-scoped: it removes only the two Opto Sync task
+  identifiers on iOS and the two unique Opto Sync work names on Android.
+- Android callback handles are committed to disk before `initialize` returns,
+  so a process death cannot leave a scheduled worker without its Dart entrypoint.
+- Flutter callback handles are signed 64-bit identifiers. Dart, Kotlin, Java,
+  and Swift consistently treat only zero as the missing-registration sentinel.

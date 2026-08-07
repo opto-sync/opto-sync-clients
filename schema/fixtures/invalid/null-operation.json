@@ -1,0 +1,13 @@
+{
+  "formatVersion": 1,
+  "records": [
+    {
+      "table": "events",
+      "recordId": "e-1",
+      "operation": null,
+      "payload": {
+        "updatedAt": "1"
+      }
+    }
+  ]
+}

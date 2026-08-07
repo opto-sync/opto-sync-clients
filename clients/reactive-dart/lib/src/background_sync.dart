@@ -37,8 +37,8 @@ final class BackgroundSyncContext {
   }
 }
 
-typedef BackgroundSyncCycle<R> = Future<R> Function(
-    BackgroundSyncContext context);
+typedef BackgroundSyncCycle<R> =
+    Future<R> Function(BackgroundSyncContext context);
 
 /// One bounded, single-flight HTTP push/pull cycle for a worker isolate.
 ///
@@ -72,7 +72,11 @@ final class BackgroundSyncRunner<R> {
     if (visible != null) return visible;
 
     final context = BackgroundSyncContext(budget);
-    final operation = _syncOnce(context);
+    // Future.sync converts setup-time exceptions (credential restoration,
+    // database opening, dependency construction) into the same asynchronous
+    // failure channel as later protocol errors. This ensures every caller sees
+    // one shared Future and the runner can clear ownership consistently.
+    final operation = Future<R>.sync(() => _syncOnce(context));
     final bounded = operation.timeout(
       budget,
       onTimeout: () {
@@ -148,21 +152,21 @@ ValueStream<BackgroundSyncOutcome<R>> createBackgroundSyncOutcomes<R>({
       .flatMap<BackgroundSyncOutcome<R>>(
         (BackgroundWakeReason wake) =>
             Stream<BackgroundSyncOutcome<R>>.fromFuture(
-          runner.runOnce().then(
+              runner.runOnce().then(
                 (result) => BackgroundSyncOutcome<R>(
                   wake: wake,
                   ok: true,
                   result: result,
                 ),
               ),
-        ).onErrorReturnWith(
-          (error, stackTrace) => BackgroundSyncOutcome<R>(
-            wake: wake,
-            ok: false,
-            error: error,
-            stackTrace: stackTrace,
-          ),
-        ),
+            ).onErrorReturnWith(
+              (error, stackTrace) => BackgroundSyncOutcome<R>(
+                wake: wake,
+                ok: false,
+                error: error,
+                stackTrace: stackTrace,
+              ),
+            ),
         maxConcurrent: 1,
       )
       .shareValue();

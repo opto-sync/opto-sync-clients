@@ -1,0 +1,13 @@
+{
+  "name": "@opto-sync/envelope-schema-check",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Evaluates the shared ingest-envelope and formal streaming JSON Schemas against their fixture corpora",
+  "type": "module",
+  "scripts": {
+    "test": "node check-corpus.mjs && node check-formal-stream-corpus.mjs"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1"
+  }
+}

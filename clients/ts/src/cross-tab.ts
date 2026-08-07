@@ -46,9 +46,9 @@ export interface CrossTabCoordinatorOptions {
   onLeadershipChange?: (isLeader: boolean) => void;
   /** Receives sync state broadcast by the current leader (any tab). */
   onRemoteState?: (state: ProtocolSyncState) => void;
-  /** Injectable platform hooks for tests. */
+  /** Injectable platform hooks. Set `null` to explicitly disable Web Locks. */
   broadcastChannelFactory?: (name: string) => BroadcastChannelLike;
-  locks?: LockManagerLike;
+  locks?: LockManagerLike | null;
 }
 
 export interface CrossTabCoordinator {
@@ -71,6 +71,38 @@ function defaultLocks(): LockManagerLike | undefined {
   return nav?.locks as LockManagerLike | undefined;
 }
 
+/**
+ * Shape-check a state frame before handing it to application observers.
+ *
+ * BroadcastChannel is same-origin, but every script on the origin can post to
+ * the channel — an unrelated library, an injected third-party tag, or a stale
+ * frame from a previous version of this code. Status text is frequently
+ * rendered, so anything that fails this check is dropped rather than forwarded
+ * to `onRemoteState`.
+ */
+function isSyncState(value: unknown): value is ProtocolSyncState {
+  if (!value || typeof value !== 'object') return false;
+  const state = value as Record<string, unknown>;
+  return (
+    typeof state.status === 'string' &&
+    STATUSES.has(state.status) &&
+    typeof state.consecutiveFailures === 'number' &&
+    Number.isInteger(state.consecutiveFailures) &&
+    state.consecutiveFailures >= 0 &&
+    (state.nextRetryAt === undefined || typeof state.nextRetryAt === 'number') &&
+    (state.lastError === undefined || typeof state.lastError === 'string')
+  );
+}
+
+const STATUSES = new Set([
+  'stopped',
+  'idle',
+  'syncing',
+  'offline',
+  'backoff',
+  'error',
+]);
+
 function defaultChannelFactory(name: string): BroadcastChannelLike | undefined {
   const Ctor = (globalThis as Record<string, unknown>).BroadcastChannel as
     | (new (name: string) => BroadcastChannelLike)
@@ -84,7 +116,8 @@ export function startCrossTabCoordinator(
   const channel =
     options.broadcastChannelFactory?.(options.channelName ?? DEFAULT_CHANNEL) ??
     defaultChannelFactory(options.channelName ?? DEFAULT_CHANNEL);
-  const locks = options.locks ?? defaultLocks();
+  const locks =
+    options.locks === undefined ? defaultLocks() : options.locks ?? undefined;
 
   let leader = false;
   let disposed = false;
@@ -111,6 +144,17 @@ export function startCrossTabCoordinator(
         { mode: 'exclusive', signal: abort.signal },
         () =>
           new Promise<void>((resolve) => {
+            // `dispose()` races the grant: aborting a Web Lock request only
+            // cancels it while it is still QUEUED, so a request the browser
+            // had already decided to grant still runs this callback after
+            // disposal. Resolving immediately hands the lock straight back.
+            // Holding it instead would strand the lease forever — no other
+            // tab could ever be promoted, and the queue would stop draining
+            // origin-wide until every tab was closed.
+            if (disposed) {
+              resolve();
+              return;
+            }
             releaseLock = resolve;
             becomeLeader();
           }),
@@ -123,11 +167,12 @@ export function startCrossTabCoordinator(
   }
 
   const onMessage = (event: { data: unknown }) => {
+    if (disposed) return;
     const data = event.data as { type?: string; state?: ProtocolSyncState } | null;
     if (!data || typeof data !== 'object') return;
     if (data.type === 'hint' && leader) {
       options.loop.hint();
-    } else if (data.type === 'state' && !leader && data.state) {
+    } else if (data.type === 'state' && !leader && isSyncState(data.state)) {
       try {
         options.onRemoteState?.(data.state);
       } catch {
@@ -142,6 +187,10 @@ export function startCrossTabCoordinator(
       return leader;
     },
     hint() {
+      // After dispose() the BroadcastChannel is closed and postMessage throws
+      // InvalidStateError. A late hint (in-flight save resolving after the
+      // component unmounted) is a no-op, not an application error.
+      if (disposed) return;
       if (leader) {
         options.loop.hint();
       } else {
@@ -149,9 +198,11 @@ export function startCrossTabCoordinator(
       }
     },
     publishState(state: ProtocolSyncState) {
+      if (disposed) return;
       channel?.postMessage({ type: 'state', state });
     },
     dispose() {
+      if (disposed) return;
       disposed = true;
       abort.abort();
       if (leader) {

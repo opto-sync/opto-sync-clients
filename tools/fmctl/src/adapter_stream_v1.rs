@@ -7,7 +7,8 @@ use thiserror::Error;
 pub const STREAM_ADAPTER_PROTOCOL: &str = "fm.adapter.stream.v1";
 pub const STREAM_ADAPTER_PROTOCOL_VERSION: u32 = 1;
 pub const MAX_STREAM_MESSAGE_BYTES: usize = 1024 * 1024;
-const MAX_REQUEST_ID: u64 = 9_007_199_254_740_991;
+pub const MAX_STREAM_GENERATION: u64 = 9_007_199_254_740_991;
+const MAX_REQUEST_ID: u64 = MAX_STREAM_GENERATION;
 const MAX_SETTLE_STEPS: u32 = 1_000_000;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -80,6 +81,24 @@ pub enum StreamOperationName {
     Close,
 }
 
+pub const STREAM_CAPABILITY_REGISTRY_V1: [StreamOperationName; 8] = [
+    StreamOperationName::Reset,
+    StreamOperationName::Apply,
+    StreamOperationName::Observe,
+    StreamOperationName::Settle,
+    StreamOperationName::Snapshot,
+    StreamOperationName::Restore,
+    StreamOperationName::Fault,
+    StreamOperationName::Close,
+];
+
+pub const STREAM_REQUIRED_CAPABILITIES_V1: [StreamOperationName; 4] = [
+    StreamOperationName::Reset,
+    StreamOperationName::Apply,
+    StreamOperationName::Observe,
+    StreamOperationName::Close,
+];
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct StreamResponse {
@@ -122,7 +141,7 @@ pub struct StreamImplementation {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct HelloResult {
     pub implementation: StreamImplementation,
-    pub capabilities: BTreeSet<StreamOperationName>,
+    pub capabilities: Vec<StreamOperationName>,
     pub canonical_state_schema_hash: String,
 }
 
@@ -152,6 +171,22 @@ impl StreamOperation {
     }
 }
 
+impl StreamOperationName {
+    fn wire_name(self) -> &'static str {
+        match self {
+            Self::Hello => "hello",
+            Self::Reset => "reset",
+            Self::Apply => "apply",
+            Self::Observe => "observe",
+            Self::Settle => "settle",
+            Self::Snapshot => "snapshot",
+            Self::Restore => "restore",
+            Self::Fault => "fault",
+            Self::Close => "close",
+        }
+    }
+}
+
 impl StreamMessage {
     pub fn validate(&self) -> Result<(), StreamProtocolError> {
         match self {
@@ -169,6 +204,7 @@ impl StreamRequest {
             &self.request_id,
             &self.machine,
         )?;
+        validate_generation(self.generation)?;
         match &self.operation {
             StreamOperation::Hello
             | StreamOperation::Observe
@@ -225,11 +261,16 @@ impl StreamResponse {
             &self.request_id,
             &self.machine,
         )?;
-        match &self.outcome {
-            StreamOutcome::Ok { value } => {
+        validate_generation(self.generation)?;
+        match (&self.operation, &self.outcome) {
+            (StreamOperationName::Hello, StreamOutcome::Ok { value }) => {
+                decode_hello_result(value)?.validate()?;
                 canonicalize_json(value)?;
             }
-            StreamOutcome::Error { error } | StreamOutcome::Unsupported { error } => {
+            (_, StreamOutcome::Ok { value }) => {
+                canonicalize_json(value)?;
+            }
+            (_, StreamOutcome::Error { error } | StreamOutcome::Unsupported { error }) => {
                 error.validate()?;
             }
         }
@@ -261,27 +302,64 @@ impl HelloResult {
             "canonicalStateSchemaHash",
             &self.canonical_state_schema_hash,
         )?;
+        let canonical = canonicalize_capability_set_v1(&self.capabilities)?;
+        if canonical != self.capabilities {
+            return invalid(format!(
+                "hello capabilities are not in canonical v1 order: got {:?}; expected {:?}",
+                self.capabilities
+                    .iter()
+                    .map(|capability| capability.wire_name())
+                    .collect::<Vec<_>>(),
+                canonical
+                    .iter()
+                    .map(|capability| capability.wire_name())
+                    .collect::<Vec<_>>()
+            ));
+        }
+        Ok(())
+    }
+}
 
-        let required = [
-            StreamOperationName::Reset,
-            StreamOperationName::Apply,
-            StreamOperationName::Observe,
-            StreamOperationName::Close,
-        ];
-        let missing = required
-            .into_iter()
-            .filter(|operation| !self.capabilities.contains(operation))
-            .map(|operation| format!("{operation:?}").to_lowercase())
-            .collect::<Vec<_>>();
-        if missing.is_empty() {
-            Ok(())
-        } else {
-            invalid(format!(
-                "hello result is missing required capabilities: {}",
-                missing.join(", ")
-            ))
+fn decode_hello_result(value: &Value) -> Result<HelloResult, StreamProtocolError> {
+    serde_json::from_value(value.clone()).map_err(|error| {
+        protocol_error(format!(
+            "hello success value does not match the capability contract: {error}"
+        ))
+    })
+}
+
+pub fn canonicalize_capability_set_v1(
+    capabilities: &[StreamOperationName],
+) -> Result<Vec<StreamOperationName>, StreamProtocolError> {
+    let mut seen = BTreeSet::new();
+    for capability in capabilities {
+        if *capability == StreamOperationName::Hello {
+            return invalid("hello capabilities must not advertise hello");
+        }
+        if !seen.insert(*capability) {
+            return invalid(format!(
+                "hello capabilities contain duplicate {:?}",
+                capability.wire_name()
+            ));
         }
     }
+
+    let missing = STREAM_REQUIRED_CAPABILITIES_V1
+        .into_iter()
+        .filter(|capability| !seen.contains(capability))
+        .map(StreamOperationName::wire_name)
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        return invalid(format!(
+            "hello result is missing required capabilities: {}",
+            missing.join(", ")
+        ));
+    }
+
+    Ok(STREAM_CAPABILITY_REGISTRY_V1
+        .into_iter()
+        .filter(|capability| seen.contains(capability))
+        .collect())
 }
 
 pub fn parse_stream_message_line(line: &[u8]) -> Result<StreamMessage, StreamProtocolError> {
@@ -482,9 +560,10 @@ impl StreamTranscriptValidator {
                     return invalid("hello may only occur before the session is ready");
                 }
                 let expected_generation = if operation == StreamOperationName::Reset {
-                    self.generation
-                        .checked_add(1)
-                        .ok_or_else(|| protocol_error("adapter generation overflowed"))?
+                    if self.generation == MAX_STREAM_GENERATION {
+                        return invalid("adapter generation cannot advance beyond 2^53-1");
+                    }
+                    self.generation + 1
                 } else {
                     self.generation
                 };
@@ -509,7 +588,7 @@ impl StreamTranscriptValidator {
     }
 
     fn accept_response(&mut self, response: &StreamResponse) -> Result<(), StreamProtocolError> {
-        let pending = self.pending.take().ok_or_else(|| {
+        let pending = self.pending.as_ref().cloned().ok_or_else(|| {
             protocol_error(format!(
                 "response {} has no pending request",
                 response.request_id
@@ -523,24 +602,38 @@ impl StreamTranscriptValidator {
             return invalid("response does not echo the pending request identity");
         }
 
+        let mut next_phase = self.phase;
+        let mut next_generation = self.generation;
+        let mut next_capabilities = self.capabilities.clone();
+
         match (&pending.operation, &response.outcome) {
             (StreamOperationName::Hello, StreamOutcome::Ok { value }) => {
-                let hello: HelloResult =
-                    serde_json::from_value(value.clone()).map_err(|error| {
-                        protocol_error(format!(
-                            "hello success value does not match the capability contract: {error}"
-                        ))
-                    })?;
+                let hello = decode_hello_result(value)?;
                 hello.validate()?;
-                self.capabilities = hello.capabilities;
-                self.phase = SessionPhase::Ready;
+                next_capabilities = hello.capabilities.iter().copied().collect();
+                next_phase = SessionPhase::Ready;
             }
-            (StreamOperationName::Hello, _) => self.phase = SessionPhase::AwaitHello,
+            (StreamOperationName::Hello, _) => {
+                return invalid("hello must succeed");
+            }
             (StreamOperationName::Reset, StreamOutcome::Ok { .. }) => {
-                self.generation = pending.generation;
+                if self.generation == MAX_STREAM_GENERATION {
+                    return invalid("adapter generation cannot advance beyond 2^53-1");
+                }
+                let expected = self.generation + 1;
+                if pending.generation != expected {
+                    return invalid(format!(
+                        "successful reset response generation {} does not advance {} by one",
+                        pending.generation, self.generation
+                    ));
+                }
+                next_generation = pending.generation;
             }
             (StreamOperationName::Close, StreamOutcome::Ok { .. }) => {
-                self.phase = SessionPhase::Closed;
+                next_phase = SessionPhase::Closed;
+            }
+            (StreamOperationName::Close, _) => {
+                return invalid("close must succeed");
             }
             (operation, StreamOutcome::Ok { .. }) if !self.capabilities.contains(operation) => {
                 return invalid(format!(
@@ -556,6 +649,11 @@ impl StreamTranscriptValidator {
             }
             _ => {}
         }
+
+        self.phase = next_phase;
+        self.generation = next_generation;
+        self.capabilities = next_capabilities;
+        self.pending = None;
         Ok(())
     }
 }
@@ -593,6 +691,15 @@ fn validate_envelope(
     }
     parse_request_id(request_id)?;
     validate_label("machine", machine, 256)
+}
+
+fn validate_generation(value: u64) -> Result<(), StreamProtocolError> {
+    if value > MAX_STREAM_GENERATION {
+        return invalid(format!(
+            "generation must be between 0 and {MAX_STREAM_GENERATION}"
+        ));
+    }
+    Ok(())
 }
 
 fn parse_request_id(value: &str) -> Result<u64, StreamProtocolError> {
@@ -668,10 +775,26 @@ mod tests {
     const HAPPY: &str = include_str!("../../../formal/protocol-fixtures/stream/valid/happy.jsonl");
     const UNSUPPORTED: &str =
         include_str!("../../../formal/protocol-fixtures/stream/valid/unsupported.jsonl");
+    const MINIMAL_CAPABILITIES: &str =
+        include_str!("../../../formal/protocol-fixtures/stream/valid/minimal-capabilities.jsonl");
     const DUPLICATE_ID: &str =
         include_str!("../../../formal/protocol-fixtures/stream/invalid/duplicate-request-id.jsonl");
     const STALE_GENERATION: &str =
         include_str!("../../../formal/protocol-fixtures/stream/invalid/stale-generation.jsonl");
+    const DUPLICATE_CAPABILITY: &str =
+        include_str!("../../../formal/protocol-fixtures/stream/invalid/duplicate-capability.jsonl");
+    const MISSING_REQUIRED_CAPABILITY: &str = include_str!(
+        "../../../formal/protocol-fixtures/stream/invalid/missing-required-capability.jsonl"
+    );
+    const HELLO_CAPABILITY: &str =
+        include_str!("../../../formal/protocol-fixtures/stream/invalid/hello-capability.jsonl");
+    const UNKNOWN_CAPABILITY: &str =
+        include_str!("../../../formal/protocol-fixtures/stream/invalid/unknown-capability.jsonl");
+    const OUT_OF_ORDER_CAPABILITY: &str = include_str!(
+        "../../../formal/protocol-fixtures/stream/invalid/out-of-order-capability.jsonl"
+    );
+    const CAPABILITY_REGISTRY: &str =
+        include_str!("../../../formal/protocol-fixtures/stream/capabilities.v1.json");
     const SCHEMA: &str = include_str!("../../../formal/adapter-stream-protocol.schema.json");
 
     #[test]
@@ -679,6 +802,7 @@ mod tests {
         serde_json::from_str::<Value>(SCHEMA).expect("schema JSON");
         validate_stream_transcript(HAPPY).expect("happy transcript");
         validate_stream_transcript(UNSUPPORTED).expect("unsupported transcript");
+        validate_stream_transcript(MINIMAL_CAPABILITIES).expect("minimal capability transcript");
     }
 
     #[test]
@@ -691,6 +815,228 @@ mod tests {
             .expect_err("stale generation")
             .to_string()
             .contains("generation"));
+    }
+
+    #[test]
+    fn rust_registry_matches_the_shared_machine_readable_contract() {
+        let fixture: Value =
+            serde_json::from_str(CAPABILITY_REGISTRY).expect("capability registry JSON");
+        assert_eq!(
+            fixture["protocol"],
+            Value::String(STREAM_ADAPTER_PROTOCOL.to_owned())
+        );
+        assert_eq!(
+            fixture["protocolVersion"],
+            Value::Number(STREAM_ADAPTER_PROTOCOL_VERSION.into())
+        );
+        assert_eq!(
+            fixture["wireRule"],
+            Value::String("strict-subsequence".to_owned())
+        );
+        assert_eq!(
+            fixture["registry"],
+            serde_json::to_value(STREAM_CAPABILITY_REGISTRY_V1).expect("registry value")
+        );
+        assert_eq!(
+            fixture["required"],
+            serde_json::to_value(STREAM_REQUIRED_CAPABILITIES_V1).expect("required value")
+        );
+    }
+
+    #[test]
+    fn canonicalizes_application_capability_sets_to_wire_order() {
+        let actual = canonicalize_capability_set_v1(&[
+            StreamOperationName::Close,
+            StreamOperationName::Fault,
+            StreamOperationName::Observe,
+            StreamOperationName::Reset,
+            StreamOperationName::Snapshot,
+            StreamOperationName::Apply,
+        ])
+        .expect("valid capability set");
+        assert_eq!(
+            actual,
+            vec![
+                StreamOperationName::Reset,
+                StreamOperationName::Apply,
+                StreamOperationName::Observe,
+                StreamOperationName::Snapshot,
+                StreamOperationName::Fault,
+                StreamOperationName::Close,
+            ]
+        );
+    }
+
+    #[test]
+    fn malformed_capability_transcripts_fail_at_the_hello_boundary() {
+        for (name, source, expected) in [
+            ("duplicate", DUPLICATE_CAPABILITY, "duplicate"),
+            (
+                "missing required",
+                MISSING_REQUIRED_CAPABILITY,
+                "missing required",
+            ),
+            (
+                "hello advertised",
+                HELLO_CAPABILITY,
+                "must not advertise hello",
+            ),
+            ("unknown", UNKNOWN_CAPABILITY, "unknown variant"),
+            (
+                "out of order",
+                OUT_OF_ORDER_CAPABILITY,
+                "canonical v1 order",
+            ),
+        ] {
+            let error = validate_stream_transcript(source).expect_err(name);
+            assert!(
+                error.to_string().contains(expected),
+                "{name}: expected {expected:?}, got {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_generations_above_the_javascript_safe_integer() {
+        let message = StreamMessage::Request(StreamRequest {
+            protocol: STREAM_ADAPTER_PROTOCOL.to_owned(),
+            protocol_version: STREAM_ADAPTER_PROTOCOL_VERSION,
+            request_id: "1".to_owned(),
+            machine: "machine".to_owned(),
+            generation: MAX_STREAM_GENERATION + 1,
+            operation: StreamOperation::Observe,
+        });
+        assert!(message
+            .validate()
+            .expect_err("unsafe generation")
+            .to_string()
+            .contains("generation"));
+    }
+
+    #[test]
+    fn rejected_response_retains_pending_request_for_a_valid_retry() {
+        let mut validator = StreamTranscriptValidator::default();
+        let request = StreamRequest {
+            protocol: STREAM_ADAPTER_PROTOCOL.to_owned(),
+            protocol_version: STREAM_ADAPTER_PROTOCOL_VERSION,
+            request_id: "1".to_owned(),
+            machine: "machine".to_owned(),
+            generation: 0,
+            operation: StreamOperation::Hello,
+        };
+        validator
+            .accept(&StreamMessage::Request(request))
+            .expect("hello request");
+
+        let hello_value = json!({
+            "implementation": {
+                "language": "rust",
+                "name": "test",
+                "version": "1"
+            },
+            "capabilities": ["reset", "apply", "observe", "close"],
+            "canonicalStateSchemaHash": format!("sha256:{}", "0".repeat(64))
+        });
+        let mut response = StreamResponse {
+            protocol: STREAM_ADAPTER_PROTOCOL.to_owned(),
+            protocol_version: STREAM_ADAPTER_PROTOCOL_VERSION,
+            request_id: "2".to_owned(),
+            machine: "machine".to_owned(),
+            generation: 0,
+            operation: StreamOperationName::Hello,
+            outcome: StreamOutcome::Ok { value: hello_value },
+        };
+        validator
+            .accept(&StreamMessage::Response(response.clone()))
+            .expect_err("mismatched response");
+        response.request_id = "1".to_owned();
+        validator
+            .accept(&StreamMessage::Response(response))
+            .expect("valid retry");
+    }
+
+    #[test]
+    fn rejected_hello_capabilities_leave_pending_state_for_a_valid_retry() {
+        let mut validator = StreamTranscriptValidator::default();
+        validator
+            .accept(&StreamMessage::Request(StreamRequest {
+                protocol: STREAM_ADAPTER_PROTOCOL.to_owned(),
+                protocol_version: STREAM_ADAPTER_PROTOCOL_VERSION,
+                request_id: "1".to_owned(),
+                machine: "machine".to_owned(),
+                generation: 0,
+                operation: StreamOperation::Hello,
+            }))
+            .expect("hello request");
+
+        let mut response = StreamResponse {
+            protocol: STREAM_ADAPTER_PROTOCOL.to_owned(),
+            protocol_version: STREAM_ADAPTER_PROTOCOL_VERSION,
+            request_id: "1".to_owned(),
+            machine: "machine".to_owned(),
+            generation: 0,
+            operation: StreamOperationName::Hello,
+            outcome: StreamOutcome::Ok {
+                value: hello_value(json!([
+                    "reset", "apply", "observe", "snapshot", "settle", "close"
+                ])),
+            },
+        };
+        validator
+            .accept(&StreamMessage::Response(response.clone()))
+            .expect_err("out-of-order capabilities");
+
+        response.outcome = StreamOutcome::Ok {
+            value: hello_value(json!(["reset", "apply", "observe", "close"])),
+        };
+        validator
+            .accept(&StreamMessage::Response(response))
+            .expect("canonical retry");
+    }
+
+    #[test]
+    fn canonical_hello_capability_bytes_round_trip_without_drift() {
+        let message = StreamMessage::Response(StreamResponse {
+            protocol: STREAM_ADAPTER_PROTOCOL.to_owned(),
+            protocol_version: STREAM_ADAPTER_PROTOCOL_VERSION,
+            request_id: "1".to_owned(),
+            machine: "machine".to_owned(),
+            generation: 0,
+            operation: StreamOperationName::Hello,
+            outcome: StreamOutcome::Ok {
+                value: hello_value(json!([
+                    "reset", "apply", "observe", "settle", "snapshot", "restore", "fault", "close"
+                ])),
+            },
+        });
+        message.validate().expect("canonical hello");
+        let first = canonical_json_bytes(&serde_json::to_value(&message).expect("message value"))
+            .expect("canonical bytes");
+        let expected =
+            br#""capabilities":["reset","apply","observe","settle","snapshot","restore","fault","close"]"#;
+        assert!(
+            first
+                .windows(expected.len())
+                .any(|window| window == expected),
+            "missing canonical capability bytes: {}",
+            String::from_utf8_lossy(&first)
+        );
+        let reparsed = parse_stream_message_line(&first).expect("reparse canonical hello");
+        let second = canonical_json_bytes(&serde_json::to_value(reparsed).expect("reparsed value"))
+            .expect("second canonical bytes");
+        assert_eq!(first, second);
+    }
+
+    fn hello_value(capabilities: Value) -> Value {
+        json!({
+            "implementation": {
+                "language": "rust",
+                "name": "capability-test",
+                "version": "1"
+            },
+            "capabilities": capabilities,
+            "canonicalStateSchemaHash": format!("sha256:{}", "0".repeat(64))
+        })
     }
 
     #[test]

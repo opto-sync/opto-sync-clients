@@ -1,7 +1,9 @@
 pub mod adapter;
 pub mod error;
+pub mod execution_report;
 pub mod manifest;
 pub mod plan;
+pub mod resource;
 pub mod result;
 pub mod rpc;
 pub mod runner;
@@ -16,6 +18,7 @@ use crate::adapter::parse_replay_response;
 use crate::error::FmError;
 use crate::manifest::{validate_relative_path, LoadedManifest, ValidationReport};
 use crate::plan::{build_plan, CommandPlan, Operation, ReplayRequest};
+use crate::resource::ResourceProfile;
 use crate::runner::{execute_plan, write_artifact, CommandOutcome};
 
 #[derive(Debug, Clone)]
@@ -91,6 +94,17 @@ impl App {
     }
 
     pub fn execute(&self, operation: &Operation) -> Result<CommandOutcome, FmError> {
+        let (outcome, deferred_error) = self.execute_outcome(operation)?;
+        if let Some(error) = deferred_error {
+            return Err(error);
+        }
+        Ok(outcome)
+    }
+
+    pub(crate) fn execute_outcome(
+        &self,
+        operation: &Operation,
+    ) -> Result<(CommandOutcome, Option<FmError>), FmError> {
         let loaded = self.load()?;
         let plan = build_plan(&loaded, operation)?;
         if matches!(operation, Operation::Trace { .. }) {
@@ -167,10 +181,7 @@ impl App {
 
         let result_json = serde_json::to_vec_pretty(&outcome)?;
         write_artifact(&plan.workspace, &outcome.artifacts.result, &result_json)?;
-        if let Some(error) = deferred_error {
-            return Err(error);
-        }
-        Ok(outcome)
+        Ok((outcome, deferred_error))
     }
 
     pub fn doctor(&self) -> Result<DoctorReport, FmError> {
@@ -415,8 +426,40 @@ fn probe_tool(base_plan: &CommandPlan, name: &str, program: &str, args: &[&str])
     plan.program = program.to_owned();
     plan.args = args.iter().map(|argument| (*argument).to_owned()).collect();
     plan.stdin = None;
-    plan.timeout_seconds = plan.timeout_seconds.clamp(1, 120);
-    plan.max_output_bytes = plan.max_output_bytes.clamp(1024, 64 * 1024);
+    let probe_timeout = plan.timeout_seconds.clamp(1, 120);
+    let probe_output = plan.max_output_bytes.clamp(1024, 64 * 1024);
+    let mut request = plan.resource_policy.requested.clone();
+    request.timeout_seconds = Some(probe_timeout);
+    request.max_output_bytes = Some(u64::try_from(probe_output).unwrap_or(u64::MAX));
+    let probe_policy = match ResourceProfile::local_v1().resolve(request) {
+        Ok(policy) => policy,
+        Err(error) => {
+            return ToolProbe {
+                name: name.to_owned(),
+                command,
+                available: false,
+                exit_code: None,
+                stdout: String::new(),
+                stderr: format!("failed to resolve doctor resource policy: {error}"),
+            };
+        }
+    };
+    let probe_output = match usize::try_from(probe_policy.effective.scalar.max_output_bytes) {
+        Ok(value) => value,
+        Err(_) => {
+            return ToolProbe {
+                name: name.to_owned(),
+                command,
+                available: false,
+                exit_code: None,
+                stdout: String::new(),
+                stderr: "doctor output policy exceeds usize".to_owned(),
+            };
+        }
+    };
+    plan.timeout_seconds = probe_policy.effective.scalar.timeout_seconds;
+    plan.max_output_bytes = probe_output;
+    plan.resource_policy = probe_policy;
     plan.artifacts.stdout = artifact_root.join(format!("doctor-{name}.stdout.log"));
     plan.artifacts.stderr = artifact_root.join(format!("doctor-{name}.stderr.log"));
     plan.artifacts.result = artifact_root.join(format!("doctor-{name}.result.json"));

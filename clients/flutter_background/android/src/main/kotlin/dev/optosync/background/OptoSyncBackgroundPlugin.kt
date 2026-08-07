@@ -1,6 +1,7 @@
 package dev.optosync.background
 
 import android.content.Context
+import android.util.Log
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -10,6 +11,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import androidx.work.WorkRequest
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -28,6 +30,7 @@ class OptoSyncBackgroundPlugin : FlutterPlugin, MethodChannel.MethodCallHandler 
         const val PREFS = "dev.optosync.background"
         const val KEY_CALLBACK_HANDLE = "callbackHandle"
         const val KEY_DISPATCHER_HANDLE = "dispatcherHandle"
+        private const val LOG_TAG = "OptoSyncBackground"
 
         @JvmStatic
         fun storedCallbackHandle(context: Context): Long =
@@ -66,10 +69,24 @@ class OptoSyncBackgroundPlugin : FlutterPlugin, MethodChannel.MethodCallHandler 
                     .edit()
                     .putLong(KEY_CALLBACK_HANDLE, handle)
                     .putLong(KEY_DISPATCHER_HANDLE, dispatcher)
-                    .apply()
-                result.success(null)
+                    // Initialization promises that a later process can restore
+                    // both handles. `apply()` can lose them if Android kills
+                    // this process before its asynchronous disk write.
+                    .commit()
+                    .let { persisted ->
+                        if (persisted) {
+                            result.success(null)
+                        } else {
+                            result.error(
+                                "PERSIST_FAILED",
+                                "background callback handles were not persisted",
+                                null,
+                            )
+                        }
+                    }
             }
             "registerPeriodic" -> {
+                if (!ensureInitialized(result)) return
                 val frequencySeconds =
                     (call.argument<Number>("frequencySeconds")?.toLong() ?: 3600L)
                         // WorkManager enforces a 15-minute floor for periodic work.
@@ -81,35 +98,46 @@ class OptoSyncBackgroundPlugin : FlutterPlugin, MethodChannel.MethodCallHandler 
                     .setConstraints(constraints(requiresNetwork))
                     .setBackoffCriteria(
                         BackoffPolicy.EXPONENTIAL,
-                        WorkManager.MIN_BACKOFF_MILLIS,
+                        WorkRequest.MIN_BACKOFF_MILLIS,
                         TimeUnit.MILLISECONDS,
                     )
                     .build()
-                WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-                    PERIODIC_WORK_NAME,
-                    ExistingPeriodicWorkPolicy.UPDATE,
-                    request,
-                )
-                result.success(null)
+                try {
+                    WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                        PERIODIC_WORK_NAME,
+                        ExistingPeriodicWorkPolicy.UPDATE,
+                        request,
+                    )
+                    Log.i(LOG_TAG, "periodic background work submitted")
+                    result.success(null)
+                } catch (_: RuntimeException) {
+                    result.error("SCHEDULE_FAILED", "periodic work was not scheduled", null)
+                }
             }
             "scheduleExpedited" -> {
+                if (!ensureInitialized(result)) return
                 val request = OneTimeWorkRequestBuilder<OptoSyncWorker>()
                     .setConstraints(constraints(requiresNetwork = true))
                     // Falls back to ordinary work when the expedited quota is spent.
                     .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
                     .setBackoffCriteria(
                         BackoffPolicy.EXPONENTIAL,
-                        WorkManager.MIN_BACKOFF_MILLIS,
+                        WorkRequest.MIN_BACKOFF_MILLIS,
                         TimeUnit.MILLISECONDS,
                     )
                     .build()
-                WorkManager.getInstance(context).enqueueUniqueWork(
-                    EXPEDITED_WORK_NAME,
-                    // A drain already queued to run covers this commit too.
-                    ExistingWorkPolicy.KEEP,
-                    request,
-                )
-                result.success(null)
+                try {
+                    WorkManager.getInstance(context).enqueueUniqueWork(
+                        EXPEDITED_WORK_NAME,
+                        // A drain already queued to run covers this commit too.
+                        ExistingWorkPolicy.KEEP,
+                        request,
+                    )
+                    Log.i(LOG_TAG, "expedited background work submitted")
+                    result.success(null)
+                } catch (_: RuntimeException) {
+                    result.error("SCHEDULE_FAILED", "expedited work was not scheduled", null)
+                }
             }
             "cancelAll" -> {
                 WorkManager.getInstance(context).cancelUniqueWork(PERIODIC_WORK_NAME)
@@ -126,4 +154,17 @@ class OptoSyncBackgroundPlugin : FlutterPlugin, MethodChannel.MethodCallHandler 
                 if (requiresNetwork) NetworkType.CONNECTED else NetworkType.NOT_REQUIRED,
             )
             .build()
+
+    private fun ensureInitialized(result: MethodChannel.Result): Boolean {
+        val ready =
+            storedCallbackHandle(context) != 0L && storedDispatcherHandle(context) != 0L
+        if (!ready) {
+            result.error(
+                "NOT_INITIALIZED",
+                "call OptoSyncBackground.initialize before scheduling work",
+                null,
+            )
+        }
+        return ready
+    }
 }

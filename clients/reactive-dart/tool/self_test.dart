@@ -18,18 +18,17 @@ SyncRecordEvent<Map<String, Object?>> _event({
   required String title,
   bool pending = false,
   SyncSessionIdentity? identity,
-}) =>
-    SyncRecordEvent<Map<String, Object?>>(
-      table: 'todos',
-      recordId: 'todo-1',
-      operation: 'upsert',
-      payload: <String, Object?>{'title': title},
-      revision: revision,
-      source: source,
-      authority: authority,
-      pending: pending,
-      sessionPartition: transportSessionKey(identity ?? _identity),
-    );
+}) => SyncRecordEvent<Map<String, Object?>>(
+  table: 'todos',
+  recordId: 'todo-1',
+  operation: 'upsert',
+  payload: <String, Object?>{'title': title},
+  revision: revision,
+  source: source,
+  authority: authority,
+  pending: pending,
+  sessionPartition: transportSessionKey(identity ?? _identity),
+);
 
 Future<void> _waitFor(bool Function() test) async {
   final deadline = DateTime.now().add(const Duration(seconds: 3));

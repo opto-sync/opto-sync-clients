@@ -1,0 +1,15 @@
+{
+  "formatVersion": 1,
+  "source": "integral-json-number-semantics",
+  "records": [
+    {
+      "table": "notes",
+      "recordId": "integral-number",
+      "payload": {
+        "updatedAt": 1.0,
+        "createdAt": 1e3,
+        "body": "JSON Schema integer semantics are mathematical, not lexical"
+      }
+    }
+  ]
+}

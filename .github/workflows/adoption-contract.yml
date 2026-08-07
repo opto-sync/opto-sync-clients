@@ -1,0 +1,48 @@
+name: Adoption contract
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'adoption/**'
+      - 'scripts/check-adoption-manifest.py'
+      - 'scripts/test_check_adoption_manifest.py'
+      - '.github/workflows/adoption-contract.yml'
+  pull_request:
+    paths:
+      - 'adoption/**'
+      - 'scripts/check-adoption-manifest.py'
+      - 'scripts/test_check_adoption_manifest.py'
+      - '.github/workflows/adoption-contract.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Run validator behavior tests
+        run: |
+          set -euo pipefail
+          python3 -m unittest scripts/test_check_adoption_manifest.py
+      - name: Validate canonical example
+        run: |
+          set -euo pipefail
+          python3 scripts/check-adoption-manifest.py adoption/example.opto-sync.json
+      - name: Compile-check Python sources
+        run: |
+          set -euo pipefail
+          python3 -m py_compile \
+            scripts/check-adoption-manifest.py \
+            scripts/test_check_adoption_manifest.py

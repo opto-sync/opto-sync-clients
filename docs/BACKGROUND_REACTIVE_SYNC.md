@@ -182,9 +182,14 @@ Concurrent events share one promise and one abort deadline. The cycle reads the
 durable IndexedDB queue/checkpoint, uses HTTP, commits results, and returns.
 
 `registerOptoSyncBackgroundWake` prefers Background Sync and falls back to a
-message when the API is unavailable. The real Chromium test opens two tabs,
-registers one worker, sends concurrent wakes, and verifies one IndexedDB cycle;
-a later wake produces a second cycle.
+message when the API is unavailable *or tag registration rejects*. The
+canonical one-shot tag is `opto-sync`; `opto-sync:background` remains accepted
+as a migration alias for registrations persisted by the first reactive
+release. Worker replies expose only `SYNC_FAILED`, never raw exception text that
+could contain a URL, credential, tenant identifier, or payload fragment. The
+real Chromium test opens two tabs, registers one worker, sends concurrent wakes,
+dispatches a genuine legacy-tag Background Sync event, forces Chrome to stop the
+worker, and verifies the freshly evaluated worker resumes the IndexedDB counter.
 
 Service Worker lifetimes are intentionally not modeled as permanent processes.
 See the W3C Service Workers specification and Chrome's Workbox Background Sync
@@ -198,16 +203,17 @@ documentation for the event-driven execution model.
 - Java uses `ListenableWorker` and `CallbackToFutureAdapter`.
 - Both enqueue unique work with `ExistingWorkPolicy.KEEP`.
 - Both require a connected network and bound retry attempts.
-- `onStopped`/cancellation sends `cancel` to the Dart isolate and destroys the
+- `onStopped`/cancellation propagates ownership loss and destroys the headless
   Flutter engine.
 
 ### Apple platforms
 
-- Swift and Objective-C register a `BGProcessingTask` identifier once during
+- Swift and Objective-C register refresh and processing identifiers once during
   application launch.
-- Requests require network connectivity and declare their power requirement.
-- Expiration reports failure, sends `cancel`, preserves queue rows, and tears down
-  the Flutter engine.
+- Periodic catch-up uses `BGAppRefreshTask`; queue-commit wakes use a
+  network-bound `BGProcessingTask` with no external-power requirement.
+- Expiration reports failure, preserves queue rows, and tears down the Flutter
+  engine exactly once.
 - Scheduling is discretionary. Foreground/app-launch sync remains mandatory.
 
 ### Flutter isolate
@@ -237,7 +243,8 @@ reserved for trusted native/server environments.
 The branch-specific workflow runs:
 
 1. RxJS package lock, typecheck, unit tests, HTTP/TCP tests;
-2. real Chromium/two-tab Service Worker + IndexedDB;
+2. real Chromium/two-tab Service Worker + IndexedDB, including browser-owned
+   legacy sync dispatch and forced worker termination/restart;
 3. RxDart analysis and behavioral self-test;
 4. static host-adapter safety checks for Flutter, Swift, Objective-C, Kotlin,
    and Java;

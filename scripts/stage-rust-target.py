@@ -86,6 +86,11 @@ def main() -> int:
             fail("clients/rust/examples must be a normal directory when present")
         shutil.rmtree(examples)
 
+    # The Rust schema-ingest integration tests deliberately consume the shared
+    # cross-language fixture corpus. Package the corpus beside the client so an
+    # extracted target remains testable without a Git checkout or sibling repo.
+    copy_tree(ROOT / "schema/fixtures", output / "schema/fixtures")
+
     copy_tree(ROOT / "syncer.c/core/include", output / "syncer.c/core/include")
     copy_tree(ROOT / "syncer.c/core/src", output / "syncer.c/core/src")
     copy_tree(ROOT / "syncer.c/bindings/rust", output / "syncer.c/bindings/rust")
@@ -160,8 +165,9 @@ exclude = [".zpkg.lock"]
     (output / "README.md").write_text(
         f"""# opto-sync Rust target prototype
 
-This staged source package contains only the Rust client and the exact C core
-and Rust FFI binding pinned by `opto-sync-clients`.
+This staged source package contains only the Rust client, its shared schema
+fixture corpus, and the exact C core and Rust FFI binding pinned by
+`opto-sync-clients`.
 
 - Client source: `{client_sha}`
 - Core source: `{gitlink_sha}`

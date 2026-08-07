@@ -79,6 +79,9 @@ pub enum FmError {
     #[error("worker thread failed while collecting process output")]
     OutputWorkerPanicked,
 
+    #[error("report publication failed: {0}")]
+    ReportPublication(String),
+
     #[error("invalid JSON-RPC request: {0}")]
     InvalidRpc(String),
 }
@@ -89,6 +92,10 @@ impl FmError {
             path: path.into(),
             source,
         }
+    }
+
+    pub fn report_publication(source: FmError) -> Self {
+        Self::ReportPublication(source.to_string())
     }
 
     pub fn exit_code(&self) -> u8 {
@@ -105,6 +112,7 @@ impl FmError {
             | Self::Output { .. }
             | Self::OutputWorkerPanicked => 4,
             Self::Io { .. } | Self::Json(_) => 5,
+            Self::ReportPublication(_) => 6,
         }
     }
 }
