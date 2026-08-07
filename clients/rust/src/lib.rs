@@ -31,6 +31,7 @@ pub use syncer_rs::version as core_version;
 pub use syncer_rs::ArrayMergeStrategy as ArrayStrategy;
 
 pub mod clock;
+pub mod ingest;
 pub mod protocol;
 pub mod protocol_sync;
 pub mod schema;

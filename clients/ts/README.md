@@ -97,6 +97,13 @@ checkpointed pull log remains the source of truth.
 Throw `new SyncTransportError(message, false)` for permanent failures such as a
 client/protocol configuration error so the background loop stops retrying.
 
+`FetchProtocolTransport`, `installProtocolServiceWorker`,
+`CrossContextSyncCoordinator`, Supabase/shared-auth session providers, RxJS
+record streams, and explicit optimism levels are documented in
+[`docs/BACKGROUND_REACTIVE_SYNC.md`](../../docs/BACKGROUND_REACTIVE_SYNC.md).
+The real-browser suite covers a service-worker IndexedDB flush and two-tab
+leader transfer.
+
 If records and protocol metadata share this Dexie database, callbacks may also
 implement `applyChangesAndCheckpoint` and
 `replaceAuthoritativeAndCheckpoint`. Build them with

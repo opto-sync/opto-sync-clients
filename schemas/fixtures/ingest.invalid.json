@@ -1,0 +1,72 @@
+[
+  {
+    "name": "numeric timestamps lose int64 precision in JavaScript",
+    "document": {
+      "format": "opto-sync.ingest.v1",
+      "batchId": "numeric-time",
+      "createdAt": 1721822400000000000,
+      "mutations": [
+        {
+          "operation": "delete",
+          "table": "docs",
+          "recordId": "doc-1",
+          "deletedAt": "1721822400000000001"
+        }
+      ]
+    }
+  },
+  {
+    "name": "upserts require updatedAt",
+    "document": {
+      "format": "opto-sync.ingest.v1",
+      "batchId": "missing-updated-at",
+      "createdAt": "2026-07-30T12:00:00Z",
+      "mutations": [
+        {
+          "operation": "upsert",
+          "table": "docs",
+          "recordId": "doc-1",
+          "record": {
+            "title": "No timestamp"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "revisions are canonical decimal strings",
+    "document": {
+      "format": "opto-sync.ingest.v1",
+      "batchId": "leading-zero",
+      "createdAt": "2026-07-30T12:00:00Z",
+      "mutations": [
+        {
+          "operation": "delete",
+          "table": "docs",
+          "recordId": "doc-1",
+          "deletedAt": "1721822400000000001",
+          "baseRevision": "007"
+        }
+      ]
+    }
+  },
+  {
+    "name": "unknown mutation envelope fields are rejected",
+    "document": {
+      "format": "opto-sync.ingest.v1",
+      "batchId": "unknown-envelope-field",
+      "createdAt": "2026-07-30T12:00:00Z",
+      "mutations": [
+        {
+          "operation": "delete",
+          "table": "docs",
+          "recordId": "doc-1",
+          "deletedAt": "1721822400000000001",
+          "record": {
+            "updatedAt": "1721822400000000001"
+          }
+        }
+      ]
+    }
+  }
+]

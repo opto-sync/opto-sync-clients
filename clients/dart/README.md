@@ -143,6 +143,11 @@ Platform connectivity and lifecycle events should call `loop.hint()`.
 Default callbacks must apply pull pages idempotently and replace snapshots
 atomically when their store cannot transact with queue metadata.
 
+RxDart record composition, explicit optimism levels, native HTTP/WebSocket/TCP
+hints, Supabase/shared-auth session scoping, Flutter Workmanager, and native
+iOS/Android background bridges are covered in
+[Background, reactive, and session-aware sync](../../docs/BACKGROUND_REACTIVE_SYNC.md).
+
 When authoritative rows share the Drift connection, implement
 `AtomicProtocolSyncCallbacks` and use `commitPullPageAtomic()` /
 `installSnapshotAtomic()`. The loop verifies that each callback persisted the
