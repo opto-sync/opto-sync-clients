@@ -283,6 +283,8 @@ public class OptoSyncBackgroundPlugin: NSObject, FlutterPlugin, FlutterStreamHan
     }
 
     task.expirationHandler = {
+      // Destroying the headless engine cooperatively terminates the Dart
+      // isolate; durable queue rows remain for the next wake.
       finish(false)
     }
 
