@@ -50,7 +50,9 @@ class _FakeLoop implements rx.SyncKicker {
       // Pretend the server accepted everything queued so far.
       await client.db
           .update(client.db.localMutations)
-          .write(const LocalMutationsCompanion(syncStatus: Value(SyncStatus.synced)));
+          .write(
+            const LocalMutationsCompanion(syncStatus: Value(SyncStatus.synced)),
+          );
     }
     return const ProtocolSyncCycleResult(
       pushedMutations: 0,
@@ -85,37 +87,39 @@ void main() {
     await db.close();
   });
 
-  test('watchLocalView emits the optimistic view immediately after a write',
-      () async {
-    final authoritative = BehaviorSubject<Map<String, dynamic>?>.seeded({
-      'id': 'r1',
-      'title': 'server',
-      'updatedAt': '100',
-    });
-    final emissions = <Map<String, dynamic>?>[];
-    final sub = rx
-        .watchLocalView(
-          client: client,
-          tableName: 'docs',
-          recordId: 'r1',
-          authoritative: authoritative,
-        )
-        .listen(emissions.add);
+  test(
+    'watchLocalView emits the optimistic view immediately after a write',
+    () async {
+      final authoritative = BehaviorSubject<Map<String, dynamic>?>.seeded({
+        'id': 'r1',
+        'title': 'server',
+        'updatedAt': '100',
+      });
+      final emissions = <Map<String, dynamic>?>[];
+      final sub = rx
+          .watchLocalView(
+            client: client,
+            tableName: 'docs',
+            recordId: 'r1',
+            authoritative: authoritative,
+          )
+          .listen(emissions.add);
 
-    await Future<void>.delayed(const Duration(milliseconds: 100));
-    expect(emissions, hasLength(1));
-    expect(emissions.single?['title'], 'server');
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(emissions, hasLength(1));
+      expect(emissions.single?['title'], 'server');
 
-    await client.queueMutation('docs', 'r1', {
-      'title': 'local edit',
-      'updatedAt': '200',
-    });
-    await Future<void>.delayed(const Duration(milliseconds: 200));
-    expect(emissions.last?['title'], 'local edit');
+      await client.queueMutation('docs', 'r1', {
+        'title': 'local edit',
+        'updatedAt': '200',
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+      expect(emissions.last?['title'], 'local edit');
 
-    await sub.cancel();
-    await authoritative.close();
-  });
+      await sub.cancel();
+      await authoritative.close();
+    },
+  );
 
   test('watchLocalView deduplicates canonically identical states', () async {
     final authoritative = BehaviorSubject<Map<String, dynamic>?>.seeded({
@@ -146,31 +150,37 @@ void main() {
     await authoritative.close();
   });
 
-  test('background optimism resolves once durably queued, no sync kicked',
-      () async {
-    final loop = _FakeLoop(client);
-    final receipt = await rx.write(
-      client,
-      'docs',
-      'r3',
-      {'v': 1},
-      optimism: rx.Optimism.background,
-      loop: loop,
-    );
-    expect(receipt.optimism, rx.Optimism.background);
-    expect(loop.cycles, 0);
-    expect(loop.hints, 0);
-    expect(await client.pendingMutations(), hasLength(1));
-  });
+  test(
+    'background optimism resolves once durably queued, no sync kicked',
+    () async {
+      final loop = _FakeLoop(client);
+      final receipt = await rx.write(
+        client,
+        'docs',
+        'r3',
+        {'v': 1},
+        optimism: rx.Optimism.background,
+        loop: loop,
+      );
+      expect(receipt.optimism, rx.Optimism.background);
+      expect(loop.cycles, 0);
+      expect(loop.hints, 0);
+      expect(await client.pendingMutations(), hasLength(1));
+    },
+  );
 
-  test('localFirst optimism queues then kicks a cycle without awaiting',
-      () async {
-    final loop = _FakeLoop(client);
-    final receipt = await rx.write(client, 'docs', 'r4', {'v': 1}, loop: loop);
-    expect(receipt.optimism, rx.Optimism.localFirst);
-    expect(loop.hints, 1);
-    expect(loop.cycles, 0);
-  });
+  test(
+    'localFirst optimism queues then kicks a cycle without awaiting',
+    () async {
+      final loop = _FakeLoop(client);
+      final receipt = await rx.write(client, 'docs', 'r4', {
+        'v': 1,
+      }, loop: loop);
+      expect(receipt.optimism, rx.Optimism.localFirst);
+      expect(loop.hints, 1);
+      expect(loop.cycles, 0);
+    },
+  );
 
   test('awaitServer optimism resolves only after acknowledgement', () async {
     final loop = _FakeLoop(client);
@@ -186,26 +196,30 @@ void main() {
     expect(await client.pendingMutations(), isEmpty);
   });
 
-  test('awaitServer rejects when the server never acknowledges — data stays queued',
-      () async {
-    final loop = _FakeLoop(client, acknowledge: false);
-    await expectLater(
-      rx.write(
-        client,
-        'docs',
-        'r6',
-        {'v': 1},
-        optimism: rx.Optimism.awaitServer,
-        loop: loop,
-      ),
-      throwsStateError,
-    );
-    expect(await client.pendingMutations(), hasLength(1));
-  });
+  test(
+    'awaitServer rejects when the server never acknowledges — data stays queued',
+    () async {
+      final loop = _FakeLoop(client, acknowledge: false);
+      await expectLater(
+        rx.write(
+          client,
+          'docs',
+          'r6',
+          {'v': 1},
+          optimism: rx.Optimism.awaitServer,
+          loop: loop,
+        ),
+        throwsStateError,
+      );
+      expect(await client.pendingMutations(), hasLength(1));
+    },
+  );
 
   test('awaitServer without a loop is a usage error', () async {
     await expectLater(
-      rx.write(client, 'docs', 'r7', {'v': 1}, optimism: rx.Optimism.awaitServer),
+      rx.write(client, 'docs', 'r7', {
+        'v': 1,
+      }, optimism: rx.Optimism.awaitServer),
       throwsArgumentError,
     );
   });

@@ -1,6 +1,8 @@
 package dev.optosync.background
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -13,23 +15,30 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkRequest
 import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.util.concurrent.TimeUnit
 
 /**
- * Method-channel surface for scheduling opto-sync background drains with
- * WorkManager. The drain itself runs in [OptoSyncWorker] (Kotlin) — Java-only
- * host apps can schedule [OptoSyncWorkerJava] instead; both execute the same
- * registered Dart callback in a background FlutterEngine.
+ * Method/event-channel surface for background drains and connectivity state.
+ * No UI classes are imported: Flutter, Kotlin, and Java hosts consume data and
+ * decide independently how to present it.
  */
-class OptoSyncBackgroundPlugin : FlutterPlugin, MethodChannel.MethodCallHandler {
+class OptoSyncBackgroundPlugin :
+    FlutterPlugin,
+    MethodChannel.MethodCallHandler,
+    EventChannel.StreamHandler {
     companion object {
         const val PERIODIC_WORK_NAME = "opto-sync-periodic"
         const val EXPEDITED_WORK_NAME = "opto-sync-expedited"
         const val PREFS = "dev.optosync.background"
         const val KEY_CALLBACK_HANDLE = "callbackHandle"
         const val KEY_DISPATCHER_HANDLE = "dispatcherHandle"
+        const val KEY_TOTAL_OFFLINE = "totalOffline"
+        const val KEY_PERIODIC_REGISTERED = "periodicRegistered"
+        const val KEY_PERIODIC_FREQUENCY_SECONDS = "periodicFrequencySeconds"
+        const val KEY_PERIODIC_REQUIRES_NETWORK = "periodicRequiresNetwork"
         private const val LOG_TAG = "OptoSyncBackground"
 
         @JvmStatic
@@ -41,111 +50,234 @@ class OptoSyncBackgroundPlugin : FlutterPlugin, MethodChannel.MethodCallHandler 
         fun storedDispatcherHandle(context: Context): Long =
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getLong(KEY_DISPATCHER_HANDLE, 0L)
+
+        @JvmStatic
+        fun isTotalOffline(context: Context): Boolean =
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                .getBoolean(KEY_TOTAL_OFFLINE, false)
     }
 
     private lateinit var channel: MethodChannel
+    private lateinit var eventChannel: EventChannel
     private lateinit var context: Context
+    private lateinit var connectivity: OptoSyncConnectivityWatcher
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private var eventSink: EventChannel.EventSink? = null
+    private var connectivitySubscription: AutoCloseable? = null
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         context = binding.applicationContext
         channel = MethodChannel(binding.binaryMessenger, "dev.optosync.background/methods")
         channel.setMethodCallHandler(this)
+        eventChannel = EventChannel(
+            binding.binaryMessenger,
+            "dev.optosync.background/connectivity",
+        )
+        eventChannel.setStreamHandler(this)
+        connectivity = OptoSyncConnectivityWatcher(context)
+        connectivity.setTotalOffline(isTotalOffline(context))
+        connectivity.start()
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        connectivitySubscription?.close()
+        connectivitySubscription = null
+        eventSink = null
+        connectivity.stop()
+        eventChannel.setStreamHandler(null)
         channel.setMethodCallHandler(null)
+    }
+
+    override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
+        connectivitySubscription?.close()
+        eventSink = events
+        connectivitySubscription = connectivity.addListener(
+            OptoSyncConnectivityListener { current, _ ->
+                mainHandler.post {
+                    if (eventSink === events) events.success(current.toMap())
+                }
+            },
+            emitCurrent = true,
+        )
+    }
+
+    override fun onCancel(arguments: Any?) {
+        connectivitySubscription?.close()
+        connectivitySubscription = null
+        eventSink = null
     }
 
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
-            "initialize" -> {
-                val handle = call.argument<Number>("callbackHandle")?.toLong()
-                val dispatcher = call.argument<Number>("dispatcherHandle")?.toLong()
-                if (handle == null || handle == 0L || dispatcher == null || dispatcher == 0L) {
-                    result.error("BAD_ARGS", "callbackHandle and dispatcherHandle are required", null)
-                    return
-                }
-                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                    .edit()
-                    .putLong(KEY_CALLBACK_HANDLE, handle)
-                    .putLong(KEY_DISPATCHER_HANDLE, dispatcher)
-                    // Initialization promises that a later process can restore
-                    // both handles. `apply()` can lose them if Android kills
-                    // this process before its asynchronous disk write.
-                    .commit()
-                    .let { persisted ->
-                        if (persisted) {
-                            result.success(null)
-                        } else {
-                            result.error(
-                                "PERSIST_FAILED",
-                                "background callback handles were not persisted",
-                                null,
-                            )
-                        }
-                    }
+            "configureConnectivity" -> {
+                // Android's NET_CAPABILITY_VALIDATED already performs an OS
+                // reachability check. The optional app probe is used by iOS.
+                result.success(connectivity.refresh().toMap())
             }
-            "registerPeriodic" -> {
-                if (!ensureInitialized(result)) return
-                val frequencySeconds =
-                    (call.argument<Number>("frequencySeconds")?.toLong() ?: 3600L)
-                        // WorkManager enforces a 15-minute floor for periodic work.
-                        .coerceAtLeast(TimeUnit.MINUTES.toSeconds(15))
-                val requiresNetwork = call.argument<Boolean>("requiresNetwork") ?: true
-                val request = PeriodicWorkRequestBuilder<OptoSyncWorker>(
-                    frequencySeconds, TimeUnit.SECONDS,
-                )
-                    .setConstraints(constraints(requiresNetwork))
-                    .setBackoffCriteria(
-                        BackoffPolicy.EXPONENTIAL,
-                        WorkRequest.MIN_BACKOFF_MILLIS,
-                        TimeUnit.MILLISECONDS,
-                    )
-                    .build()
-                try {
-                    WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-                        PERIODIC_WORK_NAME,
-                        ExistingPeriodicWorkPolicy.UPDATE,
-                        request,
-                    )
-                    Log.i(LOG_TAG, "periodic background work submitted")
-                    result.success(null)
-                } catch (_: RuntimeException) {
-                    result.error("SCHEDULE_FAILED", "periodic work was not scheduled", null)
-                }
-            }
-            "scheduleExpedited" -> {
-                if (!ensureInitialized(result)) return
-                val request = OneTimeWorkRequestBuilder<OptoSyncWorker>()
-                    .setConstraints(constraints(requiresNetwork = true))
-                    // Falls back to ordinary work when the expedited quota is spent.
-                    .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-                    .setBackoffCriteria(
-                        BackoffPolicy.EXPONENTIAL,
-                        WorkRequest.MIN_BACKOFF_MILLIS,
-                        TimeUnit.MILLISECONDS,
-                    )
-                    .build()
-                try {
-                    WorkManager.getInstance(context).enqueueUniqueWork(
-                        EXPEDITED_WORK_NAME,
-                        // A drain already queued to run covers this commit too.
-                        ExistingWorkPolicy.KEEP,
-                        request,
-                    )
-                    Log.i(LOG_TAG, "expedited background work submitted")
-                    result.success(null)
-                } catch (_: RuntimeException) {
-                    result.error("SCHEDULE_FAILED", "expedited work was not scheduled", null)
-                }
-            }
-            "cancelAll" -> {
-                WorkManager.getInstance(context).cancelUniqueWork(PERIODIC_WORK_NAME)
-                WorkManager.getInstance(context).cancelUniqueWork(EXPEDITED_WORK_NAME)
-                result.success(null)
-            }
+            "setConnectivityOffline" -> setConnectivityOffline(call, result)
+            "refreshConnectivity" -> result.success(connectivity.refresh().toMap())
+            "initialize" -> initialize(call, result)
+            "registerPeriodic" -> registerPeriodic(call, result)
+            "scheduleExpedited" -> scheduleExpedited(result)
+            "cancelAll" -> cancelAll(result)
             else -> result.notImplemented()
         }
+    }
+
+    private fun initialize(call: MethodCall, result: MethodChannel.Result) {
+        val handle = call.argument<Number>("callbackHandle")?.toLong()
+        val dispatcher = call.argument<Number>("dispatcherHandle")?.toLong()
+        if (handle == null || handle == 0L || dispatcher == null || dispatcher == 0L) {
+            result.error("BAD_ARGS", "callbackHandle and dispatcherHandle are required", null)
+            return
+        }
+        val persisted = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putLong(KEY_CALLBACK_HANDLE, handle)
+            .putLong(KEY_DISPATCHER_HANDLE, dispatcher)
+            // Initialization promises that a later process can restore both
+            // handles; do not acknowledge an asynchronous write.
+            .commit()
+        if (persisted) {
+            result.success(null)
+        } else {
+            result.error(
+                "PERSIST_FAILED",
+                "background callback handles were not persisted",
+                null,
+            )
+        }
+    }
+
+    private fun setConnectivityOffline(call: MethodCall, result: MethodChannel.Result) {
+        val enabled = call.argument<Boolean>("enabled")
+        if (enabled == null) {
+            result.error("BAD_ARGS", "enabled is required", null)
+            return
+        }
+        val persisted = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_TOTAL_OFFLINE, enabled)
+            .commit()
+        if (!persisted) {
+            result.error("PERSIST_FAILED", "offline mode was not persisted", null)
+            return
+        }
+
+        connectivity.setTotalOffline(enabled)
+        val workManager = WorkManager.getInstance(context)
+        if (enabled) {
+            workManager.cancelUniqueWork(PERIODIC_WORK_NAME)
+            workManager.cancelUniqueWork(EXPEDITED_WORK_NAME)
+            result.success(connectivity.snapshot().toMap())
+            return
+        }
+
+        val preferences = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!preferences.getBoolean(KEY_PERIODIC_REGISTERED, false)) {
+            result.success(connectivity.snapshot().toMap())
+            return
+        }
+        try {
+            enqueuePeriodic(
+                preferences.getLong(KEY_PERIODIC_FREQUENCY_SECONDS, 3600L),
+                preferences.getBoolean(KEY_PERIODIC_REQUIRES_NETWORK, true),
+            )
+            Log.i(LOG_TAG, "periodic background work restored after offline mode")
+            result.success(connectivity.snapshot().toMap())
+        } catch (_: RuntimeException) {
+            result.error(
+                "SCHEDULE_FAILED",
+                "periodic work was not restored after offline mode",
+                connectivity.snapshot().toMap(),
+            )
+        }
+    }
+
+    private fun registerPeriodic(call: MethodCall, result: MethodChannel.Result) {
+        if (!ensureInitialized(result)) return
+        val frequencySeconds =
+            (call.argument<Number>("frequencySeconds")?.toLong() ?: 3600L)
+                .coerceAtLeast(TimeUnit.MINUTES.toSeconds(15))
+        val requiresNetwork = call.argument<Boolean>("requiresNetwork") ?: true
+        val persisted = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_PERIODIC_REGISTERED, true)
+            .putLong(KEY_PERIODIC_FREQUENCY_SECONDS, frequencySeconds)
+            .putBoolean(KEY_PERIODIC_REQUIRES_NETWORK, requiresNetwork)
+            .commit()
+        if (!persisted) {
+            result.error("PERSIST_FAILED", "periodic work configuration was not persisted", null)
+            return
+        }
+        if (isTotalOffline(context)) {
+            result.success(null)
+            return
+        }
+        try {
+            enqueuePeriodic(frequencySeconds, requiresNetwork)
+            Log.i(LOG_TAG, "periodic background work submitted")
+            result.success(null)
+        } catch (_: RuntimeException) {
+            result.error("SCHEDULE_FAILED", "periodic work was not scheduled", null)
+        }
+    }
+
+    private fun scheduleExpedited(result: MethodChannel.Result) {
+        if (!ensureInitialized(result)) return
+        if (isTotalOffline(context)) {
+            result.success(null)
+            return
+        }
+        val request = OneTimeWorkRequestBuilder<OptoSyncWorker>()
+            .setConstraints(constraints(requiresNetwork = true))
+            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+            .setBackoffCriteria(
+                BackoffPolicy.EXPONENTIAL,
+                WorkRequest.MIN_BACKOFF_MILLIS,
+                TimeUnit.MILLISECONDS,
+            )
+            .build()
+        try {
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                EXPEDITED_WORK_NAME,
+                ExistingWorkPolicy.KEEP,
+                request,
+            )
+            Log.i(LOG_TAG, "expedited background work submitted")
+            result.success(null)
+        } catch (_: RuntimeException) {
+            result.error("SCHEDULE_FAILED", "expedited work was not scheduled", null)
+        }
+    }
+
+    private fun cancelAll(result: MethodChannel.Result) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_PERIODIC_REGISTERED, false)
+            .commit()
+        WorkManager.getInstance(context).cancelUniqueWork(PERIODIC_WORK_NAME)
+        WorkManager.getInstance(context).cancelUniqueWork(EXPEDITED_WORK_NAME)
+        result.success(null)
+    }
+
+    private fun enqueuePeriodic(frequencySeconds: Long, requiresNetwork: Boolean) {
+        val request = PeriodicWorkRequestBuilder<OptoSyncWorker>(
+            frequencySeconds.coerceAtLeast(TimeUnit.MINUTES.toSeconds(15)),
+            TimeUnit.SECONDS,
+        )
+            .setConstraints(constraints(requiresNetwork))
+            .setBackoffCriteria(
+                BackoffPolicy.EXPONENTIAL,
+                WorkRequest.MIN_BACKOFF_MILLIS,
+                TimeUnit.MILLISECONDS,
+            )
+            .build()
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            PERIODIC_WORK_NAME,
+            ExistingPeriodicWorkPolicy.UPDATE,
+            request,
+        )
     }
 
     private fun constraints(requiresNetwork: Boolean): Constraints =

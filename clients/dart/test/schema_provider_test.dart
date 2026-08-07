@@ -28,8 +28,8 @@ void main() {
   final fixtures = locateFixtures();
 
   String fixture(String kind, String name) => File(
-        '${fixtures.path}${Platform.pathSeparator}$kind${Platform.pathSeparator}$name',
-      ).readAsStringSync();
+    '${fixtures.path}${Platform.pathSeparator}$kind${Platform.pathSeparator}$name',
+  ).readAsStringSync();
 
   test('normalizes malformed JSON', () {
     expect(
@@ -85,9 +85,8 @@ void main() {
           (error) => error.issues,
           'provider issues',
           predicate<List<String>>(
-            (issues) => issues.any(
-              (entry) => entry.contains('provider[json_schema2]'),
-            ),
+            (issues) =>
+                issues.any((entry) => entry.contains('provider[json_schema2]')),
             'contains a json_schema2 provider issue',
           ),
         ),
