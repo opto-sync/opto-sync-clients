@@ -34,8 +34,10 @@ The adapter deliberately separates operational and semantic concerns:
   and reports the first divergent trace/state/action.
 - `src/opto_sync_formal_adapter.gleam` serializes canonical observations and
   exercises the production request/response validator.
-- `src/opto_sync_formal_projection.gleam` remains the production protocol state
-  implementation used for every transition.
+- `src/opto_sync_formal_projection.gleam` delegates queue mutation, request
+  construction, response validation, acknowledgement, and checkpoint changes to
+  the production client, retaining only model-observation metadata that the
+  public queue does not store.
 
 The Erlang harness never reconstructs Gleam record/variant internals. It calls
 public production functions for enqueue, server outcomes, acknowledgement,
@@ -55,7 +57,7 @@ canonical observation.
 - contiguous allocated-id domain;
 - applied/rejected known outcomes;
 - immutable in-flight request identity;
-- response mutation id, watermark, checkpoint, and request binding;
+- response mutation id, watermark, checkpoint, validity, and request binding;
 - local pull checkpoint; and
 - reset replacement phase.
 
@@ -84,8 +86,15 @@ From the repository root, first generate normalized traces and build the tools,
 then build the Gleam package and invoke `fmctl`:
 
 ```sh
+cargo build --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl
+cargo run --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl -- \
+  --manifest formal/fm.toml validate
+cargo run --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl -- \
+  --manifest formal/fm.toml trace
+
 cd clients/gleam
 gleam deps download
+gleam format --check
 gleam test
 gleam build
 cd ../..
@@ -108,13 +117,17 @@ hashes for the manifest, model, adapter protocol schema, launcher, production
 projection, Gleam adapter, replay entry point, and active Erlang harness.
 
 cargo run --locked --manifest-path tools/fmctl/Cargo.toml --bin fmctl -- \
-  replay \
   --manifest formal/fm.toml \
-  --trace '.formal-artifacts/gleam/opto-sync-*.itf.json' \
-  --adapter-language gleam \
-  --adapter-command 'cd clients/gleam && sh formal/quint-itf-replay.sh' \
-  --output .formal-artifacts/gleam-itf-replay.json
+  replay \
+  --adapter gleam \
+  "${trace_args[@]}"
 ```
+
+`fmctl` writes the structured replay result beneath
+`.formal-artifacts/fmctl/`. The dedicated workflow also retains the corpus,
+stdout/stderr logs, and a provenance file containing tool versions plus SHA-256
+hashes for the manifest, model, adapter protocol schema, launcher, production
+projection, Gleam adapter, replay entry point, and active Erlang harness.
 
 ## Claim boundary
 
@@ -130,3 +143,4 @@ owned by `formal/fm.toml`, `fmctl`, and the retained workflow provenance.
 All model-checking bounds, tool versions, model hashes, seeds, trace hashes, and
 adapter command provenance remain owned by the repository-level formal-methods
 manifest and `fmctl` report.
+owned by `formal/fm.toml`, `fmctl`, and the retained workflow provenance.

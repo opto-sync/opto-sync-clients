@@ -300,7 +300,7 @@ assert_projection(Adapter, TraceState) ->
         actual_outcomes(required_list(Actual, <<"knownOutcomes">>)),
         expected_outcomes(Model)
     ),
-    ensure_model_ids_contiguous(Model, ExpectedNext),
+    ensure_allocated_ids_contiguous(required(Actual, <<"allocated">>), ExpectedNext),
     assert_request(Adapter, Model),
     assert_response(Adapter, Model),
     ok.
@@ -337,12 +337,12 @@ assert_response(Adapter, Model) ->
             )
     end.
 
-ensure_model_ids_contiguous(Model, NextId) ->
+ensure_allocated_ids_contiguous(ActualValue, NextId) ->
     Expected = case NextId of
         1 -> [];
         _ when NextId > 1 -> lists:seq(1, NextId - 1)
     end,
-    ensure_equal_set(model_set(Model, <<"ids">>), Expected, <<"allocated mutation ids">>).
+    ensure_equal_set(json_set(ActualValue), Expected, <<"allocated mutation ids">>).
 
 actual_outcomes(Entries) ->
     lists:sort([
@@ -402,6 +402,7 @@ model_set(Model, Key) ->
 model_reset_phase(Model) ->
     Tagged = object(required(Model, <<"reset_phase">>), <<"reset phase">>),
     case required_binary(Tagged, <<"tag">>) of
+        <<"Idle">> -> <<"ready">>;
         <<"Ready">> -> <<"ready">>;
         <<"Replacing">> -> <<"replacing">>;
         Other -> fail(format_binary("unknown reset phase ~p", [Other]))
@@ -499,10 +500,10 @@ decode_json(Content) ->
 normalize_json(Value) when is_map(Value) ->
     maps:from_list([{Key, normalize_json(Item)} || {Key, Item} <- maps:to_list(Value)]);
 normalize_json(Value) when is_list(Value) ->
-    case is_object_list(Value) of
-        true -> maps:from_list([{Key, normalize_json(Item)} || {Key, Item} <- Value]);
-        false -> [normalize_json(Item) || Item <- Value]
-    end;
+    %% OTP 27's json decoder already represents objects as maps and arrays as
+    %% lists. Treat every decoded list as an array so [] remains [] instead of
+    %% being mistaken for an empty proplist/object.
+    [normalize_json(Item) || Item <- Value];
 normalize_json(Value) ->
     Value.
 
