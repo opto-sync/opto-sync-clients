@@ -151,10 +151,8 @@ fn main() -> ExitCode {
                                 "currentWakeGeneration",
                                 completion.current_wake_generation.clone(),
                             );
-                            fields.insert(
-                                "handledGeneration",
-                                completion.handled_generation.clone(),
-                            );
+                            fields
+                                .insert("handledGeneration", completion.handled_generation.clone());
                             emit("completed", &fields);
                         }
                         Err(error) => {

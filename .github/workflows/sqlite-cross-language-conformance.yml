@@ -58,16 +58,17 @@ jobs:
         working-directory: clients/desktop-rust
         run: cargo build --bin opto_sync_sqlite_child
 
-      - name: Build the Dart conformance child
+      - name: Resolve the Dart conformance child
         working-directory: clients/reactive-dart
         shell: bash
         run: |
+          set -euo pipefail
           dart pub get
-          mkdir -p build
-          # Compiled rather than `dart run`: the JIT path writes build-hook
-          # progress onto the same streams the child protocol uses.
-          dart compile exe tool/sqlite_conformance_child.dart \
-            -o build/sqlite_conformance_child
+          dart analyze tool/sqlite_conformance_child.dart
+          # Run through the SDK rather than `dart compile exe`: the AOT binary
+          # does not carry the sqlite3 native asset on Linux or Windows. The
+          # corpus tolerates the JIT's build-hook chatter via its sentinel.
+          dart run tool/sqlite_conformance_child.dart --help || true
 
       - name: Run the cross-language corpus
         run: node conformance/sqlite-cross-language/run-corpus.mjs
