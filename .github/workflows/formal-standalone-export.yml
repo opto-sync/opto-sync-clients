@@ -1,0 +1,38 @@
+name: Formal methods standalone export
+
+on:
+  pull_request:
+    paths:
+      - 'tools/fmctl/**'
+      - 'formal/adapter-stream-protocol.schema.json'
+      - 'formal/protocol-fixtures/stream/**'
+      - 'formal/sdk/go/**'
+      - 'formal/ADAPTER_STREAM_PROTOCOL.md'
+      - 'formal/CAPABILITY_REGISTRY_V1.md'
+      - 'formal/RESOURCE_LIMITS.md'
+      - 'formal/REPORT_PUBLICATION_LEASES.md'
+      - 'formal/standalone-export.v1.json'
+      - 'tools/export_formal_methods_standalone.py'
+      - 'tools/test_formal_methods_standalone_export.sh'
+      - '.github/workflows/formal-standalone-export.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  export-contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 1
+
+      - name: Install Rust 1.88
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4
+        with:
+          toolchain: '1.88.0'
+
+      - name: Validate deterministic byte-preserving export
+        run: bash tools/test_formal_methods_standalone_export.sh
