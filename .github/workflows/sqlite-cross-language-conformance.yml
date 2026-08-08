@@ -1,0 +1,77 @@
+name: SQLite cross-language conformance
+
+# DEN-1078 residual acceptance: one deterministic corpus in which Node, Dart,
+# and Rust open the same SQLite database and prove mutual exclusion, monotonic
+# fencing, and lossless wake handoff. The per-language suites in
+# desktop-background-sync.yml prove each runtime against itself; this workflow
+# is the only place they are proven against each other.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sqlite-cross-language-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  corpus:
+    name: cross-language corpus (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0 # stable
+
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4
+        with:
+          node-version: '22'
+
+      - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: stable
+
+      - name: Cache cargo
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            clients/desktop-rust/target
+          key: ${{ runner.os }}-cargo-conformance-${{ hashFiles('clients/desktop-rust/Cargo.lock') }}
+
+      - name: Build the Rust conformance child
+        working-directory: clients/desktop-rust
+        run: cargo build --bin opto_sync_sqlite_child
+
+      - name: Resolve the Dart conformance child
+        working-directory: clients/reactive-dart
+        shell: bash
+        run: |
+          set -euo pipefail
+          dart pub get
+          dart analyze tool/sqlite_conformance_child.dart
+          # Run through the SDK rather than `dart compile exe`: the AOT binary
+          # does not carry the sqlite3 native asset on Linux or Windows. The
+          # corpus tolerates the JIT's build-hook chatter via its sentinel.
+          dart run tool/sqlite_conformance_child.dart --help || true
+
+      - name: Run the cross-language corpus
+        run: node conformance/sqlite-cross-language/run-corpus.mjs
+
+      - name: Re-run the corpus to prove determinism
+        run: node conformance/sqlite-cross-language/run-corpus.mjs
