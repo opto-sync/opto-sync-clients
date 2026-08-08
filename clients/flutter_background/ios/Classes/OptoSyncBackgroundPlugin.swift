@@ -3,40 +3,52 @@ import Flutter
 import Foundation
 import UIKit
 
-/// BGTaskScheduler-backed background draining (iOS 13+).
+/// BGTaskScheduler-backed background draining plus a UI-agnostic connectivity
+/// event stream. Applications own presentation; the plugin emits data only.
 ///
 /// Host app requirements (see README):
 /// - Info.plist `BGTaskSchedulerPermittedIdentifiers` must list
 ///   `dev.optosync.background.refresh` and `dev.optosync.background.processing`.
 /// - Info.plist `UIBackgroundModes` must include `fetch` and `processing`.
 /// - `OptoSyncBackgroundPlugin.registerTasks()` must be called from
-///   `application(_:didFinishLaunchingWithOptions:)` BEFORE the launch method
-///   returns (BGTaskScheduler requires registration at launch). Objective-C
-///   hosts use `[OptoSyncBackgroundBridge registerTasks]`.
-public class OptoSyncBackgroundPlugin: NSObject, FlutterPlugin {
+///   `application(_:didFinishLaunchingWithOptions:)` before launch returns.
+public class OptoSyncBackgroundPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
   static let refreshTaskIdentifier = "dev.optosync.background.refresh"
   static let processingTaskIdentifier = "dev.optosync.background.processing"
   static let defaultsSuite = "dev.optosync.background"
   static let callbackKey = "callbackHandle"
   static let dispatcherKey = "dispatcherHandle"
   static let frequencyKey = "frequencySeconds"
+  static let periodicRegisteredKey = "periodicRegistered"
+  static let totalOfflineKey = "totalOffline"
   static let minimumPeriodicFrequency: Double = 15 * 60
   private static let registrationLock = NSLock()
   private static var didAttemptTaskRegistration = false
 
+  private let connectivity = OptoSyncConnectivityWatcher.shared
+  private var connectivityToken: UUID?
+  private var connectivitySink: FlutterEventSink?
+
   public static func register(with registrar: FlutterPluginRegistrar) {
-    let channel = FlutterMethodChannel(
+    let methodChannel = FlutterMethodChannel(
       name: "dev.optosync.background/methods",
       binaryMessenger: registrar.messenger())
+    let eventChannel = FlutterEventChannel(
+      name: "dev.optosync.background/connectivity",
+      binaryMessenger: registrar.messenger())
     let instance = OptoSyncBackgroundPlugin()
-    registrar.addMethodCallDelegate(instance, channel: channel)
+    registrar.addMethodCallDelegate(instance, channel: methodChannel)
+    eventChannel.setStreamHandler(instance)
+
+    let defaults = UserDefaults(suiteName: defaultsSuite) ?? .standard
+    instance.connectivity.setTotalOffline(defaults.bool(forKey: totalOfflineKey))
+    instance.connectivity.start()
   }
 
   /// Must run during application launch. Safe to call more than once.
   @objc public static func registerTasks() {
     // Apple permits each identifier to be registered only once per process;
-    // a second registration can terminate the host app. Keep the public host
-    // hook idempotent even if two integration paths invoke it at launch.
+    // a second registration can terminate the host app.
     registrationLock.lock()
     guard !didAttemptTaskRegistration else {
       registrationLock.unlock()
@@ -57,9 +69,73 @@ public class OptoSyncBackgroundPlugin: NSObject, FlutterPlugin {
     }
   }
 
+  public func onListen(
+    withArguments arguments: Any?,
+    eventSink events: @escaping FlutterEventSink
+  ) -> FlutterError? {
+    if let connectivityToken { connectivity.removeListener(connectivityToken) }
+    connectivitySink = events
+    connectivityToken = connectivity.addListener { [weak self] current, _ in
+      DispatchQueue.main.async {
+        self?.connectivitySink?(current.dictionary)
+      }
+    }
+    return nil
+  }
+
+  public func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    connectivity.removeListener(connectivityToken)
+    connectivityToken = nil
+    connectivitySink = nil
+    return nil
+  }
+
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     let defaults = UserDefaults(suiteName: Self.defaultsSuite) ?? .standard
     switch call.method {
+    case "configureConnectivity":
+      let arguments = call.arguments as? [String: Any]
+      let urlString = arguments?["probeUrl"] as? String
+      let timeout = Self.int(arguments?["probeTimeoutMilliseconds"]) ?? 4_000
+      connectivity.configureProbe(
+        urlString: urlString,
+        timeoutMilliseconds: timeout)
+      result(connectivity.snapshot().dictionary)
+
+    case "setConnectivityOffline":
+      let arguments = call.arguments as? [String: Any]
+      guard let enabled = arguments?["enabled"] as? Bool else {
+        result(FlutterError(code: "BAD_ARGS", message: "enabled required", details: nil))
+        return
+      }
+      defaults.set(enabled, forKey: Self.totalOfflineKey)
+      connectivity.setTotalOffline(enabled)
+      if enabled {
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.refreshTaskIdentifier)
+        BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.processingTaskIdentifier)
+        result(connectivity.snapshot().dictionary)
+        return
+      }
+      guard defaults.bool(forKey: Self.periodicRegisteredKey) else {
+        result(connectivity.snapshot().dictionary)
+        return
+      }
+      let frequency = defaults.double(forKey: Self.frequencyKey)
+      do {
+        try Self.scheduleRefresh(
+          after: frequency >= Self.minimumPeriodicFrequency ? frequency : 3_600)
+        result(connectivity.snapshot().dictionary)
+      } catch {
+        result(FlutterError(
+          code: "SCHEDULE_FAILED",
+          message: "periodic work was not restored after offline mode",
+          details: connectivity.snapshot().dictionary))
+      }
+
+    case "refreshConnectivity":
+      connectivity.refresh()
+      result(connectivity.snapshot().dictionary)
+
     case "initialize":
       let arguments = call.arguments as? [String: Any]
       guard let callback = Self.int64(arguments?["callbackHandle"]), callback != 0,
@@ -71,56 +147,68 @@ public class OptoSyncBackgroundPlugin: NSObject, FlutterPlugin {
       defaults.set(callback, forKey: Self.callbackKey)
       defaults.set(dispatcher, forKey: Self.dispatcherKey)
       result(nil)
+
     case "registerPeriodic":
       let arguments = call.arguments as? [String: Any]
-      guard defaults.object(forKey: Self.callbackKey) != nil,
-        defaults.object(forKey: Self.dispatcherKey) != nil
-      else {
+      guard Self.isInitialized(defaults) else {
         result(FlutterError(
           code: "NOT_INITIALIZED",
           message: "call OptoSyncBackground.initialize before scheduling work",
           details: nil))
         return
       }
-      let requested = Self.double(arguments?["frequencySeconds"]) ?? 3600
+      let requested = Self.double(arguments?["frequencySeconds"]) ?? 3_600
       guard requested.isFinite, requested > 0 else {
         result(FlutterError(code: "BAD_ARGS", message: "invalid frequency", details: nil))
         return
       }
       let frequency = max(requested, Self.minimumPeriodicFrequency)
       defaults.set(frequency, forKey: Self.frequencyKey)
+      defaults.set(true, forKey: Self.periodicRegisteredKey)
+      if defaults.bool(forKey: Self.totalOfflineKey) {
+        result(nil)
+        return
+      }
       do {
         try Self.scheduleRefresh(after: frequency)
         result(nil)
       } catch {
         result(FlutterError(
-          code: "SCHEDULE_FAILED", message: "periodic work was not scheduled", details: nil))
+          code: "SCHEDULE_FAILED",
+          message: "periodic work was not scheduled",
+          details: nil))
       }
+
     case "scheduleExpedited":
-      guard defaults.object(forKey: Self.callbackKey) != nil,
-        defaults.object(forKey: Self.dispatcherKey) != nil
-      else {
+      guard Self.isInitialized(defaults) else {
         result(FlutterError(
           code: "NOT_INITIALIZED",
           message: "call OptoSyncBackground.initialize before scheduling work",
           details: nil))
         return
       }
+      if defaults.bool(forKey: Self.totalOfflineKey) {
+        result(nil)
+        return
+      }
       do {
-        // Keep the periodic BGAppRefresh request intact. The registered
-        // processing lane is the one-shot, network-bound wake for a newly
-        // committed durable mutation.
+        // Keep the periodic refresh request intact. The processing lane is the
+        // one-shot, network-bound wake for a newly committed mutation.
         try Self.scheduleProcessing()
         result(nil)
       } catch {
         result(FlutterError(
-          code: "SCHEDULE_FAILED", message: "expedited work was not scheduled", details: nil))
+          code: "SCHEDULE_FAILED",
+          message: "expedited work was not scheduled",
+          details: nil))
       }
+
     case "cancelAll":
-      // Never cancel another plugin's or the host application's BGTask work.
+      defaults.set(false, forKey: Self.periodicRegisteredKey)
       BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.refreshTaskIdentifier)
       BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: Self.processingTaskIdentifier)
       result(nil)
+
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -142,13 +230,18 @@ public class OptoSyncBackgroundPlugin: NSObject, FlutterPlugin {
   }
 
   static func handle(task: BGTask, reschedule: Bool) {
-    // Keep the refresh chain alive first: iOS grants no second chance if we
-    // crash mid-drain without having scheduled the next slot.
     let defaults = UserDefaults(suiteName: defaultsSuite) ?? .standard
+    if defaults.bool(forKey: totalOfflineKey) {
+      task.setTaskCompleted(success: true)
+      return
+    }
+
+    // Keep the refresh chain alive first: iOS grants no second chance if the
+    // process exits mid-drain without having scheduled the next slot.
     if reschedule {
       let frequency = defaults.double(forKey: frequencyKey)
       try? scheduleRefresh(
-        after: frequency >= minimumPeriodicFrequency ? frequency : 3600)
+        after: frequency >= minimumPeriodicFrequency ? frequency : 3_600)
     }
 
     let callback = defaults.object(forKey: callbackKey) as? NSNumber
@@ -190,8 +283,6 @@ public class OptoSyncBackgroundPlugin: NSObject, FlutterPlugin {
     }
 
     task.expirationHandler = {
-      // Destroying the headless engine cooperatively terminates the Dart
-      // isolate; durable queue rows remain for the next wake.
       finish(false)
     }
 
@@ -215,13 +306,27 @@ public class OptoSyncBackgroundPlugin: NSObject, FlutterPlugin {
     }
   }
 
+  private static func isInitialized(_ defaults: UserDefaults) -> Bool {
+    defaults.object(forKey: callbackKey) != nil
+      && defaults.object(forKey: dispatcherKey) != nil
+  }
+
   private static func int64(_ value: Any?) -> Int64? {
     if let number = value as? NSNumber { return number.int64Value }
     return value as? Int64
   }
 
+  private static func int(_ value: Any?) -> Int? {
+    if let number = value as? NSNumber { return number.intValue }
+    return value as? Int
+  }
+
   private static func double(_ value: Any?) -> Double? {
     if let number = value as? NSNumber { return number.doubleValue }
     return value as? Double
+  }
+
+  deinit {
+    connectivity.removeListener(connectivityToken)
   }
 }

@@ -122,9 +122,8 @@ Future<WriteReceipt> _settle(
 }
 
 Future<bool> _isPending(OptoSyncClient client, int id) async {
-  final row =
-      await (client.db.select(client.db.localMutations)
-            ..where((t) => t.id.equals(id)))
-          .getSingleOrNull();
+  final row = await (client.db.select(
+    client.db.localMutations,
+  )..where((t) => t.id.equals(id))).getSingleOrNull();
   return row != null && row.syncStatus == SyncStatus.pending;
 }

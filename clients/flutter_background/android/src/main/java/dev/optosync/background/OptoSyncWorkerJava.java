@@ -22,12 +22,7 @@ import io.flutter.embedding.engine.loader.FlutterLoader;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.view.FlutterCallbackInformation;
 
-/**
- * Plain-Java variant of {@link OptoSyncWorker} for Java-only host apps that
- * schedule work themselves. Identical behavior: run the registered Dart drain
- * in a headless background FlutterEngine; retry with WorkManager's
- * exponential backoff on failure or remaining work.
- */
+/** Plain-Java background drain worker. */
 public final class OptoSyncWorkerJava extends ListenableWorker {
 
     private static final long DISPATCHER_READY_TIMEOUT_MILLIS = 30L * 1000L;
@@ -51,14 +46,17 @@ public final class OptoSyncWorkerJava extends ListenableWorker {
         final long dispatcherHandle = OptoSyncBackgroundPlugin.storedDispatcherHandle(context);
 
         return CallbackToFutureAdapter.getFuture(completer -> {
+            if (OptoSyncBackgroundPlugin.isTotalOffline(context)) {
+                Log.i(LOG_TAG, "Java worker skipped: total-offline mode is enabled");
+                completer.set(Result.success());
+                return "opto-sync-offline";
+            }
             if (callbackHandle == 0L || dispatcherHandle == 0L) {
                 Log.w(LOG_TAG, "Java worker rejected: callback registration is missing");
                 completer.set(Result.failure());
                 return "opto-sync-drain";
             }
             Log.i(LOG_TAG, "Java worker starting; attempt=" + getRunAttemptCount());
-            // WorkManager cancels the returned future when ownership is lost.
-            // Propagate that cancellation to the headless Flutter engine.
             final Handler main = new Handler(Looper.getMainLooper());
             completer.addCancellationListener(
                     this::cancelActiveWork,
@@ -75,9 +73,6 @@ public final class OptoSyncWorkerJava extends ListenableWorker {
             CallbackToFutureAdapter.Completer<Result> completer) {
         final Handler main = new Handler(Looper.getMainLooper());
         main.post(() -> {
-            // Cancellation may win the race after startWork() returns but
-            // before this main-thread launch runs. Do not create a headless
-            // engine after WorkManager has already revoked ownership.
             if (isStopped()) return;
             try {
                 final FlutterLoader loader = FlutterInjector.instance().flutterLoader();
@@ -140,8 +135,6 @@ public final class OptoSyncWorkerJava extends ListenableWorker {
                     return;
                 }
 
-                // Install the readiness deadline before Dart can report it; a
-                // very fast dispatcher must still be able to replace it.
                 installTimeout(
                         main,
                         () -> {
@@ -154,15 +147,12 @@ public final class OptoSyncWorkerJava extends ListenableWorker {
                 engine.getDartExecutor().executeDartCallback(new DartExecutor.DartCallback(
                         context.getAssets(), loader.findAppBundlePath(), dispatcher));
             } catch (RuntimeException error) {
-                // Do not log the exception: a host callback may include secrets
-                // or record data in its message.
                 Log.w(LOG_TAG, "Java worker failed before completion");
                 finish(completer, retryOrFail());
             }
         });
     }
 
-    /** Replaces the active phase deadline (main thread). */
     private void installTimeout(Handler handler, Runnable task, long delayMillis) {
         final Handler previousHandler = timeoutHandler;
         final Runnable previousTask = timeoutTask;
@@ -174,7 +164,6 @@ public final class OptoSyncWorkerJava extends ListenableWorker {
         handler.postDelayed(task, delayMillis);
     }
 
-    /** Completes the work exactly once and destroys the engine (main thread). */
     private void finish(CallbackToFutureAdapter.Completer<Result> completer, Result result) {
         final Handler handler = timeoutHandler;
         final Runnable task = timeoutTask;
