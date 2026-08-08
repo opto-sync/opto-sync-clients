@@ -12,18 +12,15 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
-import shutil
 import stat
 import subprocess
-import sys
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, NoReturn
 
 CONTRACT_PATH = Path("formal/standalone-export.v1.json")
 
 
-def fail(message: str) -> "NoReturn":
+def fail(message: str) -> NoReturn:
     raise SystemExit(message)
 
 
