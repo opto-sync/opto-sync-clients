@@ -43,10 +43,16 @@ const RUNTIMES = {
     ],
     build: 'ships with the repository',
   },
+  // Dart runs through the SDK rather than an AOT binary: `dart compile exe`
+  // does not carry the sqlite3 native asset on Linux or Windows, so the
+  // compiled child cannot open a database there. The JIT path resolves the
+  // native library through .dart_tool and works on all three platforms. The
+  // sentinel below makes its build-hook chatter harmless.
   dart: {
-    command: path.join(ROOT, `clients/reactive-dart/build/sqlite_conformance_child${EXE}`),
-    args: [],
-    build: 'dart compile exe tool/sqlite_conformance_child.dart -o build/sqlite_conformance_child',
+    command: process.env.DART_BIN ?? 'dart',
+    args: ['run', path.join(ROOT, 'clients/reactive-dart/tool/sqlite_conformance_child.dart')],
+    cwd: path.join(ROOT, 'clients/reactive-dart'),
+    build: 'dart pub get (in clients/reactive-dart)',
   },
 };
 
@@ -89,7 +95,10 @@ function spawnChild(runtime, options) {
     '--hold-ms', String(options.holdMs ?? 0),
     '--ttl-ms', String(options.ttlMs ?? 5000),
   ];
-  const child = spawn(spec.command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(spec.command, args, {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    cwd: spec.cwd ?? process.cwd(),
+  });
   let stdout = '';
   let stderr = '';
   child.stdout.on('data', (chunk) => { stdout += chunk; });
@@ -105,7 +114,7 @@ function run(runtime, options) {
 }
 
 /** Wait until the running child has emitted an event of `type`. */
-async function waitForEvent(handle, type, timeoutMs = 20_000) {
+async function waitForEvent(handle, type, timeoutMs = 90_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const found = handle.peek().find((event) => event.event === type);
@@ -125,27 +134,37 @@ function freshDb() {
 async function mutualExclusion(holder, contenders) {
   console.log(`\n[mutual exclusion] holder=${holder} contenders=${contenders.join(',')}`);
   const db = freshDb();
+  // The holder must still own the lease when the slowest contender reaches its
+  // acquire call. Sizing the hold to expected process-spawn time makes the
+  // result a wall-clock race: a JIT runtime can take seconds to start, arrive
+  // after a legitimate release, acquire correctly, and be reported as having
+  // stolen the lease. So the holder holds effectively forever and is killed
+  // once every contender has answered — the window cannot close early, and no
+  // wall-clock interval is encoded in the test.
   const handle = spawnChild(holder, {
-    db, owner: `${holder}-holder`, mode: 'contend', holdMs: 3000, ttlMs: 10_000,
+    db, owner: `${holder}-holder`, mode: 'contend', holdMs: 600_000, ttlMs: 600_000,
   });
 
-  const acquired = await waitForEvent(handle, 'acquired');
-  check(acquired.fence === '1', `${holder} took the first fence (got ${acquired.fence})`);
+  try {
+    const acquired = await waitForEvent(handle, 'acquired');
+    check(acquired.fence === '1', `${holder} took the first fence (got ${acquired.fence})`);
 
-  const results = await Promise.all(
-    contenders.map((runtime) =>
-      run(runtime, { db, owner: `${runtime}-contender`, mode: 'contend', ttlMs: 5000 })),
-  );
+    const results = await Promise.all(
+      contenders.map((runtime) =>
+        run(runtime, { db, owner: `${runtime}-contender`, mode: 'contend', ttlMs: 5000 })),
+    );
 
-  for (const [index, result] of results.entries()) {
-    const runtime = contenders[index];
-    const busy = result.events.find((event) => event.event === 'busy');
-    const stole = result.events.find((event) => event.event === 'acquired');
-    check(!stole, `${runtime} did not steal the lease held by ${holder}`);
-    check(Boolean(busy), `${runtime} observed the ${holder} lease as busy`);
+    for (const [index, result] of results.entries()) {
+      const runtime = contenders[index];
+      const busy = result.events.find((event) => event.event === 'busy');
+      const stole = result.events.find((event) => event.event === 'acquired');
+      check(!stole, `${runtime} did not steal the lease held by ${holder}`);
+      check(Boolean(busy), `${runtime} observed the ${holder} lease as busy`);
+    }
+  } finally {
+    handle.child.kill();
+    await handle.done;
   }
-
-  await handle.done;
 }
 
 // ---------------------------------------------------------------------------
@@ -178,11 +197,19 @@ async function losslessWakeHandoff(holder, wakers, successor) {
   console.log(`\n[lossless wake handoff] holder=${holder} wakers=${wakers.join(',')} successor=${successor}`);
   const db = freshDb();
 
-  // A short TTL lets the corpus observe the post-retention handoff without
-  // sleeping for an arbitrary wall-clock interval.
-  const leaseTtlMs = 1500;
+  // The lease must outlive the spawn latency of two more children, and a JIT
+  // runtime can take seconds to reach its first event. A TTL tuned to an AOT
+  // binary would expire mid-scenario and turn a coordination test into a
+  // wall-clock race, so it is deliberately generous; expiry is then detected
+  // by polling rather than by sleeping a fixed interval.
+  const leaseTtlMs = 30_000;
+  // The hold must outlast the wakers' startup, or "wakes raised mid-hold"
+  // silently becomes "wakes raised after the holder already finished" and the
+  // scenario stops testing what it claims. The TTL then has to outlast the
+  // hold plus two further child spawns; expiry is found by polling, so a
+  // generous TTL costs nothing but the poll.
   const handle = spawnChild(holder, {
-    db, owner: `${holder}-holder`, mode: 'contend', holdMs: 600, ttlMs: leaseTtlMs,
+    db, owner: `${holder}-holder`, mode: 'contend', holdMs: 9000, ttlMs: leaseTtlMs,
   });
   const acquired = await waitForEvent(handle, 'acquired');
   const observedGeneration = BigInt(acquired.wakeGeneration);
@@ -237,12 +264,19 @@ async function losslessWakeHandoff(holder, wakers, successor) {
   }
 
   // After expiry the successor inherits the work with a strictly newer fence,
-  // so the wake raised mid-hold is executed rather than dropped.
-  await new Promise((resolve) => setTimeout(resolve, leaseTtlMs + 400));
-  const next = await run(successor, {
-    db, owner: `${successor}-successor`, mode: 'contend', ttlMs: 5000,
-  });
-  const took = next.events.find((event) => event.event === 'acquired');
+  // so the wake raised mid-hold is executed rather than dropped. Poll for the
+  // inheritance instead of sleeping: the exact expiry instant is decided by
+  // SQLite's clock, and a fixed sleep would encode this machine's spawn speed.
+  const inheritDeadline = Date.now() + 90_000;
+  let took;
+  let next;
+  while (Date.now() < inheritDeadline) {
+    next = await run(successor, {
+      db, owner: `${successor}-successor`, mode: 'contend', ttlMs: 5000,
+    });
+    took = next.events.find((event) => event.event === 'acquired');
+    if (took) break;
+  }
   check(Boolean(took), `${successor} picked up the retained wake after expiry`);
   if (took) {
     check(
@@ -259,7 +293,9 @@ async function main() {
   console.log('opto-sync cross-language SQLite coordination corpus (DEN-1078)');
 
   const missing = Object.entries(RUNTIMES).filter(([, spec]) =>
-    spec.command !== process.execPath && !existsSync(spec.command));
+    path.isAbsolute(spec.command) &&
+    spec.command !== process.execPath &&
+    !existsSync(spec.command));
   if (missing.length > 0) {
     console.error('\nMissing conformance children. Build them first:');
     for (const [name, spec] of missing) console.error(`  ${name}: ${spec.build}`);
