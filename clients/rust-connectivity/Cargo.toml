@@ -1,0 +1,22 @@
+[package]
+name = "opto-sync-connectivity"
+version = "0.1.0"
+edition = "2021"
+description = "UI-agnostic connectivity, total-offline mode, and post-save signals for opto-sync Rust and WebAssembly clients"
+license = "MIT"
+repository = "https://github.com/opto-sync/opto-sync-clients"
+keywords = ["offline-first", "connectivity", "sync", "wasm"]
+categories = ["network-programming", "wasm"]
+
+[features]
+default = []
+wasm = ["dep:wasm-bindgen", "dep:web-sys"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { version = "0.2", optional = true }
+web-sys = { version = "0.3", optional = true, features = [
+  "Event",
+  "EventTarget",
+  "Navigator",
+  "Window",
+] }

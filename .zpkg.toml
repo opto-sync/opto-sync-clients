@@ -16,6 +16,10 @@ url = "https://github.com/opto-sync/opto-sync-clients"
 # Zed dependency: the complete repository artifact already contains that exact
 # pinned core, and a second resolution could introduce two engine revisions.
 
+[dependencies]
+"opto-sync/opto-sync-interfaces" = "^0.1.0"
+"opto-sync/opto-sync-lib" = "^0.1.0"
+
 [publish]
 include_readme = true
 tag_format = "v{version}"
@@ -41,3 +45,82 @@ exclude = [
 
 [scripts]
 test = "python3 scripts/check-package-layout.py"
+
+[targets.repository]
+dir = "."
+
+[targets.nodejs]
+dir = "clients/typescript"
+adapter = "node"
+
+[targets.python]
+dir = "clients/python3"
+adapter = "python"
+
+[targets.golang]
+dir = "clients/golang"
+adapter = "go"
+
+[targets.rust]
+dir = "clients/rust"
+adapter = "rust"
+
+[targets.dart]
+dir = "clients/dart"
+adapter = "dart"
+
+[targets.gleam]
+dir = "clients/gleamlang"
+adapter = "none"
+
+[targets.erlang]
+dir = "clients/erlang"
+adapter = "none"
+
+[targets.elixir]
+dir = "clients/elixir"
+adapter = "none"
+
+[targets.java]
+dir = "clients/java"
+adapter = "java"
+
+[targets.kotlin]
+dir = "clients/kotlin"
+adapter = "none"
+
+[targets.ruby]
+dir = "clients/ruby"
+adapter = "none"
+
+[targets.php]
+dir = "clients/php"
+adapter = "none"
+
+[targets.swift]
+dir = "clients/swift"
+adapter = "none"
+
+[targets.gleamlang]
+dir = "clients/gleamlang"
+adapter = "none"
+
+[targets.python3]
+dir = "clients/python3"
+adapter = "none"
+
+[targets.typescript-nodejs]
+dir = "clients/typescript/nodejs"
+adapter = "node"
+
+[targets.typescript-deno]
+dir = "clients/typescript/deno"
+adapter = "none"
+
+[targets.typescript-bun]
+dir = "clients/typescript/bun"
+adapter = "node"
+
+[targets.typescript-edge]
+dir = "clients/typescript/edge"
+adapter = "none"
