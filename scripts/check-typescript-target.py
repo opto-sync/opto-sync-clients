@@ -69,6 +69,7 @@ def main() -> int:
         "clients/ts/smoke/native-reconcile.cjs",
         "clients/ts/smoke/indexeddb-queue.cjs",
         "clients/ts/smoke/browser-indexeddb.mjs",
+        "clients/ts/smoke/helpers/browser.mjs",
         "clients/ts/smoke/helpers/bundle.mjs",
         "clients/ts/smoke/helpers/corpus.mjs",
         "syncer.c/SOURCE_SHA",

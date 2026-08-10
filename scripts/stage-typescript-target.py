@@ -114,6 +114,10 @@ def main() -> int:
         source_tests / "helpers/corpus.mjs",
         smoke / "helpers/corpus.mjs",
     )
+    copy_required(
+        source_tests / "helpers/browser.mjs",
+        smoke / "helpers/browser.mjs",
+    )
     shutil.rmtree(output / "clients/ts/test", ignore_errors=True)
 
     # The staged artifact owns its smoke path, so its public npm commands must
