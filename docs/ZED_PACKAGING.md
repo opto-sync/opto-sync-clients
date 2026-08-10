@@ -1,11 +1,11 @@
-# Zed packaging plan
+# Zed language-target packaging plan
 
-The opto-sync engine is packaged first as `opto-sync/syncer`. This repository is
-the next layer: one source tree should eventually publish isolated Zed packages
-for Node/browser, Dart, Rust, and Gleam while retaining one coordinated release
-version.
+The opto-sync engine is packaged first as `opto-sync/syncer`. This repository
+currently publishes one whole-repository source package. A later package layout
+may additionally publish isolated Zed packages for Node/browser, Dart, Rust,
+and Gleam while retaining one coordinated release version.
 
-## Why there is no root `.zpkg.toml` yet
+## Why the root manifest has no language targets
 
 Every current native manifest reaches a sibling checkout named `syncer.c`:
 
@@ -23,14 +23,15 @@ for Dart, Rust, and Gleam. Passing `zed pack` is not enough; a clean consumer mu
 be able to resolve and build the native package after installation.
 
 `scripts/check-zed-packaging.py` is a CI ratchet for this boundary. It verifies
-that every client still reaches the intended shared binding and rejects a root
-`.zpkg.toml` while any required path escapes the package root. This prevents a
-well-intentioned manifest-only change from publishing unusable artifacts.
+the whole-repository source package and rejects language targets or redundant
+Zed dependencies while required paths still resolve through the bundled,
+pinned core. This prevents a well-intentioned manifest-only change from
+publishing unusable slices or resolving two different core revisions.
 
 ## Target end state
 
-After the engine dependency is relocatable, the root manifest should use one
-release version and publish at least these packages:
+After the engine dependency is relocatable, the root manifest may use one
+release version and publish at least these additional target packages:
 
 ```toml
 [package]
