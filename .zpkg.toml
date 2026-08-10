@@ -22,6 +22,7 @@ tag_format = "v{version}"
 smoke_test = "python3 \"$ZED_PKG_TEST_TARGET/scripts/check-package-layout.py\""
 exclude = [
   ".zed/**",
+  ".formal-artifacts/**",
   "syncer.c/.git",
   "syncer.c/.git/**",
   "syncer.c/.github/**",
@@ -29,14 +30,18 @@ exclude = [
   "syncer.c/core/test/**",
   "syncer.c/test-differential/**",
   "syncer.c/fuzz-*.log",
+  "syncer.c/bindings/beam/priv/native/**",
   "clients/**/test/**",
   "clients/**/tests/**",
   "**/node_modules/**",
+  "**/dist/**",
   "**/target/**",
   "**/build/**",
   "**/_build/**",
   "**/deps/**",
   "**/.dart_tool/**",
+  "**/__pycache__/**",
+  "**/pubspec.lock",
 ]
 
 [scripts]
