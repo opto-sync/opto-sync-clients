@@ -2,117 +2,54 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  createTelemetryEvent,
+  emitProtocolSyncTelemetry,
   emitTelemetry,
-  observeSyncCycle,
 } from '../dist/telemetry.js';
 
-const cycleResult = Object.freeze({
-  pushedMutations: 2,
-  acknowledgedMutations: 2,
-  pulledChanges: 1,
-  installedSnapshots: 0,
-  checkpoint: '9',
-  hasMorePending: false,
+const stateInput = Object.freeze({
+  runtime: 'typescript',
+  kind: 'state.changed',
+  status: 'idle',
+  consecutiveFailures: 0,
+  timestamp: '2026-08-11T17:53:28.151Z',
+  requestId: 'sync-cycle-42',
 });
 
-test('a rejecting telemetry sink cannot change a successful sync result', async () => {
+test('a rejecting telemetry sink is contained', async () => {
   let calls = 0;
-  const sink = async () => {
+  await emitProtocolSyncTelemetry(async () => {
     calls += 1;
     throw new Error('logger unavailable');
-  };
-
-  const actual = await observeSyncCycle(sink, async () => cycleResult);
-  assert.strictEqual(actual, cycleResult);
-  assert.equal(calls, 2);
-});
-
-test('a rejecting telemetry sink cannot replace the original sync error', async () => {
-  const original = new Error('authoritative failure');
-  await assert.rejects(
-    observeSyncCycle(
-      async () => {
-        throw new Error('logger unavailable');
-      },
-      async () => {
-        throw original;
-      },
-    ),
-    (error) => error === original,
-  );
-});
-
-test('runtime callers cannot smuggle sensitive fields into an event', () => {
-  const event = createTelemetryEvent(
-    'opto_sync.sync.cycle_succeeded',
-    'info',
-    {
-      checkpoint: '9',
-      payload: { private: true },
-      token: 'secret',
-      request: { authorization: 'secret' },
-      response: { record: { private: true } },
-    },
-  );
-  assert.deepEqual(event.fields, { checkpoint: '9' });
-  assert.equal(Object.isFrozen(event), true);
-  assert.equal(Object.isFrozen(event.fields), true);
-});
-
-test('the final sink boundary sanitizes hand-written JavaScript events', async () => {
-  let received;
-  await emitTelemetry((event) => {
-    received = event;
-  }, {
-    schemaVersion: 1,
-    name: 'opto_sync.sync.cycle_succeeded',
-    level: 'info',
-    fields: {
-      checkpoint: '9',
-      payload: { private: true },
-      token: 'secret',
-    },
-  });
-  assert.deepEqual(received.fields, { checkpoint: '9' });
-});
-
-test('the event factory enforces canonical field constraints', () => {
-  assert.throws(
-    () => createTelemetryEvent(
-      'opto_sync.sync.cycle_succeeded',
-      'info',
-      { checkpoint: '09' },
-    ),
-    TypeError,
-  );
-  assert.throws(
-    () => createTelemetryEvent(
-      'opto_sync.sync.cycle_failed',
-      'error',
-      { code: 'contains-sensitive-text' },
-    ),
-    TypeError,
-  );
-  assert.throws(
-    () => createTelemetryEvent(
-      'opto_sync.sync.cycle_succeeded',
-      'info',
-      { pulledChanges: -1 },
-    ),
-    TypeError,
-  );
-});
-
-test('invalid result metadata cannot change the successful sync result', async () => {
-  const resultWithInvalidCheckpoint = {
-    ...cycleResult,
-    checkpoint: '09',
-  };
-  let calls = 0;
-  const actual = await observeSyncCycle(() => {
-    calls += 1;
-  }, async () => resultWithInvalidCheckpoint);
-  assert.strictEqual(actual, resultWithInvalidCheckpoint);
+  }, stateInput);
   assert.equal(calls, 1);
+});
+
+test('invalid metadata is rejected before the sink boundary', async () => {
+  let calls = 0;
+  await emitProtocolSyncTelemetry(() => {
+    calls += 1;
+  }, {
+    ...stateInput,
+    requestId: 'bad/id',
+  });
+  assert.equal(calls, 0);
+});
+
+test('the sink receives only a frozen canonical ORE record', async () => {
+  let received;
+  await emitTelemetry((record) => {
+    received = record;
+  }, {
+    ...stateInput,
+    payload: { private: true },
+    checkpoint: 'private-high-cardinality-value',
+  });
+
+  assert.equal(Object.isFrozen(received), true);
+  assert.equal(Object.isFrozen(received.attributes), true);
+  assert.equal(received.attributes['opto.sync.schema'], 'opto-sync.telemetry/v1');
+  assert.equal('payload' in received, false);
+  assert.equal('checkpoint' in received, false);
+  assert.equal('payload' in received.attributes, false);
+  assert.equal('checkpoint' in received.attributes, false);
 });

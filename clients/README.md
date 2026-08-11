@@ -12,22 +12,21 @@ and maps each semantic operation to its idiomatic language symbol. The contract
 gate refuses a missing language binding, a stale declaration, a mismatched
 envelope schema id, or dependency-coordinate drift.
 
-The reconciliation bindings also point to the reference engine's canonical
-`https://opto-sync.dev/schema/merge-options.schema.json` identifier. Option keys
-and strategy values stay owned by `opto-sync/syncer.rs`; this repository does
-not maintain a competing copy.
+The reconciliation bindings point to the reference engine's proposed
+`https://opto-sync.dev/schema/merge-options.schema.json` identifier. It remains
+a candidate until the upstream schema lands and all runtimes expose the same
+option set; this repository does not maintain a competing copy.
 
-Cross-organization request/error types come from the Zed package
-`ores-otel/ores-interfaces`. Structured events use
-`oresoftware/next-loggers` (the package published from
-`github.com/ores-otel/ores.otel.log`). Logger/trace providers are injected by
-applications; this SDK never installs or replaces a process-global
-OpenTelemetry provider. Emit metadata such as operation, table, record id,
-mutation id, counts, checkpoints, latency, and error code—never record payloads,
-auth tokens, or complete server responses.
+The API contract records the pending Zed coordinates
+`ores-otel/ores-interfaces@^0.1.0` and
+`oresoftware/next-loggers@^0.1.0`. They remain application-injected and are not
+declared as installable dependencies until immutable public releases and a
+clean frozen lock exist. This SDK never installs or replaces a process-global
+OpenTelemetry provider.
 
-All three primary SDKs expose `createTelemetryEvent`, `emitTelemetry`, and
-`observeSyncCycle` (idiomatic `snake_case` in Rust). The lifecycle adapter wraps
-the existing sync-cycle entry point, preserves the exact result/error, ignores
-sink failures, and emits only fields allowed by
-`../schema/opto-sync-telemetry-event.schema.json`.
+All three primary SDKs expose `createProtocolSyncTelemetryRecord` and
+`emitProtocolSyncTelemetry` (idiomatic `snake_case` in Rust). The closed
+`../schema/opto-sync-telemetry.schema.json` contract permits bounded state,
+aggregate counts, stable error codes, and request/trace correlation. It rejects
+table names, record and mutation IDs, checkpoints, payloads, raw errors,
+credentials, and arbitrary attributes. Sink failures are always contained.

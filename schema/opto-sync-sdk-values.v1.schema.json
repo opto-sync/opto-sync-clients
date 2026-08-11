@@ -1,0 +1,306 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opto-sync.dev/schema/opto-sync-sdk-values.v1.schema.json",
+  "title": "Opto-Sync normalized portable SDK values v1",
+  "description": "Language-neutral request and result values used to distinguish proven portable SDK behavior from candidate bindings with known differences.",
+  "$defs": {
+    "JsonValue": {
+      "anyOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "number" },
+        { "type": "string" },
+        { "type": "array", "items": { "$ref": "#/$defs/JsonValue" } },
+        {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/JsonValue" }
+        }
+      ]
+    },
+    "JsonObject": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/JsonValue" }
+    },
+    "EmptyRequest": {
+      "type": "object",
+      "additionalProperties": false
+    },
+    "ScopeId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "RecordId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "CanonicalDecimal": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)$"
+    },
+    "MutationId": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*$"
+    },
+    "Count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "QueueUpsertRequest": {
+      "type": "object",
+      "required": ["table", "recordId", "payload"],
+      "additionalProperties": false,
+      "properties": {
+        "table": { "$ref": "#/$defs/ScopeId" },
+        "recordId": { "$ref": "#/$defs/RecordId" },
+        "payload": { "$ref": "#/$defs/JsonObject" },
+        "baseRevision": { "type": "string", "minLength": 1 },
+        "resurrect": { "type": "boolean", "default": false }
+      }
+    },
+    "QueueDeleteRequest": {
+      "type": "object",
+      "required": ["table", "recordId"],
+      "additionalProperties": false,
+      "properties": {
+        "table": { "$ref": "#/$defs/ScopeId" },
+        "recordId": { "$ref": "#/$defs/RecordId" },
+        "baseRevision": { "type": "string", "minLength": 1 }
+      }
+    },
+    "ProtocolMutation": {
+      "type": "object",
+      "required": ["mutationId", "operation", "table", "recordId"],
+      "additionalProperties": false,
+      "properties": {
+        "mutationId": { "$ref": "#/$defs/MutationId" },
+        "operation": { "enum": ["upsert", "delete"] },
+        "table": { "$ref": "#/$defs/ScopeId" },
+        "recordId": { "$ref": "#/$defs/RecordId" },
+        "payload": { "$ref": "#/$defs/JsonObject" },
+        "baseRevision": { "type": "string", "minLength": 1 },
+        "resurrect": { "type": "boolean", "default": false }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "operation": { "const": "upsert" } }, "required": ["operation"] },
+          "then": {
+            "required": ["payload"],
+            "properties": { "payload": {} }
+          }
+        },
+        {
+          "if": { "properties": { "operation": { "const": "delete" } }, "required": ["operation"] },
+          "then": { "not": { "required": ["payload"] } }
+        }
+      ]
+    },
+    "PendingMutationsRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "table": { "$ref": "#/$defs/ScopeId" },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100, "default": 100 }
+      }
+    },
+    "PendingMutationsResult": {
+      "type": "array",
+      "maxItems": 100,
+      "items": { "$ref": "#/$defs/ProtocolMutation" }
+    },
+    "BuildPushRequestRequest": {
+      "type": "object",
+      "required": ["limit"],
+      "additionalProperties": false,
+      "properties": {
+        "limit": { "type": "integer", "minimum": 1, "maximum": 100 }
+      }
+    },
+    "PushRequest": {
+      "type": "object",
+      "required": ["protocolVersion", "clientId", "mutations"],
+      "additionalProperties": false,
+      "properties": {
+        "protocolVersion": { "const": 1 },
+        "clientId": { "$ref": "#/$defs/ScopeId" },
+        "mutations": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/ProtocolMutation" }
+        }
+      }
+    },
+    "AcknowledgePushRequest": {
+      "type": "object",
+      "required": ["request", "response"],
+      "additionalProperties": false,
+      "properties": {
+        "request": { "$ref": "#/$defs/PushRequest" },
+        "response": { "$ref": "#/$defs/JsonObject" }
+      }
+    },
+    "SnapshotInstallRequest": {
+      "type": "object",
+      "required": ["snapshot"],
+      "additionalProperties": false,
+      "properties": {
+        "snapshot": { "$ref": "#/$defs/JsonObject" }
+      }
+    },
+    "ReconcileRequest": {
+      "type": "object",
+      "required": ["local", "incoming"],
+      "additionalProperties": false,
+      "properties": {
+        "local": { "$ref": "#/$defs/JsonObject" },
+        "incoming": { "$ref": "#/$defs/JsonObject" },
+        "options": { "$ref": "#/$defs/JsonObject" }
+      }
+    },
+    "RebaseRequest": {
+      "type": "object",
+      "required": ["server", "pending"],
+      "additionalProperties": false,
+      "properties": {
+        "server": { "$ref": "#/$defs/JsonObject" },
+        "pending": { "type": "array", "items": { "$ref": "#/$defs/JsonObject" } },
+        "options": { "$ref": "#/$defs/JsonObject" }
+      }
+    },
+    "HlcParts": {
+      "type": "object",
+      "required": ["millis", "counter", "nodeId"],
+      "additionalProperties": false,
+      "properties": {
+        "millis": { "type": "integer", "minimum": 0, "maximum": 9999999999999 },
+        "counter": { "type": "integer", "minimum": 0, "maximum": 65535 },
+        "nodeId": { "type": "string", "minLength": 1, "pattern": "^[^-]+$" }
+      }
+    },
+    "HlcString": {
+      "type": "string",
+      "pattern": "^[0-9]{13}-[0-9a-f]{4}-[^-]+$"
+    },
+    "FormatHlcRequest": { "$ref": "#/$defs/HlcParts" },
+    "ParseHlcRequest": {
+      "type": "object",
+      "required": ["timestamp"],
+      "additionalProperties": false,
+      "properties": { "timestamp": { "type": "string" } }
+    },
+    "ParsedHlcResult": {
+      "oneOf": [
+        { "$ref": "#/$defs/HlcParts" },
+        { "type": "null" }
+      ]
+    },
+    "CompareHlcRequest": {
+      "type": "object",
+      "required": ["left", "right"],
+      "additionalProperties": false,
+      "properties": {
+        "left": { "$ref": "#/$defs/HlcString" },
+        "right": { "$ref": "#/$defs/HlcString" }
+      }
+    },
+    "OrderingSign": { "enum": [-1, 0, 1] },
+    "ParseEnvelopeRequest": {
+      "type": "object",
+      "required": ["document"],
+      "additionalProperties": false,
+      "properties": { "document": { "$ref": "#/$defs/JsonValue" } }
+    },
+    "EnvelopeResult": {
+      "$ref": "https://opto-sync.dev/schema/opto-sync-envelope.schema.json"
+    },
+    "AuditEnvelopeProviderRequest": {
+      "type": "object",
+      "required": ["document", "providerAccepted"],
+      "additionalProperties": false,
+      "properties": {
+        "document": { "$ref": "#/$defs/JsonValue" },
+        "providerAccepted": { "type": "boolean" }
+      }
+    },
+    "AuditEnvelopeProviderResult": { "$ref": "#/$defs/JsonObject" },
+    "ProtocolSyncCycleRequest": { "$ref": "#/$defs/EmptyRequest" },
+    "ProtocolSyncCycleResult": {
+      "type": "object",
+      "required": ["pushedMutations", "acknowledgedMutations", "pulledChanges", "installedSnapshots", "checkpoint", "hasMorePending"],
+      "additionalProperties": false,
+      "properties": {
+        "pushedMutations": { "$ref": "#/$defs/Count" },
+        "acknowledgedMutations": { "$ref": "#/$defs/Count" },
+        "pulledChanges": { "$ref": "#/$defs/Count" },
+        "installedSnapshots": { "$ref": "#/$defs/Count" },
+        "checkpoint": { "$ref": "#/$defs/CanonicalDecimal" },
+        "hasMorePending": { "type": "boolean" }
+      }
+    },
+    "WebSocketTransportSurface": {
+      "type": "object",
+      "required": ["connect", "push", "pull", "snapshot", "close"],
+      "additionalProperties": false,
+      "properties": {
+        "connect": { "const": true },
+        "push": { "const": true },
+        "pull": { "const": true },
+        "snapshot": { "const": true },
+        "close": { "const": true }
+      }
+    },
+    "Rfc3339Utc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{3}Z$"
+    },
+    "TelemetryInput": {
+      "type": "object",
+      "required": ["runtime", "kind", "status", "timestamp"],
+      "additionalProperties": false,
+      "properties": {
+        "runtime": { "enum": ["typescript", "dart", "rust"] },
+        "kind": { "enum": ["state.changed", "cycle.completed", "cycle.failed"] },
+        "status": { "enum": ["stopped", "idle", "syncing", "offline", "backoff", "error"] },
+        "consecutiveFailures": { "type": "integer", "minimum": 0, "maximum": 2147483647, "default": 0 },
+        "timestamp": { "$ref": "#/$defs/Rfc3339Utc" },
+        "nextRetryAt": { "$ref": "#/$defs/Rfc3339Utc" },
+        "cycle": { "$ref": "#/$defs/ProtocolSyncCycleResult" },
+        "errorCode": { "type": "string", "pattern": "^[A-Z][A-Z0-9_.-]{0,127}$" },
+        "requestId": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{8,128}$" },
+        "traceId": { "type": "string", "pattern": "^(?!0{32}$)[0-9a-f]{32}$" },
+        "spanId": { "type": "string", "pattern": "^(?!0{16}$)[0-9a-f]{16}$" },
+        "traceFlags": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "traceState": { "type": "string", "maxLength": 512 }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "cycle.completed" } }, "required": ["kind"] },
+          "then": {
+            "required": ["cycle"],
+            "properties": { "cycle": {} }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "cycle.failed" } }, "required": ["kind"] },
+          "then": {
+            "required": ["errorCode"],
+            "properties": { "errorCode": {} }
+          }
+        }
+      ]
+    },
+    "TelemetryRecord": {
+      "$ref": "https://opto-sync.dev/schema/opto-sync-telemetry.v1.schema.json"
+    },
+    "EmitTelemetryRequest": {
+      "type": "object",
+      "required": ["input"],
+      "additionalProperties": false,
+      "properties": { "input": { "$ref": "#/$defs/TelemetryInput" } }
+    },
+    "VoidResult": { "type": "null" }
+  }
+}

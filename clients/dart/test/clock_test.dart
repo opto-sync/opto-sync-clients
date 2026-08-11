@@ -182,6 +182,21 @@ void main() {
       expect(parseHlc('1721822400000-00ff-9f3a2b'), parts);
     });
 
+    test('format and parse reject noncanonical cross-runtime values', () {
+      for (final parts in [
+        const HlcParts(millis: -1, counter: 0, nodeId: 'node'),
+        const HlcParts(millis: 10000000000000, counter: 0, nodeId: 'node'),
+        const HlcParts(millis: 1721822400000, counter: -1, nodeId: 'node'),
+        const HlcParts(millis: 1721822400000, counter: 65536, nodeId: 'node'),
+        const HlcParts(millis: 1721822400000, counter: 0, nodeId: ''),
+        const HlcParts(millis: 1721822400000, counter: 0, nodeId: 'has-dash'),
+      ]) {
+        expect(() => formatHlc(parts), throwsA(anything));
+      }
+      expect(parseHlc('1721822400000-00FF-node'), isNull);
+      expect(parseHlc('1721822400000-00ff-has-dash'), isNull);
+    });
+
     test('randomNodeId is delimiter-free and collision-resistant', () {
       final ids = {for (var i = 0; i < 500; i++) randomNodeId()};
       expect(ids.length, 500);

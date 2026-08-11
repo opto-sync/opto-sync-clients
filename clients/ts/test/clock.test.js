@@ -149,6 +149,22 @@ test('format is byte-identical to the Dart and Rust clients', () => {
   });
 });
 
+test('format and parse reject noncanonical cross-runtime values', () => {
+  const { formatHlc } = require('../dist/clock.js');
+  for (const parts of [
+    { millis: -1, counter: 0, nodeId: 'node' },
+    { millis: 10_000_000_000_000, counter: 0, nodeId: 'node' },
+    { millis: 1_721_822_400_000, counter: -1, nodeId: 'node' },
+    { millis: 1_721_822_400_000, counter: 65_536, nodeId: 'node' },
+    { millis: 1_721_822_400_000, counter: 0, nodeId: '' },
+    { millis: 1_721_822_400_000, counter: 0, nodeId: 'has-dash' },
+  ]) {
+    assert.throws(() => formatHlc(parts));
+  }
+  assert.strictEqual(parseHlc('1721822400000-00FF-node'), null);
+  assert.strictEqual(parseHlc('1721822400000-00ff-has-dash'), null);
+});
+
 test('two clients over the SAME database never issue equal timestamps', async () => {
   // Regression guard for a real bug: tabs share one IndexedDB, so a node id
   // that is only persisted (not per-instance) makes two tabs issue identical

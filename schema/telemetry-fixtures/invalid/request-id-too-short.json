@@ -1,0 +1,15 @@
+{
+  "body": "opto-sync state changed",
+  "severityText": "INFO",
+  "severityNumber": 9,
+  "timestamp": "2026-08-11T17:53:28.151Z",
+  "attributes": {
+    "service.name": "opto-sync",
+    "event.name": "opto.sync.state.changed",
+    "opto.sync.schema": "opto-sync.telemetry/v1",
+    "opto.sync.runtime": "typescript",
+    "opto.sync.status": "idle",
+    "opto.sync.consecutive_failures": 0,
+    "request.id": "short"
+  }
+}

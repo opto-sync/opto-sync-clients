@@ -50,6 +50,7 @@ export * as connectedClient from './connected-client.js';
 export * as rx from './rx/index.js';
 export * as schema from './schema/ingest.js';
 export * as telemetry from './telemetry.js';
+export * as observability from './observability.js';
 
 /* Curated top-level names — one explicit re-export each, never `export *`. */
 export {
@@ -130,6 +131,18 @@ export type {
   ProtocolSyncLoopOptions,
   ResetRequired,
 } from './sync-loop.js';
+export {
+  OPTO_SYNC_TELEMETRY_SCHEMA,
+  createProtocolSyncTelemetryRecord,
+  protocolSyncStateTelemetry,
+} from './observability.js';
+export type {
+  OresOpenTelemetryLogRecord,
+  OresTelemetryAttribute,
+  ProtocolSyncTelemetryInput,
+  ProtocolSyncTelemetryKind,
+  ProtocolSyncTelemetryRuntime,
+} from './observability.js';
 export { WebSocketTransport } from './transport/ws.js';
 export type {
   WebSocketTransportOptions,
@@ -173,15 +186,11 @@ export type {
   SaveSubscribeOptions,
 } from './connected-client.js';
 export {
-  TELEMETRY_SCHEMA_VERSION,
-  createTelemetryEvent,
+  emitProtocolSyncTelemetry,
   emitTelemetry,
-  observeSyncCycle,
 } from './telemetry.js';
 export type {
-  TelemetryEvent,
-  TelemetryFields,
-  TelemetryLevel,
+  ProtocolSyncTelemetrySink,
   TelemetrySink,
 } from './telemetry.js';
 

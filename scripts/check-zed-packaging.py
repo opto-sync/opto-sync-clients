@@ -33,7 +33,7 @@ def main() -> int:
     expected = {
         "org": "opto-sync",
         "name": "opto-sync-clients",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "license": "MIT",
     }
     for key, value in expected.items():
@@ -43,20 +43,14 @@ def main() -> int:
     if repository.get("url") != "https://github.com/opto-sync/opto-sync-clients":
         fail("package.repository.url must be the canonical GitHub repository")
 
-    # These are package-level contracts, not replacement native engines. SDKs
-    # consume both through injected interfaces so installing this package does
-    # not configure a process-global OpenTelemetry provider. Keep the exact
-    # coordinates in lockstep with schema/opto-sync-sdk-api.v1.json.
-    expected_dependencies = {
-        "ores-otel/ores-interfaces": "^0.1.0",
-        "oresoftware/next-loggers": "^0.1.0",
-    }
+    # The intended Ores coordinates are recorded by the SDK API contract, but
+    # neither 0.1.0 package is currently an immutable public Zed release. A
+    # synthetic file registry is not reproducible release provenance, so the
+    # source package must stay dependency-free until a real frozen install can
+    # populate and verify the lock.
     dependencies = manifest.get("dependencies", {})
-    if dependencies != expected_dependencies:
-        fail(
-            "dependencies must be the canonical interfaces/logging set; "
-            f"expected {expected_dependencies!r}, got {dependencies!r}"
-        )
+    if dependencies:
+        fail("unreleased Zed dependencies must not be declared")
     # The artifact already contains the exact syncer.c gitlink contents used by
     # every native manifest. Declaring the same source again as a Zed dependency
     # would produce two potentially different core revisions in one install.

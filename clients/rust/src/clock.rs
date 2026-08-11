@@ -84,6 +84,18 @@ impl fmt::Display for ClockError {
 impl std::error::Error for ClockError {}
 
 pub fn format_hlc(parts: &HlcParts) -> String {
+    assert!(
+        parts.millis <= 9_999_999_999_999,
+        "HLC millis must fit exactly 13 decimal digits"
+    );
+    assert!(
+        parts.counter <= MAX_COUNTER,
+        "HLC counter must fit exactly 4 hexadecimal digits"
+    );
+    assert!(
+        !parts.node_id.is_empty() && !parts.node_id.contains('-'),
+        "HLC node id must be non-empty and contain no '-'"
+    );
     format!(
         "{:0>width$}-{:04x}-{}",
         parts.millis,
@@ -103,10 +115,14 @@ pub fn parse_hlc(timestamp: &str) -> Option<HlcParts> {
     if millis.len() != MILLIS_DIGITS || !millis.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
-    if counter.len() != 4 || !counter.bytes().all(|b| b.is_ascii_hexdigit()) {
+    if counter.len() != 4
+        || !counter
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+    {
         return None;
     }
-    if node_id.is_empty() {
+    if node_id.is_empty() || node_id.contains('-') {
         return None;
     }
     Some(HlcParts {
@@ -531,5 +547,35 @@ mod tests {
         };
         assert_eq!(format_hlc(&parts), "1721822400000-00ff-9f3a2b");
         assert_eq!(parse_hlc("1721822400000-00ff-9f3a2b").unwrap(), parts);
+    }
+
+    #[test]
+    fn format_and_parse_reject_noncanonical_cross_runtime_values() {
+        for parts in [
+            HlcParts {
+                millis: 10_000_000_000_000,
+                counter: 0,
+                node_id: "node".into(),
+            },
+            HlcParts {
+                millis: 1_721_822_400_000,
+                counter: 65_536,
+                node_id: "node".into(),
+            },
+            HlcParts {
+                millis: 1_721_822_400_000,
+                counter: 0,
+                node_id: String::new(),
+            },
+            HlcParts {
+                millis: 1_721_822_400_000,
+                counter: 0,
+                node_id: "has-dash".into(),
+            },
+        ] {
+            assert!(std::panic::catch_unwind(|| format_hlc(&parts)).is_err());
+        }
+        assert!(parse_hlc("1721822400000-00FF-node").is_none());
+        assert!(parse_hlc("1721822400000-00ff-has-dash").is_none());
     }
 }

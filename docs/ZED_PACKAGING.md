@@ -25,10 +25,12 @@ be able to resolve and build the native package after installation.
 `scripts/check-zed-packaging.py` is a CI ratchet for this boundary. It verifies
 the whole-repository source package and rejects language targets or a redundant
 Zed dependency on the native core while required paths still resolve through
-the bundled, pinned gitlink. External shared-interface and injected-logging
-dependencies remain permitted and are checked against the SDK API contract.
-This prevents a well-intentioned manifest-only change from publishing unusable
-slices or resolving two different core revisions.
+the bundled, pinned gitlink. The SDK API contract records intended external
+shared-interface and injected-logging coordinates, but the package checker
+rejects them while their public releases remain pending. This prevents a
+well-intentioned manifest-only change from publishing unusable slices,
+resolving two different core revisions, or treating a synthetic registry as
+release provenance.
 
 ## Target end state
 

@@ -44,8 +44,6 @@ concurrency:
 env:
   ZED_CLI_SHA: 14bc2fb1bdc2b85e5545e60e70fc94f047188662
   ZED_INTERFACES_SHA: 60a8ab55f8a55eb212a72dcb334c1c118047c7ef
-  ORES_INTERFACES_SHA: 6b2e674464933a4de38785c03c33564661290454
-  ORES_LOGGER_SHA: 1560bbc26db25bb14b4bb0974e5748c827d32d72
 
 jobs:
   pack:
@@ -76,22 +74,6 @@ jobs:
           path: zed-interfaces
           persist-credentials: false
 
-      - name: Checkout pinned Ores interfaces package
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          repository: ores-otel/ores-interfaces
-          ref: ${{ env.ORES_INTERFACES_SHA }}
-          path: ores-interfaces
-          persist-credentials: false
-
-      - name: Checkout pinned Ores logger package
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          repository: ores-otel/ores.otel.log
-          ref: ${{ env.ORES_LOGGER_SHA }}
-          path: ores-otel-log
-          persist-credentials: false
-
       - name: Verify gitlink and Zed package boundaries
         run: |
           set -euo pipefail
@@ -100,21 +82,6 @@ jobs:
 
       - name: Build pinned Zed CLI
         run: cargo build --locked --release --manifest-path zed-cli/Cargo.toml --bin zed
-
-      - name: Seed exact Ores dependencies into an isolated file registry
-        shell: bash
-        run: |
-          set -euo pipefail
-          zed="$GITHUB_WORKSPACE/zed-cli/target/release/zed"
-          registry="$RUNNER_TEMP/zed-dependency-registry"
-          mkdir -p "$registry"
-          export ZED_PKG_REGISTRY="file://$registry"
-
-          (cd ores-interfaces && "$zed" publish --allow-dirty --skip-vcs-checks)
-          (cd ores-otel-log && "$zed" publish --allow-dirty --skip-vcs-checks)
-
-          test -f "$registry/packages/ores-otel/ores-interfaces/versions/0.1.0.json"
-          test -f "$registry/packages/oresoftware/next-loggers/versions/0.1.0.json"
 
       - name: Pack twice and prove byte-for-byte determinism
         shell: bash
@@ -157,8 +124,10 @@ jobs:
             'pkg/schema/opto-sync-envelope.schema.json'
             'pkg/schema/opto-sync-sdk-api.schema.json'
             'pkg/schema/opto-sync-sdk-api.v1.json'
-            'pkg/schema/opto-sync-telemetry-event.schema.json'
+            'pkg/schema/opto-sync-sdk-values.v1.schema.json'
+            'pkg/schema/opto-sync-telemetry.schema.json'
             'pkg/schema/check-sdk-api-contract.mjs'
+            'pkg/schema/check-telemetry-corpus.mjs'
             'pkg/scripts/check-package-layout.py'
             'pkg/scripts/check-zed-packaging.py'
             'pkg/syncer.c/core/include/syncer.h'
@@ -201,7 +170,7 @@ jobs:
             --dry-run \
             --allow-dirty \
             --skip-vcs-checks | tee ../zed-dry-run.txt
-          grep -F 'opto-sync/opto-sync-clients@0.2.0' ../zed-dry-run.txt
+          grep -F 'opto-sync/opto-sync-clients@0.3.0' ../zed-dry-run.txt
           test "$(grep -c '^dry run: would publish opto-sync/' ../zed-dry-run.txt)" -eq 1
 
       - name: Run a clean local registry/install roundtrip
@@ -209,7 +178,6 @@ jobs:
         env:
           ZED_PKG_HOME: ${{ runner.temp }}/zed-home
           ZED_PKG_R2G_ROOT: ${{ runner.temp }}/zed-r2g
-          ZED_PKG_REGISTRY: file://${{ runner.temp }}/zed-dependency-registry
         run: ${{ github.workspace }}/zed-cli/target/release/zed r2g --clean
 
       - name: Upload deterministic package artifact

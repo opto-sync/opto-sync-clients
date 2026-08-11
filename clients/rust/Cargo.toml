@@ -1,6 +1,6 @@
 [package]
 name = "opto-sync-client"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "Client-side library for opto-sync: optimistic writes + CRDT-style reconciliation"
 

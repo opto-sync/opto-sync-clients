@@ -60,10 +60,10 @@ jobs:
       - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4
         with:
           node-version: '22'
-      # The envelope gate evaluates fixtures; the SDK API gate binds every
-      # portable operation to a real Rust, Dart, and TypeScript declaration and
-      # checks its Zed interface/logging coordinates.
-      - name: Evaluate envelope fixtures and portable SDK API bindings
+      # The envelope gate evaluates fixtures; the SDK API gate distinguishes
+      # six proven portable operations from twelve bindings with explicit
+      # candidate differences and checks Zed dependency release states.
+      - name: Evaluate envelope fixtures and SDK capability bindings
         working-directory: schema
         run: |
           set -euo pipefail

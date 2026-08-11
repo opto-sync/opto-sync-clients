@@ -100,12 +100,25 @@ function pad(value: number, digits: number, radix: number): string {
 }
 
 export function formatHlc(parts: HlcParts): string {
+  if (
+    !Number.isSafeInteger(parts.millis) ||
+    parts.millis < 0 ||
+    parts.millis > 9_999_999_999_999
+  ) {
+    throw new RangeError('HLC millis must be a non-negative 13-digit integer');
+  }
+  if (!Number.isInteger(parts.counter) || parts.counter < 0 || parts.counter > MAX_COUNTER) {
+    throw new RangeError('HLC counter must be an integer from 0 through 65535');
+  }
+  if (!parts.nodeId || parts.nodeId.includes('-')) {
+    throw new TypeError('HLC nodeId must be non-empty and contain no "-"');
+  }
   return `${pad(parts.millis, MILLIS_DIGITS, 10)}-${pad(parts.counter, COUNTER_DIGITS, 16)}-${parts.nodeId}`;
 }
 
 /** Returns null for anything that is not an HLC produced by this module. */
 export function parseHlc(timestamp: string): HlcParts | null {
-  const m = /^(\d{13})-([0-9a-f]{4})-(.+)$/.exec(timestamp);
+  const m = /^(\d{13})-([0-9a-f]{4})-([^-]+)$/.exec(timestamp);
   if (!m) return null;
   return { millis: Number(m[1]), counter: parseInt(m[2], 16), nodeId: m[3] };
 }

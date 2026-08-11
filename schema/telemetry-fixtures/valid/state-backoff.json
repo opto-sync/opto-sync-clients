@@ -1,0 +1,16 @@
+{
+  "body": "opto-sync state changed",
+  "severityText": "WARN",
+  "severityNumber": 13,
+  "timestamp": "2026-08-11T17:53:28.151Z",
+  "attributes": {
+    "service.name": "opto-sync",
+    "event.name": "opto.sync.state.changed",
+    "opto.sync.schema": "opto-sync.telemetry/v1",
+    "opto.sync.runtime": "dart",
+    "opto.sync.status": "backoff",
+    "opto.sync.consecutive_failures": 2,
+    "opto.sync.next_retry_at": "2026-08-11T17:53:30.151Z",
+    "error.code": "SYNC_TRANSPORT_ERROR"
+  }
+}
