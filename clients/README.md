@@ -1,8 +1,10 @@
 # opto-sync client SDKs
 
-These runtime-specific SDK baselines depend on the `opto-sync-interfaces`
-and `opto-sync-lib` Zed packages. Existing product bindings are preserved;
-missing targets receive a transport-neutral client configuration baseline.
+These runtime-specific SDK baselines preserve the existing product bindings;
+missing targets receive a transport-neutral client configuration baseline. The
+repository currently ships as one complete package around its bundled,
+git-pinned native core. It does not declare `opto-sync-interfaces` or
+`opto-sync-lib` as installable Zed dependencies.
 
 Rust, Dart, and TypeScript additionally share the versioned portable surface in
 [`../schema/opto-sync-sdk-api.v1.json`](../schema/opto-sync-sdk-api.v1.json).
@@ -12,10 +14,11 @@ and maps each semantic operation to its idiomatic language symbol. The contract
 gate refuses a missing language binding, a stale declaration, a mismatched
 envelope schema id, or dependency-coordinate drift.
 
-The reconciliation bindings point to the reference engine's proposed
-`https://opto-sync.dev/schema/merge-options.schema.json` identifier. It remains
-a candidate until the upstream schema lands and all runtimes expose the same
-option set; this repository does not maintain a competing copy.
+The reconciliation bindings use the reference engine's canonical
+`https://opto-sync.dev/schema/merge-options.schema.json` identifier. The API
+contract records the exact upstream source commit and schema digest; individual
+operations remain candidates wherever runtime option carriers or behavior still
+differ. This repository does not maintain a competing copy.
 
 The API contract records the pending Zed coordinates
 `ores-otel/ores-interfaces@^0.1.0` and
