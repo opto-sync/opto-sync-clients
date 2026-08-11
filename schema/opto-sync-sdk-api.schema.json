@@ -48,29 +48,26 @@
       }
     },
     "mergeOptionsSchema": {
-      "description": "Pinned merge-option candidate owned by the Rust reference engine. It becomes canonical only after upstream-main and cross-runtime option-parity blockers are cleared.",
+      "description": "Canonical merge-option schema owned by the Rust reference engine, pinned to the source commit merged into upstream main and exposed by every primary client.",
       "type": "object",
       "required": ["repository", "commit", "path", "id", "sha256", "status", "blockers"],
       "additionalProperties": false,
       "properties": {
         "repository": { "const": "opto-sync/syncer.rs" },
         "commit": {
-          "const": "8ef3d4bb63738a90b1e3958500578aebb89ee8cc"
+          "const": "bb71ac1b4b7d94dd7035e6cc7b76e5c10f284e98"
         },
         "path": { "const": "schema/merge-options.schema.json" },
         "id": {
           "const": "https://opto-sync.dev/schema/merge-options.schema.json"
         },
         "sha256": {
-          "const": "d5bd069eefc24293e3f8d8e666bdbd1d2461b59853f73c0cea7bb7c0424d7bd8"
+          "const": "e9107667cee2868a922a70c9c48175c62b466fa728466c23bac766aebcbb2f2a"
         },
-        "status": { "const": "candidate" },
+        "status": { "const": "canonical" },
         "blockers": {
           "type": "array",
-          "minItems": 2,
-          "maxItems": 2,
-          "uniqueItems": true,
-          "items": { "enum": ["upstream-main", "cross-runtime-option-parity"] }
+          "maxItems": 0
         }
       }
     },

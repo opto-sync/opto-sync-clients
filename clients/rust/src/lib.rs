@@ -63,6 +63,11 @@ pub struct ReconcileOptions {
     pub array_match_keys: String,
     /// Enable CRDT-like timestamp resolution. Default: `true`.
     pub resolve_by_timestamp: bool,
+    /// Ask pointer-based engines to reject circular references. Default:
+    /// `false`. Rust callers supply JSON strings, so parsed documents are
+    /// owned acyclic trees; the field remains public for cross-runtime option
+    /// parity and is forwarded unchanged to the shared C engine.
+    pub detect_circular_refs: bool,
     /// Comma-separated Last-Write-Wins selectors. A plain selector is a direct
     /// key; `#/path/to/key` is an RFC 6901 JSON Pointer relative to each merge
     /// node. Default: `"updatedAt,syncedAt"`.
@@ -95,6 +100,7 @@ impl Default for ReconcileOptions {
             array_strategy: ArrayStrategy::MergeByKey,
             array_match_keys: "id".to_string(),
             resolve_by_timestamp: true,
+            detect_circular_refs: false,
             lww_keys: "updatedAt,syncedAt".to_string(),
             // Deliberately empty. See the field docs: FWW vetoes the whole node.
             fww_keys: String::new(),
@@ -108,7 +114,7 @@ impl ReconcileOptions {
         MergeOptions {
             array_strategy: Some(self.array_strategy),
             max_depth: Some(self.max_depth),
-            detect_circular_refs: false,
+            detect_circular_refs: self.detect_circular_refs,
             resolve_by_timestamp: self.resolve_by_timestamp,
             lww_keys: Some(self.lww_keys.clone()),
             // An empty list means "no FWW keys", which the core expresses as a
@@ -778,7 +784,25 @@ mod tests {
         let opts = ReconcileOptions::default();
         assert_eq!(opts.lww_keys, "updatedAt,syncedAt");
         assert_eq!(opts.fww_keys, "", "createdAt must not be a default FWW key");
+        assert!(!opts.detect_circular_refs);
         assert!(opts.to_merge_options().fww_keys.is_none());
+    }
+
+    #[test]
+    fn circular_reference_option_reaches_the_shared_engine_boundary() {
+        let opts = ReconcileOptions {
+            detect_circular_refs: true,
+            ..ReconcileOptions::default()
+        };
+        assert!(opts.to_merge_options().detect_circular_refs);
+
+        let merged = reconcile(
+            r#"{"nested":{"left":true}}"#,
+            r#"{"nested":{"right":true}}"#,
+            &opts,
+        )
+        .expect("owned JSON trees cannot contain pointer cycles");
+        assert_eq!(merged, r#"{"nested":{"left":true,"right":true}}"#);
     }
 
     #[test]

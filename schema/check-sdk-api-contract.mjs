@@ -116,11 +116,11 @@ if (telemetrySchema.$id !== contract.telemetry.eventSchema.id) {
 
 const canonicalMergeOptionsSchema = {
   repository: 'opto-sync/syncer.rs',
-  commit: '8ef3d4bb63738a90b1e3958500578aebb89ee8cc',
+  commit: 'bb71ac1b4b7d94dd7035e6cc7b76e5c10f284e98',
   path: 'schema/merge-options.schema.json',
   id: 'https://opto-sync.dev/schema/merge-options.schema.json',
-  sha256: 'd5bd069eefc24293e3f8d8e666bdbd1d2461b59853f73c0cea7bb7c0424d7bd8',
-  status: 'candidate',
+  sha256: 'e9107667cee2868a922a70c9c48175c62b466fa728466c23bac766aebcbb2f2a',
+  status: 'canonical',
 };
 for (const [field, expected] of Object.entries(canonicalMergeOptionsSchema)) {
   if (contract.mergeOptionsSchema[field] !== expected) {
@@ -129,17 +129,14 @@ for (const [field, expected] of Object.entries(canonicalMergeOptionsSchema)) {
     );
   }
 }
-const expectedMergeOptionBlockers = new Set([
-  'upstream-main',
-  'cross-runtime-option-parity',
-]);
+const expectedMergeOptionBlockers = new Set();
 if (
   contract.mergeOptionsSchema.blockers.length !== expectedMergeOptionBlockers.size ||
   contract.mergeOptionsSchema.blockers.some(
     (blocker) => !expectedMergeOptionBlockers.has(blocker),
   )
 ) {
-  failures.push('merge-options candidate blockers are incomplete or contain unknown values');
+  failures.push('canonical merge-options schema still reports a blocker');
 }
 
 const requiredOperations = new Set([
