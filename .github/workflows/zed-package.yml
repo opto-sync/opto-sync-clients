@@ -44,6 +44,8 @@ concurrency:
 env:
   ZED_CLI_SHA: c636fb8f6b08695c6b4fe94e2481f4d57270b2d7
   ZED_INTERFACES_SHA: 415e871b1fb3dd97744c134351408a3224805dfb
+  ORES_INTERFACES_SHA: 6b2e674464933a4de38785c03c33564661290454
+  ORES_LOGGER_SHA: 1560bbc26db25bb14b4bb0974e5748c827d32d72
 
 jobs:
   pack:
@@ -74,6 +76,22 @@ jobs:
           path: zed-interfaces
           persist-credentials: false
 
+      - name: Checkout pinned Ores interfaces package
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: ores-otel/ores-interfaces
+          ref: ${{ env.ORES_INTERFACES_SHA }}
+          path: ores-interfaces
+          persist-credentials: false
+
+      - name: Checkout pinned Ores logger package
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: ores-otel/ores.otel.log
+          ref: ${{ env.ORES_LOGGER_SHA }}
+          path: ores-otel-log
+          persist-credentials: false
+
       - name: Verify gitlink and Zed package boundaries
         run: |
           set -euo pipefail
@@ -82,6 +100,21 @@ jobs:
 
       - name: Build pinned Zed CLI
         run: cargo build --locked --release --manifest-path zed-cli/Cargo.toml --bin zed
+
+      - name: Seed exact Ores dependencies into an isolated file registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          zed="$GITHUB_WORKSPACE/zed-cli/target/release/zed"
+          registry="$RUNNER_TEMP/zed-dependency-registry"
+          mkdir -p "$registry"
+          export ZED_PKG_REGISTRY="file://$registry"
+
+          (cd ores-interfaces && "$zed" publish --allow-dirty --skip-vcs-checks)
+          (cd ores-otel-log && "$zed" publish --allow-dirty --skip-vcs-checks)
+
+          test -f "$registry/packages/ores-otel/ores-interfaces/versions/0.1.0.json"
+          test -f "$registry/packages/oresoftware/next-loggers/versions/0.1.0.json"
 
       - name: Pack twice and prove byte-for-byte determinism
         shell: bash
@@ -173,6 +206,7 @@ jobs:
         env:
           ZED_PKG_HOME: ${{ runner.temp }}/zed-home
           ZED_PKG_R2G_ROOT: ${{ runner.temp }}/zed-r2g
+          ZED_PKG_REGISTRY: file://${{ runner.temp }}/zed-dependency-registry
         run: ${{ github.workspace }}/zed-cli/target/release/zed r2g --clean
 
       - name: Upload deterministic package artifact
