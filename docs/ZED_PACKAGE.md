@@ -1,7 +1,7 @@
 # Zed packaging
 
 `opto-sync-clients` is packaged as the whole-repository Zed source package
-`opto-sync/opto-sync-clients@0.2.0`.
+`opto-sync/opto-sync-clients@0.3.0`.
 
 The repository contains `syncer.c` as a real mode-`160000` git submodule. Each
 client resolves its native reconciliation binding through that root submodule,
@@ -71,7 +71,7 @@ zed publish --dry-run
 
 `.github/workflows/zed-publish.yml` dry-runs on relevant pull requests and
 performs a real upload only from the exact version tag declared by
-`.zpkg.toml`. For version `0.2.0`, the accepted tag is exactly `v0.2.0`—not an
+`.zpkg.toml`. For version `0.3.0`, the accepted tag is exactly `v0.3.0`—not an
 arbitrary `v*` tag. The workflow fetches full tag history, initializes the
 pinned native submodule, disables persisted checkout credentials, builds pinned
 Zed tooling, reruns the dependency-boundary check, verifies the tag points at
@@ -85,8 +85,8 @@ Release order matters:
    commit;
 3. provision the `opto-sync` registry namespace and this repository's
    `ZED_PKG_TOKEN`;
-4. place `v0.2.0` on the reviewed `main` commit; and
-5. let the tag workflow publish `opto-sync/opto-sync-clients@0.2.0`.
+4. place `v0.3.0` on the reviewed `main` commit; and
+5. let the tag workflow publish `opto-sync/opto-sync-clients@0.3.0`.
 
 A green dry run means the artifact is reproducible and uploadable. It does not
 by itself mean the package is already present in the registry. This gitlink

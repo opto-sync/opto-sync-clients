@@ -100,6 +100,7 @@ timestamps and ISO-8601 strings are unaffected. The cross-server suites in
 - [Offline queue](docs/OFFLINE_QUEUE.md)—the queue model and durability guarantees
 - [Sync protocol v1](docs/SYNC_PROTOCOL_V1.md)—push dedupe, pull checkpoints, tombstones, rejection, and reset
 - [Reconciliation](docs/RECONCILIATION.md)—policy, schema guidance, and timestamp conventions
+- [Observability](docs/OBSERVABILITY.md)—privacy-bounded ORE/OpenTelemetry records shared by Rust, Dart, and TypeScript
 - [Zed package](docs/ZED_PACKAGE.md)—package boundary, reproducibility, and release procedure
 - [Merge semantics](syncer.c/docs/MERGE_SEMANTICS.md)—the underlying native contract
 - [Troubleshooting](syncer.c/docs/TROUBLESHOOTING.md)—real failure modes
@@ -139,7 +140,7 @@ python3 clients/reactive-dart/tool/check_native_background_adapters.py
 
 ## Zed package
 
-The repository root declares `opto-sync/opto-sync-clients@0.2.0` in
+The repository root declares `opto-sync/opto-sync-clients@0.3.0` in
 `.zpkg.toml`, with `.zpkg.lock` committed for frozen source workflows. The first
 release is intentionally one whole-repository package: a language-only target
 would omit the root native submodule required by that client. The package

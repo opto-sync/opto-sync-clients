@@ -90,6 +90,14 @@ def main() -> int:
     # cross-language fixture corpus. Package the corpus beside the client so an
     # extracted target remains testable without a Git checkout or sibling repo.
     copy_tree(ROOT / "schema/fixtures", output / "schema/fixtures")
+    copy_tree(
+        ROOT / "schema/telemetry-fixtures",
+        output / "schema/telemetry-fixtures",
+    )
+    shutil.copy2(
+        ROOT / "schema/opto-sync-telemetry.schema.json",
+        output / "schema/opto-sync-telemetry.schema.json",
+    )
 
     copy_tree(ROOT / "syncer.c/core/include", output / "syncer.c/core/include")
     copy_tree(ROOT / "syncer.c/core/src", output / "syncer.c/core/src")
@@ -121,14 +129,14 @@ def main() -> int:
         "schemaVersion": 1,
         "target": "rust",
         "clientPackage": "opto-sync-client",
-        "clientVersion": "0.1.0",
+        "clientVersion": "0.2.0",
         "syncerPackage": "syncer-rs",
         "syncerVersion": "0.2.1",
         "clientSourceSha": client_sha,
         "syncerSourceSha": gitlink_sha,
         "cargoLockSha256": lock_hash,
         "coreResolution": "bundled-source",
-        "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.2.0",
+        "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.3.0",
         "coexistenceRule": (
             "all installed opto-sync targets must resolve the same syncerSourceSha"
         ),
@@ -143,7 +151,7 @@ def main() -> int:
         """[package]
 org = "opto-sync"
 name = "opto-sync-client-rust"
-version = "0.1.0"
+version = "0.2.0"
 description = "Clean-room Rust optimistic-sync client with the exact bundled syncer.c core"
 license = "MIT"
 repository = { type = "git", url = "https://github.com/opto-sync/opto-sync-clients" }

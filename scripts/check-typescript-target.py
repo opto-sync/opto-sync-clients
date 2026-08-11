@@ -81,6 +81,8 @@ def main() -> int:
         "syncer.c/bindings/wasm/package.json",
         "syncer.c/bindings/wasm/index.mjs",
         "syncer.c/bindings/wasm/dist/syncer-core.single.mjs",
+        "schema/opto-sync-telemetry.schema.json",
+        "schema/telemetry-fixtures/valid/cycle-completed.json",
     )
     for relative in required:
         require_file(relative)
@@ -96,7 +98,7 @@ def main() -> int:
     expected_meta = {
         "org": "opto-sync",
         "name": "opto-sync-client-typescript",
-        "version": "0.2.1",
+        "version": "0.3.0",
         "license": "MIT",
     }
     for key, expected in expected_meta.items():
@@ -124,7 +126,7 @@ def main() -> int:
     source_sha = (ROOT / "syncer.c/SOURCE_SHA").read_text(encoding="utf-8").strip()
     if source_sha != core_sha:
         fail("bundled core SOURCE_SHA differs from release-set syncerSourceSha")
-    if release.get("clientVersion") != "0.2.1" or release.get("syncerVersion") != "0.2.1":
+    if release.get("clientVersion") != "0.3.0" or release.get("syncerVersion") != "0.2.1":
         fail("release-set package versions are inconsistent")
     if release.get("publicationEnabled") is not False:
         fail("prototype publication must remain disabled")
@@ -133,7 +135,7 @@ def main() -> int:
 
     client_manifest_path = ROOT / "clients/ts/package.json"
     client = load_json(client_manifest_path)
-    if client.get("name") != "@opto-sync/client" or client.get("version") != "0.2.1":
+    if client.get("name") != "@opto-sync/client" or client.get("version") != "0.3.0":
         fail("unexpected TypeScript client package identity")
     scripts = client.get("scripts", {})
     expected_scripts = {
