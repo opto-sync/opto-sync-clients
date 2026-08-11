@@ -11,7 +11,8 @@ class ProtocolSyncTelemetryInput {
   final ProtocolSyncTelemetryKind kind;
   final ProtocolSyncStatus status;
   final int consecutiveFailures;
-  final DateTime? timestamp;
+  /// Explicit event time; required for deterministic cross-runtime records.
+  final DateTime timestamp;
   final DateTime? nextRetryAt;
   final ProtocolSyncCycleResult? cycle;
 
@@ -30,7 +31,7 @@ class ProtocolSyncTelemetryInput {
     required this.kind,
     required this.status,
     this.consecutiveFailures = 0,
-    this.timestamp,
+    required this.timestamp,
     this.nextRetryAt,
     this.cycle,
     this.errorCode,
@@ -190,7 +191,7 @@ Map<String, Object> createProtocolSyncTelemetryRecord(
     'body': _body(input.kind),
     'severityText': severityText,
     'severityNumber': severityNumber,
-    'timestamp': _timestamp(input.timestamp ?? DateTime.now()),
+    'timestamp': _timestamp(input.timestamp),
     'attributes': attributes,
     if (input.traceId case final trace?) 'traceId': trace,
     if (input.spanId case final span?) 'spanId': span,
@@ -203,7 +204,7 @@ Map<String, Object> createProtocolSyncTelemetryRecord(
 Map<String, Object> protocolSyncStateTelemetry(
   ProtocolSyncTelemetryRuntime runtime,
   ProtocolSyncState state, {
-  DateTime? timestamp,
+  required DateTime timestamp,
   String? errorCode,
   String? requestId,
   String? traceId,

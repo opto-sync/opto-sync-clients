@@ -49,7 +49,7 @@ jobs:
           python3 scripts/check-zed-packaging.py
 
   envelope-schema:
-    name: Envelope schema agrees with the shared corpus
+    name: Envelope and SDK API schemas agree with source
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -60,10 +60,10 @@ jobs:
       - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4
         with:
           node-version: '22'
-      # Every language validator is hand-written from this schema and tested
-      # against these fixtures; this is the only check that holds the schema
-      # DOCUMENT itself to the same corpus.
-      - name: Evaluate the schema against every fixture
+      # The envelope gate evaluates fixtures; the SDK API gate distinguishes
+      # six proven portable operations from twelve bindings with explicit
+      # candidate differences and checks Zed dependency release states.
+      - name: Evaluate envelope fixtures and SDK capability bindings
         working-directory: schema
         run: |
           set -euo pipefail

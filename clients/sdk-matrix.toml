@@ -1,6 +1,13 @@
 schema_version = 1
 interfaces_package = "opto-sync-interfaces"
 shared_library_package = "opto-sync-lib"
+canonical_api_contract = "../schema/opto-sync-sdk-api.v1.json"
+merge_options_schema_id = "https://opto-sync.dev/schema/merge-options.schema.json"
+merge_options_schema_status = "canonical"
+cross_org_interfaces_package = "ores-otel/ores-interfaces"
+structured_logging_package = "oresoftware/next-loggers"
+structured_logging_mode = "injected"
+ores_zed_dependency_status = "pending-release"
 
 [targets]
 gleamlang = true

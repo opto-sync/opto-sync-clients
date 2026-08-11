@@ -9,10 +9,15 @@ so a client commit names the exact core commit it was tested with. Clone with
 `--recurse-submodules` (or run `git submodule update --init --recursive`) before
 building, testing, packing, or publishing.
 
-The root `.zpkg.lock` is committed even though this package currently has no
-Zed-managed dependencies. It is source/reproducibility metadata and is
+The root manifest currently has no Zed-managed dependencies. The SDK contract
+records `ores-otel/ores-interfaces@^0.1.0` and
+`oresoftware/next-loggers@^0.1.0` as pending coordinates, but they stay out of
+the manifest until immutable public releases can be resolved by a clean
+`zed install --frozen`. The reconciliation engine is already pinned and bundled
+by the `syncer.c` gitlink, so it must not appear as a second Zed dependency.
+The committed `.zpkg.lock` is source/reproducibility metadata and is
 intentionally stripped from published archives by zed-pkg; consumers create
-their own dependency lock.
+their own resolved dependency lock.
 
 ## Why this is one repository package
 
@@ -39,14 +44,22 @@ Possible future designs include:
 
 The artifact includes:
 
-- the root package manifest, license, README, and `.gitmodules` declaration;
+- the root package manifest, license, and README;
+- the canonical envelope, telemetry, and portable SDK API JSON Schema
+  contracts;
 - every maintained client source tree and native manifest; and
-- the initialized `syncer.c` submodule at the pinned gitlink revision.
+- the initialized `syncer.c` source materialized from the pinned gitlink
+  revision.
 
-It excludes the root Zed lockfile, VCS/CI metadata, tests, dependency trees,
-compiler output, package-manager caches, and nested submodule administration.
-No Zed `[build]` hook is declared, so installing the source package does not
-execute publisher-controlled build commands automatically.
+The source repository's `.gitmodules` declaration and mode-`160000` gitlink are
+validated before packing. The publish policy explicitly omits `.gitmodules`
+with the rest of the VCS metadata because the artifact already carries the
+materialized `syncer.c` source; the packaging checker keeps direct pack and
+`r2g` behavior aligned. The artifact also excludes the root Zed lockfile, CI
+metadata, tests, dependency trees, compiler output, package-manager caches, and
+nested submodule administration. No Zed `[build]` hook is declared, so
+installing the source package does not execute publisher-controlled build
+commands automatically.
 
 ## Validation
 
@@ -54,6 +67,8 @@ The normal `CI` workflow runs the four runtime suites against the pinned
 submodule. The `Zed package contract` workflow additionally:
 
 - verifies the mode-`160000` gitlink and every native dependency path;
+- verifies the pending shared-interface/logging coordinates, their release
+  status, and all portable Rust/Dart/TypeScript API bindings;
 - builds pinned `zed-cli` and `zed-interfaces` revisions;
 - packs twice and requires byte-for-byte identical archives;
 - audits required files and rejects generated/VCS state; and

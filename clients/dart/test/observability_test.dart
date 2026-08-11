@@ -52,10 +52,11 @@ void main() {
     expect(jsonEncode(record), isNot(contains('must stay local')));
     expect(
       () => createProtocolSyncTelemetryRecord(
-        const ProtocolSyncTelemetryInput(
+        ProtocolSyncTelemetryInput(
           runtime: ProtocolSyncTelemetryRuntime.dart,
           kind: ProtocolSyncTelemetryKind.cycleFailed,
           status: ProtocolSyncStatus.error,
+          timestamp: DateTime.parse('2026-08-11T17:53:28.151Z'),
           errorCode: 'raw exception message is not a code',
         ),
       ),
@@ -68,6 +69,7 @@ void main() {
             runtime: ProtocolSyncTelemetryRuntime.dart,
             kind: ProtocolSyncTelemetryKind.stateChanged,
             status: ProtocolSyncStatus.idle,
+            timestamp: DateTime.parse('2026-08-11T17:53:28.151Z'),
             requestId: requestId,
           ),
         ),
@@ -80,6 +82,7 @@ void main() {
           runtime: ProtocolSyncTelemetryRuntime.dart,
           kind: ProtocolSyncTelemetryKind.stateChanged,
           status: ProtocolSyncStatus.idle,
+          timestamp: DateTime.parse('2026-08-11T17:53:28.151Z'),
           traceState: List.filled(512, '🥽').join(),
         ),
       ),
@@ -91,6 +94,7 @@ void main() {
           runtime: ProtocolSyncTelemetryRuntime.dart,
           kind: ProtocolSyncTelemetryKind.stateChanged,
           status: ProtocolSyncStatus.idle,
+          timestamp: DateTime.parse('2026-08-11T17:53:28.151Z'),
           traceState: List.filled(513, '🥽').join(),
         ),
       ),

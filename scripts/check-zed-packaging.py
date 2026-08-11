@@ -43,10 +43,18 @@ def main() -> int:
     if repository.get("url") != "https://github.com/opto-sync/opto-sync-clients":
         fail("package.repository.url must be the canonical GitHub repository")
 
+    # The intended Ores coordinates are recorded by the SDK API contract, but
+    # neither 0.1.0 package is currently an immutable public Zed release. A
+    # synthetic file registry is not reproducible release provenance, so the
+    # source package must stay dependency-free until a real frozen install can
+    # populate and verify the lock.
+    dependencies = manifest.get("dependencies", {})
+    if dependencies:
+        fail("unreleased Zed dependencies must not be declared")
     # The artifact already contains the exact syncer.c gitlink contents used by
     # every native manifest. Declaring the same source again as a Zed dependency
     # would produce two potentially different core revisions in one install.
-    if manifest.get("dependencies"):
+    if any(name.startswith("opto-sync/syncer") for name in dependencies):
         fail("the bundled pinned core must not be duplicated as a Zed dependency")
 
     # Language slices remain unsafe: each client reaches the shared root core.
@@ -59,6 +67,11 @@ def main() -> int:
         fail("publish.tag_format must be v{version}")
     if not publish.get("smoke_test"):
         fail("publish.smoke_test must validate the extracted artifact")
+    if publish.get("exclude", []).count(".gitmodules") != 1:
+        fail(
+            "publish.exclude must contain exactly one explicit .gitmodules rule "
+            "so pack, publish, and r2g emit the same VCS-free artifact"
+        )
 
     lock = ROOT / ".zpkg.lock"
     if lock.exists():

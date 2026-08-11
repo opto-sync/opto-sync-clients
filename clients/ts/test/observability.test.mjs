@@ -60,6 +60,7 @@ test('state adapter emits bounded data and rejects raw exception text as a code'
         runtime: 'typescript',
         kind: 'cycle.failed',
         status: 'error',
+        timestamp: '2026-08-11T17:53:28.151Z',
         errorCode: 'raw exception message is not a code',
       }),
     /machine code/,
@@ -70,6 +71,7 @@ test('state adapter emits bounded data and rejects raw exception text as a code'
         runtime: 'typescript',
         kind: 'state.changed',
         status: 'idle',
+        timestamp: '2026-08-11T17:53:28.151Z',
         requestId: 'short',
       }),
     /ores-interfaces identifier/,
@@ -94,6 +96,7 @@ test('state adapter emits bounded data and rejects raw exception text as a code'
         runtime: 'typescript',
         kind: 'state.changed',
         status: 'idle',
+        timestamp: '2026-08-11T17:53:28.151Z',
         ...invalidInput,
       }),
     );
@@ -103,6 +106,7 @@ test('state adapter emits bounded data and rejects raw exception text as a code'
       runtime: 'typescript',
       kind: 'state.changed',
       status: 'idle',
+      timestamp: '2026-08-11T17:53:28.151Z',
       traceState: '🥽'.repeat(512),
     }),
   );
@@ -111,6 +115,7 @@ test('state adapter emits bounded data and rejects raw exception text as a code'
       runtime: 'typescript',
       kind: 'state.changed',
       status: 'idle',
+      timestamp: '2026-08-11T17:53:28.151Z',
       traceState: '🥽'.repeat(513),
     }),
   );
@@ -120,6 +125,7 @@ test('state adapter emits bounded data and rejects raw exception text as a code'
         runtime: 'typescript',
         kind: 'state.changed',
         status: 'idle',
+        timestamp: '2026-08-11T17:53:28.151Z',
         requestId: 'invalid/request-id',
       }),
     /ores-interfaces identifier/,
@@ -128,6 +134,7 @@ test('state adapter emits bounded data and rejects raw exception text as a code'
     runtime: 'typescript',
     kind: 'cycle.completed',
     status: 'backoff',
+    timestamp: '2026-08-11T17:53:28.151Z',
     cycle: {
       pushedMutations: 0,
       acknowledgedMutations: 0,

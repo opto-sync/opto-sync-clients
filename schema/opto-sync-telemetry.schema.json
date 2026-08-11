@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/opto-sync/opto-sync-clients/main/schema/opto-sync-telemetry.schema.json",
+  "$id": "https://opto-sync.dev/schema/opto-sync-telemetry.v1.schema.json",
   "title": "Opto-Sync OpenTelemetry log bridge v1",
   "description": "A privacy-bounded subset of the ores.otel.log OpenTelemetry bridge record. Rust, Dart, and TypeScript emit this shape without registering a global telemetry provider.",
   "type": "object",

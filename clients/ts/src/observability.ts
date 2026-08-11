@@ -37,7 +37,8 @@ export interface ProtocolSyncTelemetryInput {
   kind: ProtocolSyncTelemetryKind;
   status: ProtocolSyncStatus;
   consecutiveFailures?: number;
-  timestamp?: Date | string | number;
+  /** Explicit event time; required so every runtime produces deterministic records. */
+  timestamp: Date | string | number;
   nextRetryAt?: Date | string | number;
   cycle?: Readonly<ProtocolSyncCycleResult>;
   /** Stable machine code only. Raw exception messages are deliberately unsupported. */
@@ -83,10 +84,10 @@ function nonNegativeInteger(value: number, name: string): number {
 }
 
 function canonicalTimestamp(
-  value: Date | string | number | undefined,
+  value: Date | string | number,
   name: string,
 ): string {
-  const instant = value instanceof Date ? value : new Date(value ?? Date.now());
+  const instant = value instanceof Date ? value : new Date(value);
   if (!Number.isFinite(instant.getTime())) {
     throw new RangeError(`${name} must be a valid instant`);
   }
@@ -257,7 +258,7 @@ export function protocolSyncStateTelemetry(
   overrides: Omit<
     ProtocolSyncTelemetryInput,
     'runtime' | 'kind' | 'status' | 'consecutiveFailures' | 'nextRetryAt'
-  > = {},
+  >,
 ): OresOpenTelemetryLogRecord {
   return createProtocolSyncTelemetryRecord({
     ...overrides,

@@ -23,10 +23,14 @@ for Dart, Rust, and Gleam. Passing `zed pack` is not enough; a clean consumer mu
 be able to resolve and build the native package after installation.
 
 `scripts/check-zed-packaging.py` is a CI ratchet for this boundary. It verifies
-the whole-repository source package and rejects language targets or redundant
-Zed dependencies while required paths still resolve through the bundled,
-pinned core. This prevents a well-intentioned manifest-only change from
-publishing unusable slices or resolving two different core revisions.
+the whole-repository source package and rejects language targets or a redundant
+Zed dependency on the native core while required paths still resolve through
+the bundled, pinned gitlink. The SDK API contract records intended external
+shared-interface and injected-logging coordinates, but the package checker
+rejects them while their public releases remain pending. This prevents a
+well-intentioned manifest-only change from publishing unusable slices,
+resolving two different core revisions, or treating a synthetic registry as
+release provenance.
 
 ## Target end state
 

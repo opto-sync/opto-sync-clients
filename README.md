@@ -99,6 +99,7 @@ timestamps and ISO-8601 strings are unaffected. The cross-server suites in
 - [Background and reactive sync](docs/BACKGROUND_REACTIVE_SYNC.md)—RxJS/RxDart, optimism, Service Workers, mobile workers, sessions, and transports
 - [Offline queue](docs/OFFLINE_QUEUE.md)—the queue model and durability guarantees
 - [Sync protocol v1](docs/SYNC_PROTOCOL_V1.md)—push dedupe, pull checkpoints, tombstones, rejection, and reset
+- [SDK capability and portable API contract](docs/SDK_API_CONTRACT.md)—six proven JSON Schema-governed Rust/Dart/TypeScript operations, explicit candidate differences, and injected ORE logging
 - [Reconciliation](docs/RECONCILIATION.md)—policy, schema guidance, and timestamp conventions
 - [Observability](docs/OBSERVABILITY.md)—privacy-bounded ORE/OpenTelemetry records shared by Rust, Dart, and TypeScript
 - [Zed package](docs/ZED_PACKAGE.md)—package boundary, reproducibility, and release procedure

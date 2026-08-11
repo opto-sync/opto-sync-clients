@@ -14,6 +14,7 @@ export 'src/syncer_backend_stub.dart'
 export 'src/clock.dart';
 export 'src/observability.dart';
 export 'src/protocol_sync_loop.dart';
+export 'telemetry.dart';
 
 part 'opto_sync_client.g.dart';
 

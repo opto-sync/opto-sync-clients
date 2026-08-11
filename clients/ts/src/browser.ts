@@ -49,6 +49,7 @@ export * as connectivity from './connectivity.js';
 export * as connectedClient from './connected-client.js';
 export * as rx from './rx/index.js';
 export * as schema from './schema/ingest.js';
+export * as telemetry from './telemetry.js';
 export * as observability from './observability.js';
 
 /* Curated top-level names — one explicit re-export each, never `export *`. */
@@ -184,6 +185,14 @@ export type {
   LocalSaveOperation,
   SaveSubscribeOptions,
 } from './connected-client.js';
+export {
+  emitProtocolSyncTelemetry,
+  emitTelemetry,
+} from './telemetry.js';
+export type {
+  ProtocolSyncTelemetrySink,
+  TelemetrySink,
+} from './telemetry.js';
 
 /** Options forwarded to the wasm engine's own initializer. */
 export interface InitOptoSyncOptions {

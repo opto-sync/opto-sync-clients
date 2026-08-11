@@ -1,6 +1,9 @@
 [package]
 org = "opto-sync"
 name = "opto-sync-clients"
+# The reconciled public API adds both the portable SDK contract and the Ores
+# OpenTelemetry bridge. Keep this additive minor bump distinct from the
+# immutable v0.2.0 release evidence; publishing v0.3.0 requires fresh approval.
 version = "0.3.0"
 description = "Pinned polyglot local-first sync clients for TypeScript, Dart, Rust, and Gleam"
 license = "MIT"
@@ -9,6 +12,12 @@ keywords = ["sync", "local-first", "optimistic", "indexeddb", "sqlite", "polyglo
 [package.repository]
 vcs = "git"
 url = "https://github.com/opto-sync/opto-sync-clients"
+
+# Cross-organization interfaces and structured logging remain injected at the
+# native SDK boundary. Their intended Zed coordinates are recorded by the SDK
+# contract, but are deliberately absent here until immutable 0.1.0 packages
+# exist in the public registry and a clean `zed install --frozen` can resolve
+# them. Never seed a private registry and commit its result as release proof.
 
 # The engine relationship is represented by the committed syncer.c gitlink and
 # .gitmodules URL, then verified by scripts/check-package-layout.py and
@@ -21,6 +30,7 @@ include_readme = true
 tag_format = "v{version}"
 smoke_test = "python3 \"$ZED_PKG_TEST_TARGET/scripts/check-package-layout.py\""
 exclude = [
+  ".gitmodules",
   ".zed/**",
   ".formal-artifacts/**",
   "syncer.c/.git",

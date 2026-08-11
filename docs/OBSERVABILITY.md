@@ -48,7 +48,9 @@ import {
 const emit = (record: object) => applicationOwnedOresSink(record);
 const loop = new ProtocolSyncLoop(queue, transport, callbacks, {
   onStateChange(state) {
-    emit(protocolSyncStateTelemetry('typescript', state));
+    emit(protocolSyncStateTelemetry('typescript', state, {
+      timestamp: new Date(),
+    }));
   },
 });
 
@@ -73,6 +75,7 @@ final loop = ProtocolSyncLoop(
       protocolSyncStateTelemetry(
         ProtocolSyncTelemetryRuntime.dart,
         state,
+        timestamp: DateTime.now(),
       ),
     );
   },
@@ -85,6 +88,7 @@ oresSink(
       runtime: ProtocolSyncTelemetryRuntime.dart,
       kind: ProtocolSyncTelemetryKind.cycleCompleted,
       status: ProtocolSyncStatus.idle,
+      timestamp: DateTime.now(),
       cycle: result,
     ),
   ),
@@ -93,8 +97,9 @@ oresSink(
 
 ## Rust
 
-Rust intentionally requires the application to supply the RFC 3339 timestamp;
-the sync crate does not add a clock or telemetry runtime dependency.
+All runtimes require the application to supply the event time. Rust accepts the
+canonical RFC 3339 text directly; Dart and TypeScript normalize their native
+time values to that same wire representation.
 
 ```rust
 use opto_sync_client::{
