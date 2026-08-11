@@ -31,12 +31,18 @@ pub use syncer_rs::version as core_version;
 pub use syncer_rs::ArrayMergeStrategy as ArrayStrategy;
 
 pub mod clock;
+pub mod observability;
 pub mod protocol;
 pub mod protocol_sync;
 pub mod schema;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 pub mod transport;
+pub use observability::{
+    create_protocol_sync_telemetry_record, OresOpenTelemetryLogRecord,
+    ProtocolSyncTelemetryError, ProtocolSyncTelemetryInput, ProtocolSyncTelemetryKind,
+    ProtocolSyncTelemetryRuntime, ProtocolSyncTelemetryStatus, OPTO_SYNC_TELEMETRY_SCHEMA,
+};
 pub use clock::{
     compare_hlc, compose_node_id, format_hlc, parse_hlc, random_node_id, system_now_ms, ClockError,
     ClockPersistence, HlcParts, HybridLogicalClock, NoPersistence, SystemClock,

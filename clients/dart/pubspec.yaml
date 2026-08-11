@@ -1,6 +1,6 @@
 name: opto_sync_client
 description: Offline-first sync client - Drift-backed mutation queue with CRDT-style reconciliation via the syncer.c FFI core.
-version: 1.0.0
+version: 1.1.0
 publish_to: 'none'
 
 environment:

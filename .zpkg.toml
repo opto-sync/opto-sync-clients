@@ -1,7 +1,7 @@
 [package]
 org = "opto-sync"
 name = "opto-sync-clients"
-version = "0.2.0"
+version = "0.3.0"
 description = "Pinned polyglot local-first sync clients for TypeScript, Dart, Rust, and Gleam"
 license = "MIT"
 keywords = ["sync", "local-first", "optimistic", "indexeddb", "sqlite", "polyglot"]

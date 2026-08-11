@@ -1,0 +1,272 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/opto-sync/opto-sync-clients/main/schema/opto-sync-telemetry.schema.json",
+  "title": "Opto-Sync OpenTelemetry log bridge v1",
+  "description": "A privacy-bounded subset of the ores.otel.log OpenTelemetry bridge record. Rust, Dart, and TypeScript emit this shape without registering a global telemetry provider.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "body",
+    "severityText",
+    "severityNumber",
+    "timestamp",
+    "attributes"
+  ],
+  "properties": {
+    "body": {
+      "type": "string",
+      "enum": [
+        "opto-sync state changed",
+        "opto-sync sync cycle completed",
+        "opto-sync sync cycle failed"
+      ]
+    },
+    "severityText": {
+      "type": "string",
+      "enum": ["INFO", "WARN", "ERROR"]
+    },
+    "severityNumber": {
+      "type": "integer",
+      "enum": [9, 13, 17]
+    },
+    "timestamp": {
+      "$ref": "#/$defs/rfc3339Utc"
+    },
+    "attributes": {
+      "$ref": "#/$defs/attributes"
+    },
+    "traceId": {
+      "$ref": "#/$defs/w3cTraceId"
+    },
+    "spanId": {
+      "$ref": "#/$defs/w3cSpanId"
+    },
+    "traceFlags": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 255
+    },
+    "traceState": {
+      "type": "string",
+      "maxLength": 512
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "attributes": {
+            "type": "object",
+            "properties": {
+              "event.name": {"const": "opto.sync.cycle.completed"}
+            },
+            "required": ["event.name"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "body": {"const": "opto-sync sync cycle completed"},
+          "severityText": {"const": "INFO"},
+          "severityNumber": {"const": 9},
+          "attributes": {
+            "type": "object",
+            "properties": {
+              "opto.sync.pushed_mutations": {"$ref": "#/$defs/count"},
+              "opto.sync.acknowledged_mutations": {"$ref": "#/$defs/count"},
+              "opto.sync.pulled_changes": {"$ref": "#/$defs/count"},
+              "opto.sync.installed_snapshots": {"$ref": "#/$defs/count"},
+              "opto.sync.has_more_pending": {"type": "boolean"}
+            },
+            "required": [
+              "opto.sync.pushed_mutations",
+              "opto.sync.acknowledged_mutations",
+              "opto.sync.pulled_changes",
+              "opto.sync.installed_snapshots",
+              "opto.sync.has_more_pending"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "attributes": {
+            "type": "object",
+            "properties": {
+              "event.name": {"const": "opto.sync.cycle.failed"}
+            },
+            "required": ["event.name"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "body": {"const": "opto-sync sync cycle failed"},
+          "severityText": {"const": "ERROR"},
+          "severityNumber": {"const": 17},
+          "attributes": {
+            "type": "object",
+            "properties": {
+              "error.code": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9_.-]{0,127}$"
+              }
+            },
+            "required": ["error.code"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "attributes": {
+            "type": "object",
+            "properties": {
+              "event.name": {"const": "opto.sync.state.changed"}
+            },
+            "required": ["event.name"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "body": {"const": "opto-sync state changed"}
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "attributes": {
+                  "type": "object",
+                  "properties": {"opto.sync.status": {"const": "error"}},
+                  "required": ["opto.sync.status"]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "severityText": {"const": "ERROR"},
+                "severityNumber": {"const": 17}
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "attributes": {
+                  "type": "object",
+                  "properties": {
+                    "opto.sync.status": {"enum": ["offline", "backoff"]}
+                  },
+                  "required": ["opto.sync.status"]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "severityText": {"const": "WARN"},
+                "severityNumber": {"const": 13}
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "attributes": {
+                  "type": "object",
+                  "properties": {
+                    "opto.sync.status": {"enum": ["stopped", "idle", "syncing"]}
+                  },
+                  "required": ["opto.sync.status"]
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "severityText": {"const": "INFO"},
+                "severityNumber": {"const": 9}
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "rfc3339Utc": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{3}Z$",
+      "maxLength": 24
+    },
+    "w3cTraceId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$",
+      "not": {"const": "00000000000000000000000000000000"}
+    },
+    "w3cSpanId": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$",
+      "not": {"const": "0000000000000000"}
+    },
+    "attributes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "service.name",
+        "event.name",
+        "opto.sync.schema",
+        "opto.sync.runtime",
+        "opto.sync.status",
+        "opto.sync.consecutive_failures"
+      ],
+      "properties": {
+        "service.name": {"const": "opto-sync"},
+        "event.name": {
+          "type": "string",
+          "enum": [
+            "opto.sync.state.changed",
+            "opto.sync.cycle.completed",
+            "opto.sync.cycle.failed"
+          ]
+        },
+        "opto.sync.schema": {"const": "opto-sync.telemetry/v1"},
+        "opto.sync.runtime": {
+          "type": "string",
+          "enum": ["typescript", "dart", "rust"]
+        },
+        "opto.sync.status": {
+          "type": "string",
+          "enum": ["stopped", "idle", "syncing", "offline", "backoff", "error"]
+        },
+        "opto.sync.consecutive_failures": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "opto.sync.next_retry_at": {"$ref": "#/$defs/rfc3339Utc"},
+        "opto.sync.pushed_mutations": {"$ref": "#/$defs/count"},
+        "opto.sync.acknowledged_mutations": {"$ref": "#/$defs/count"},
+        "opto.sync.pulled_changes": {"$ref": "#/$defs/count"},
+        "opto.sync.installed_snapshots": {"$ref": "#/$defs/count"},
+        "opto.sync.has_more_pending": {"type": "boolean"},
+        "error.code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_.-]{0,127}$"
+        },
+        "request.id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9._:-]{8,128}$"
+        }
+      }
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    }
+  }
+}
