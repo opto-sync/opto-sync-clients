@@ -73,6 +73,11 @@ def main() -> int:
         fail("publish.tag_format must be v{version}")
     if not publish.get("smoke_test"):
         fail("publish.smoke_test must validate the extracted artifact")
+    if publish.get("exclude", []).count(".gitmodules") != 1:
+        fail(
+            "publish.exclude must contain exactly one explicit .gitmodules rule "
+            "so pack, publish, and r2g emit the same VCS-free artifact"
+        )
 
     lock = ROOT / ".zpkg.lock"
     if lock.exists():

@@ -42,16 +42,22 @@ Possible future designs include:
 
 The artifact includes:
 
-- the root package manifest, license, README, and `.gitmodules` declaration;
+- the root package manifest, license, and README;
 - the canonical envelope, telemetry-event, and portable SDK API JSON Schema
   contracts;
 - every maintained client source tree and native manifest; and
-- the initialized `syncer.c` submodule at the pinned gitlink revision.
+- the initialized `syncer.c` source materialized from the pinned gitlink
+  revision.
 
-It excludes the root Zed lockfile, VCS/CI metadata, tests, dependency trees,
-compiler output, package-manager caches, and nested submodule administration.
-No Zed `[build]` hook is declared, so installing the source package does not
-execute publisher-controlled build commands automatically.
+The source repository's `.gitmodules` declaration and mode-`160000` gitlink are
+validated before packing. The publish policy explicitly omits `.gitmodules`
+with the rest of the VCS metadata because the artifact already carries the
+materialized `syncer.c` source; the packaging checker keeps direct pack and
+`r2g` behavior aligned. The artifact also excludes the root Zed lockfile, CI
+metadata, tests, dependency trees, compiler output, package-manager caches, and
+nested submodule administration. No Zed `[build]` hook is declared, so
+installing the source package does not execute publisher-controlled build
+commands automatically.
 
 ## Validation
 

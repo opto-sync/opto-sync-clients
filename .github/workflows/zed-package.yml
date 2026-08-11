@@ -146,7 +146,6 @@ jobs:
 
           required=(
             'pkg/.zpkg.toml'
-            'pkg/.gitmodules'
             'pkg/LICENSE'
             'pkg/README.md'
             'pkg/clients/ts/package.json'
@@ -175,6 +174,10 @@ jobs:
             }
           done
 
+          if grep -Fqx 'pkg/.gitmodules' "$listing"; then
+            echo '::error title=VCS metadata leaked into package::.gitmodules must stay in the source repository; the artifact carries the materialized syncer.c source instead'
+            exit 1
+          fi
           if grep -Fqx 'pkg/.zpkg.lock' "$listing"; then
             echo '::error title=source lock leaked into package::.zpkg.lock must stay outside the published artifact'
             exit 1

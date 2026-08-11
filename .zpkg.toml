@@ -32,6 +32,7 @@ include_readme = true
 tag_format = "v{version}"
 smoke_test = "python3 \"$ZED_PKG_TEST_TARGET/scripts/check-package-layout.py\""
 exclude = [
+  ".gitmodules",
   ".zed/**",
   ".formal-artifacts/**",
   "syncer.c/.git",
