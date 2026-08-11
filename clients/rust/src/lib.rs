@@ -38,15 +38,15 @@ pub mod schema;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 pub mod transport;
-pub use observability::{
-    create_protocol_sync_telemetry_record, OresOpenTelemetryLogRecord,
-    ProtocolSyncTelemetryError, ProtocolSyncTelemetryInput, ProtocolSyncTelemetryKind,
-    ProtocolSyncTelemetryRuntime, ProtocolSyncTelemetryStatus, OPTO_SYNC_TELEMETRY_SCHEMA,
-};
 pub use clock::{
     compare_hlc, compose_node_id, format_hlc, parse_hlc, random_node_id, system_now_ms, ClockError,
     ClockPersistence, HlcParts, HybridLogicalClock, NoPersistence, SystemClock,
     DEFAULT_MAX_DRIFT_MS,
+};
+pub use observability::{
+    create_protocol_sync_telemetry_record, OresOpenTelemetryLogRecord, ProtocolSyncTelemetryError,
+    ProtocolSyncTelemetryInput, ProtocolSyncTelemetryKind, ProtocolSyncTelemetryRuntime,
+    ProtocolSyncTelemetryStatus, OPTO_SYNC_TELEMETRY_SCHEMA,
 };
 
 /// Options controlling [`reconcile`].

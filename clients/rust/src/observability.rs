@@ -174,14 +174,20 @@ fn canonical_timestamp(value: &str) -> bool {
     {
         return false;
     }
-    for (start, end) in [(0, 4), (5, 7), (8, 10), (11, 13), (14, 16), (17, 19), (20, 23)] {
+    for (start, end) in [
+        (0, 4),
+        (5, 7),
+        (8, 10),
+        (11, 13),
+        (14, 16),
+        (17, 19),
+        (20, 23),
+    ] {
         if !bytes[start..end].iter().all(u8::is_ascii_digit) {
             return false;
         }
     }
-    let number = |start: usize, end: usize| {
-        value[start..end].parse::<u16>().unwrap_or(u16::MAX)
-    };
+    let number = |start: usize, end: usize| value[start..end].parse::<u16>().unwrap_or(u16::MAX);
     let year = number(0, 4);
     let month = number(5, 7);
     let day = number(8, 10);
@@ -218,7 +224,9 @@ fn valid_request_id(value: &str) -> bool {
 
 fn valid_hex_id(value: &str, length: usize) -> bool {
     value.len() == length
-        && value.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
         && value.bytes().any(|byte| byte != b'0')
 }
 
@@ -245,7 +253,9 @@ pub fn create_protocol_sync_telemetry_record(
         ));
     }
     if !canonical_timestamp(input.timestamp)
-        || input.next_retry_at.is_some_and(|value| !canonical_timestamp(value))
+        || input
+            .next_retry_at
+            .is_some_and(|value| !canonical_timestamp(value))
     {
         return Err(ProtocolSyncTelemetryError::InvalidTimestamp);
     }
@@ -255,10 +265,16 @@ pub fn create_protocol_sync_telemetry_record(
     if input.kind == ProtocolSyncTelemetryKind::CycleFailed && input.error_code.is_none() {
         return Err(ProtocolSyncTelemetryError::MissingErrorCode);
     }
-    if input.error_code.is_some_and(|value| !valid_error_code(value)) {
+    if input
+        .error_code
+        .is_some_and(|value| !valid_error_code(value))
+    {
         return Err(ProtocolSyncTelemetryError::InvalidErrorCode);
     }
-    if input.request_id.is_some_and(|value| !valid_request_id(value)) {
+    if input
+        .request_id
+        .is_some_and(|value| !valid_request_id(value))
+    {
         return Err(ProtocolSyncTelemetryError::InvalidRequestId);
     }
     if input.trace_id.is_some_and(|value| !valid_hex_id(value, 32)) {
@@ -267,12 +283,18 @@ pub fn create_protocol_sync_telemetry_record(
     if input.span_id.is_some_and(|value| !valid_hex_id(value, 16)) {
         return Err(ProtocolSyncTelemetryError::InvalidSpanId);
     }
-    if input.trace_state.is_some_and(|value| value.chars().count() > 512) {
+    if input
+        .trace_state
+        .is_some_and(|value| value.chars().count() > 512)
+    {
         return Err(ProtocolSyncTelemetryError::TraceStateTooLong);
     }
 
     let mut attributes = Map::from_iter([
-        ("service.name".to_string(), Value::String("opto-sync".to_string())),
+        (
+            "service.name".to_string(),
+            Value::String("opto-sync".to_string()),
+        ),
         (
             "event.name".to_string(),
             Value::String(input.kind.event_name().to_string()),
@@ -306,9 +328,10 @@ pub fn create_protocol_sync_telemetry_record(
     if let Some(value) = input.request_id {
         attributes.insert("request.id".to_string(), Value::String(value.to_string()));
     }
-    if let Some(cycle) = input.cycle.filter(|_| {
-        input.kind == ProtocolSyncTelemetryKind::CycleCompleted
-    }) {
+    if let Some(cycle) = input
+        .cycle
+        .filter(|_| input.kind == ProtocolSyncTelemetryKind::CycleCompleted)
+    {
         insert_count(
             &mut attributes,
             "opto.sync.pushed_mutations",
@@ -406,7 +429,9 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(actual, expected);
-        assert!(!actual.to_string().contains("private-high-cardinality-value"));
+        assert!(!actual
+            .to_string()
+            .contains("private-high-cardinality-value"));
     }
 
     #[test]
