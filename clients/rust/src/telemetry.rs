@@ -5,8 +5,7 @@
 //! shutdown, or exposes payload/checkpoint/record fields to the sink.
 
 use crate::observability::{
-    create_protocol_sync_telemetry_record, OresOpenTelemetryLogRecord,
-    ProtocolSyncTelemetryInput,
+    create_protocol_sync_telemetry_record, OresOpenTelemetryLogRecord, ProtocolSyncTelemetryInput,
 };
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -52,8 +51,7 @@ pub use emit_protocol_sync_telemetry as emit_telemetry;
 mod tests {
     use super::*;
     use crate::observability::{
-        ProtocolSyncTelemetryKind, ProtocolSyncTelemetryRuntime,
-        ProtocolSyncTelemetryStatus,
+        ProtocolSyncTelemetryKind, ProtocolSyncTelemetryRuntime, ProtocolSyncTelemetryStatus,
     };
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -88,9 +86,7 @@ mod tests {
 
     #[test]
     fn panicking_sink_is_contained() {
-        let sink = |_: &OresOpenTelemetryLogRecord| -> Result<(), String> {
-            panic!("sink panic")
-        };
+        let sink = |_: &OresOpenTelemetryLogRecord| -> Result<(), String> { panic!("sink panic") };
         emit_protocol_sync_telemetry(Some(&sink), input(Some("sync-cycle-42")));
     }
 
