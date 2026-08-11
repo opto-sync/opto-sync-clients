@@ -1,6 +1,9 @@
 [package]
 org = "opto-sync"
 name = "opto-sync-clients"
+# Deliberately retained while the immutable approved-release controller targets
+# v0.2.0. A later version requires new approval evidence; never rewrite the
+# existing v0.2.0 evidence to manufacture that approval.
 version = "0.2.0"
 description = "Pinned polyglot local-first sync clients for TypeScript, Dart, Rust, and Gleam"
 license = "MIT"
@@ -9,6 +12,14 @@ keywords = ["sync", "local-first", "optimistic", "indexeddb", "sqlite", "polyglo
 [package.repository]
 vcs = "git"
 url = "https://github.com/opto-sync/opto-sync-clients"
+
+# Cross-organization interfaces and structured logging remain injected at the
+# native SDK boundary: installing this Zed package never configures a global
+# OpenTelemetry provider. The SDK API contract pins their coordinates and the
+# package check rejects undeclared/renamed dependencies.
+[dependencies]
+"ores-otel/ores-interfaces" = "^0.1.0"
+"oresoftware/next-loggers" = "^0.1.0"
 
 # The engine relationship is represented by the committed syncer.c gitlink and
 # .gitmodules URL, then verified by scripts/check-package-layout.py and

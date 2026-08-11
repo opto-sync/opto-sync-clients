@@ -1,0 +1,228 @@
+{
+  "$schema": "https://opto-sync.dev/schema/opto-sync-sdk-api.schema.json",
+  "contract": "opto-sync.sdk-api.v1",
+  "contractVersion": "1.0.0",
+  "envelopeSchema": {
+    "path": "schema/opto-sync-envelope.schema.json",
+    "id": "https://opto-sync.dev/schema/opto-sync-envelope.schema.json"
+  },
+  "mergeOptionsSchema": {
+    "repository": "opto-sync/syncer.rs",
+    "commit": "8ef3d4bb63738a90b1e3958500578aebb89ee8cc",
+    "path": "schema/merge-options.schema.json",
+    "id": "https://opto-sync.dev/schema/merge-options.schema.json",
+    "sha256": "d5bd069eefc24293e3f8d8e666bdbd1d2461b59853f73c0cea7bb7c0424d7bd8"
+  },
+  "dependencies": {
+    "sharedInterfaces": {
+      "coordinate": "ores-otel/ores-interfaces",
+      "version": "^0.1.0"
+    },
+    "structuredLogging": {
+      "coordinate": "oresoftware/next-loggers",
+      "version": "^0.1.0"
+    }
+  },
+  "telemetry": {
+    "mode": "injected",
+    "namespace": "opto_sync",
+    "payloadPolicy": "metadata_only",
+    "sinkFailurePolicy": "ignore",
+    "eventSchema": {
+      "path": "schema/opto-sync-telemetry-event.schema.json",
+      "id": "https://opto-sync.dev/schema/opto-sync-telemetry-event.schema.json"
+    }
+  },
+  "operations": [
+    {
+      "id": "queueUpsert",
+      "category": "queue",
+      "semantics": "Durably queue one object upsert under a table and record identity before reporting success.",
+      "bindings": {
+        "rust": { "source": "clients/rust/src/protocol.rs", "owner": "ProtocolQueue", "symbol": "queue_upsert", "kind": "method", "async": false, "declaration": "pub fn queue_upsert(" },
+        "dart": { "source": "clients/dart/lib/opto_sync_client.dart", "owner": "OptoSyncClient", "symbol": "queueMutation", "kind": "method", "async": true, "declaration": "Future<int> queueMutation(" },
+        "typescript": { "source": "clients/ts/src/client.ts", "owner": "OptoSyncClient", "symbol": "queueMutation", "kind": "method", "async": true, "declaration": "async queueMutation(" }
+      }
+    },
+    {
+      "id": "queueDelete",
+      "category": "queue",
+      "semantics": "Durably queue an explicit tombstone; absence or a null payload is never inferred as deletion.",
+      "bindings": {
+        "rust": { "source": "clients/rust/src/protocol.rs", "owner": "ProtocolQueue", "symbol": "queue_delete", "kind": "method", "async": false, "declaration": "pub fn queue_delete(" },
+        "dart": { "source": "clients/dart/lib/opto_sync_client.dart", "owner": "OptoSyncClient", "symbol": "queueDelete", "kind": "method", "async": true, "declaration": "Future<int> queueDelete(" },
+        "typescript": { "source": "clients/ts/src/client.ts", "owner": "OptoSyncClient", "symbol": "queueDelete", "kind": "method", "async": true, "declaration": "async queueDelete(" }
+      }
+    },
+    {
+      "id": "pendingMutations",
+      "category": "queue",
+      "semantics": "Read pending mutations in stable insertion order without changing durable queue state.",
+      "bindings": {
+        "rust": { "source": "clients/rust/src/protocol.rs", "owner": "ProtocolQueue", "symbol": "pending", "kind": "method", "async": false, "declaration": "pub fn pending(&self)" },
+        "dart": { "source": "clients/dart/lib/opto_sync_client.dart", "owner": "OptoSyncClient", "symbol": "pendingMutations", "kind": "method", "async": true, "declaration": "Future<List<Mutation>> pendingMutations(" },
+        "typescript": { "source": "clients/ts/src/client.ts", "owner": "OptoSyncClient", "symbol": "pendingMutations", "kind": "method", "async": true, "declaration": "async pendingMutations(" }
+      }
+    },
+    {
+      "id": "buildPushRequest",
+      "category": "protocol",
+      "semantics": "Build one immutable protocol-v1 push request from the oldest contiguous pending mutations.",
+      "bindings": {
+        "rust": { "source": "clients/rust/src/protocol.rs", "owner": "ProtocolQueue", "symbol": "push_request", "kind": "method", "async": false, "declaration": "pub fn push_request(" },
+        "dart": { "source": "clients/dart/lib/opto_sync_client.dart", "owner": "OptoSyncClient", "symbol": "protocolPushRequest", "kind": "method", "async": true, "declaration": "Future<Map<String, dynamic>> protocolPushRequest(" },
+        "typescript": { "source": "clients/ts/src/client.ts", "owner": "OptoSyncClient", "symbol": "protocolPushRequest", "kind": "method", "async": true, "declaration": "async protocolPushRequest(" }
+      }
+    },
+    {
+      "id": "acknowledgePush",
+      "category": "protocol",
+      "semantics": "Validate that a response names the exact sent batch before confirming any local mutation.",
+      "bindings": {
+        "rust": { "source": "clients/rust/src/protocol.rs", "owner": "ProtocolQueue", "symbol": "acknowledge", "kind": "method", "async": false, "declaration": "pub fn acknowledge(" },
+        "dart": { "source": "clients/dart/lib/opto_sync_client.dart", "owner": "OptoSyncClient", "symbol": "acknowledgePush", "kind": "method", "async": true, "declaration": "Future<int> acknowledgePush(" },
+        "typescript": { "source": "clients/ts/src/client.ts", "owner": "OptoSyncClient", "symbol": "acknowledgePush", "kind": "method", "async": true, "declaration": "async acknowledgePush(" }
+      }
+    },
+    {
+      "id": "pullCheckpoint",
+      "category": "protocol",
+      "semantics": "Return the last durably applied commit-ordered pull checkpoint, using zero before the first pull.",
+      "bindings": {
+        "rust": { "source": "clients/rust/src/protocol.rs", "owner": "ProtocolQueue", "symbol": "checkpoint", "kind": "method", "async": false, "declaration": "pub fn checkpoint(&self)" },
+        "dart": { "source": "clients/dart/lib/opto_sync_client.dart", "owner": "OptoSyncClient", "symbol": "pullCheckpoint", "kind": "method", "async": true, "declaration": "Future<String> pullCheckpoint()" },
+        "typescript": { "source": "clients/ts/src/client.ts", "owner": "OptoSyncClient", "symbol": "pullCheckpoint", "kind": "method", "async": true, "declaration": "async pullCheckpoint()" }
+      }
+    },
+    {
+      "id": "installSnapshot",
+      "category": "protocol",
+      "semantics": "Replace authoritative rows before advancing the snapshot checkpoint while preserving pending mutations.",
+      "bindings": {
+        "rust": { "source": "clients/rust/src/protocol.rs", "owner": "ProtocolQueue", "symbol": "install_snapshot", "kind": "method", "async": false, "declaration": "pub fn install_snapshot<" },
+        "dart": { "source": "clients/dart/lib/opto_sync_client.dart", "owner": "OptoSyncClient", "symbol": "installSnapshot", "kind": "method", "async": true, "declaration": "Future<void> installSnapshot(" },
+        "typescript": { "source": "clients/ts/src/client.ts", "owner": "OptoSyncClient", "symbol": "installSnapshot", "kind": "method", "async": true, "declaration": "async installSnapshot(" }
+      }
+    },
+    {
+      "id": "reconcileIncoming",
+      "category": "reconciliation",
+      "semantics": "Merge incoming state over local state with identical timestamp, array, and first-write policy defaults.",
+      "bindings": {
+        "rust": { "source": "clients/rust/src/lib.rs", "owner": "OptoSyncClient", "symbol": "reconcile_incoming", "kind": "method", "async": false, "declaration": "pub fn reconcile_incoming(" },
+        "dart": { "source": "clients/dart/lib/opto_sync_client.dart", "owner": "OptoSyncClient", "symbol": "reconcileIncoming", "kind": "method", "async": true, "declaration": "Future<Map<String, dynamic>> reconcileIncoming(" },
+        "typescript": { "source": "clients/ts/src/client.ts", "owner": "OptoSyncClient", "symbol": "reconcileIncoming", "kind": "method", "async": false, "declaration": "reconcileIncoming(" }
+      }
+    },
+    {
+      "id": "rebasePending",
+      "category": "reconciliation",
+      "semantics": "Replay pending local intent oldest-first over authoritative server state without timestamp gating by default.",
+      "bindings": {
+        "rust": { "source": "clients/rust/src/lib.rs", "owner": "", "symbol": "rebase_pending", "kind": "function", "async": false, "declaration": "pub fn rebase_pending<" },
+        "dart": { "source": "clients/dart/lib/opto_sync_client.dart", "owner": "", "symbol": "rebasePending", "kind": "function", "async": false, "declaration": "String rebasePending(" },
+        "typescript": { "source": "clients/ts/src/reconcile-core.ts", "owner": "", "symbol": "rebasePending", "kind": "function", "async": false, "declaration": "export function rebasePending(" }
+      }
+    },
+    {
+      "id": "formatHlc",
+      "category": "clock",
+      "semantics": "Format one hybrid logical timestamp as fixed-width millis, lowercase counter, and delimiter-safe node id.",
+      "bindings": {
+        "rust": { "source": "clients/rust/src/clock.rs", "owner": "", "symbol": "format_hlc", "kind": "function", "async": false, "declaration": "pub fn format_hlc(" },
+        "dart": { "source": "clients/dart/lib/src/clock.dart", "owner": "", "symbol": "formatHlc", "kind": "function", "async": false, "declaration": "String formatHlc(" },
+        "typescript": { "source": "clients/ts/src/clock.ts", "owner": "", "symbol": "formatHlc", "kind": "function", "async": false, "declaration": "export function formatHlc(" }
+      }
+    },
+    {
+      "id": "parseHlc",
+      "category": "clock",
+      "semantics": "Parse only the canonical fixed-width native HLC representation and reject other timestamp formats.",
+      "bindings": {
+        "rust": { "source": "clients/rust/src/clock.rs", "owner": "", "symbol": "parse_hlc", "kind": "function", "async": false, "declaration": "pub fn parse_hlc(" },
+        "dart": { "source": "clients/dart/lib/src/clock.dart", "owner": "", "symbol": "parseHlc", "kind": "function", "async": false, "declaration": "HlcParts? parseHlc(" },
+        "typescript": { "source": "clients/ts/src/clock.ts", "owner": "", "symbol": "parseHlc", "kind": "function", "async": false, "declaration": "export function parseHlc(" }
+      }
+    },
+    {
+      "id": "compareHlc",
+      "category": "clock",
+      "semantics": "Compare canonical HLC strings in total wire order without converting their fixed-width representation.",
+      "bindings": {
+        "rust": { "source": "clients/rust/src/clock.rs", "owner": "", "symbol": "compare_hlc", "kind": "function", "async": false, "declaration": "pub fn compare_hlc(" },
+        "dart": { "source": "clients/dart/lib/src/clock.dart", "owner": "", "symbol": "compareHlc", "kind": "function", "async": false, "declaration": "int compareHlc(" },
+        "typescript": { "source": "clients/ts/src/clock.ts", "owner": "", "symbol": "compareHlc", "kind": "function", "async": false, "declaration": "export function compareHlc(" }
+      }
+    },
+    {
+      "id": "parseEnvelope",
+      "category": "validation",
+      "semantics": "Reject or normalize an ingest envelope according to the canonical envelope JSON Schema and fixture corpus.",
+      "bindings": {
+        "rust": { "source": "clients/rust/src/schema.rs", "owner": "", "symbol": "parse_envelope", "kind": "function", "async": false, "declaration": "pub fn parse_envelope(" },
+        "dart": { "source": "clients/dart/lib/src/schema/ingest.dart", "owner": "", "symbol": "parseEnvelope", "kind": "function", "async": false, "declaration": "IngestEnvelope parseEnvelope(" },
+        "typescript": { "source": "clients/ts/src/schema/ingest.ts", "owner": "", "symbol": "parseEnvelope", "kind": "function", "async": true, "declaration": "export async function parseEnvelope(" }
+      }
+    },
+    {
+      "id": "auditEnvelopeProvider",
+      "category": "validation",
+      "semantics": "Compare an injected validator decision with the canonical validator without allowing provider coercion.",
+      "bindings": {
+        "rust": { "source": "clients/rust/src/schema.rs", "owner": "", "symbol": "audit_provider", "kind": "function", "async": false, "declaration": "pub fn audit_provider(" },
+        "dart": { "source": "clients/dart/lib/src/schema/ingest.dart", "owner": "", "symbol": "auditEnvelopeProvider", "kind": "function", "async": false, "declaration": "ProviderAuditResult auditEnvelopeProvider(" },
+        "typescript": { "source": "clients/ts/src/schema/ingest.ts", "owner": "", "symbol": "auditEnvelopeProvider", "kind": "function", "async": true, "declaration": "export async function auditEnvelopeProvider(" }
+      }
+    },
+    {
+      "id": "protocolSyncCycle",
+      "category": "protocol",
+      "semantics": "Run a single-flight pull, bounded push-batch, and final pull cycle with retry-safe acknowledgements.",
+      "bindings": {
+        "rust": { "source": "clients/rust/src/protocol_sync.rs", "owner": "ProtocolSyncDriver", "symbol": "sync_cycle", "kind": "method", "async": false, "declaration": "pub fn sync_cycle<" },
+        "dart": { "source": "clients/dart/lib/src/protocol_sync_loop.dart", "owner": "ProtocolSyncLoop", "symbol": "syncNow", "kind": "method", "async": true, "declaration": "Future<ProtocolSyncCycleResult> syncNow()" },
+        "typescript": { "source": "clients/ts/src/sync-loop.ts", "owner": "ProtocolSyncLoop", "symbol": "syncNow", "kind": "method", "async": true, "declaration": "syncNow(): Promise<ProtocolSyncCycleResult>" }
+      }
+    },
+    {
+      "id": "webSocketTransport",
+      "category": "transport",
+      "semantics": "Expose protocol-v1 WebSocket request correlation, reconnect, auth refresh, and changed-hint behavior.",
+      "bindings": {
+        "rust": { "source": "clients/rust/src/transport/ws.rs", "owner": "", "symbol": "WebSocketProtocolTransport", "kind": "type", "async": false, "declaration": "pub struct WebSocketProtocolTransport" },
+        "dart": { "source": "clients/dart/lib/src/transport/ws.dart", "owner": "", "symbol": "WebSocketProtocolTransport", "kind": "type", "async": true, "declaration": "class WebSocketProtocolTransport implements ProtocolTransport" },
+        "typescript": { "source": "clients/ts/src/transport/ws.ts", "owner": "", "symbol": "WebSocketTransport", "kind": "type", "async": true, "declaration": "export class WebSocketTransport implements ProtocolTransport" }
+      }
+    },
+    {
+      "id": "createTelemetryEvent",
+      "category": "validation",
+      "semantics": "Create one schema-v1 opto_sync event from the closed metadata allowlist and reject an invalid namespace.",
+      "bindings": {
+        "rust": { "source": "clients/rust/src/telemetry.rs", "owner": "", "symbol": "create_telemetry_event", "kind": "function", "async": false, "declaration": "pub fn create_telemetry_event(" },
+        "dart": { "source": "clients/dart/lib/telemetry.dart", "owner": "", "symbol": "createTelemetryEvent", "kind": "function", "async": false, "declaration": "TelemetryEvent createTelemetryEvent(" },
+        "typescript": { "source": "clients/ts/src/telemetry.ts", "owner": "", "symbol": "createTelemetryEvent", "kind": "function", "async": false, "declaration": "export function createTelemetryEvent(" }
+      }
+    },
+    {
+      "id": "emitTelemetry",
+      "category": "transport",
+      "semantics": "Best-effort emission to an application-injected sink; sink failures never change synchronization behavior.",
+      "bindings": {
+        "rust": { "source": "clients/rust/src/telemetry.rs", "owner": "", "symbol": "emit_telemetry", "kind": "function", "async": false, "declaration": "pub fn emit_telemetry(" },
+        "dart": { "source": "clients/dart/lib/telemetry.dart", "owner": "", "symbol": "emitTelemetry", "kind": "function", "async": true, "declaration": "Future<void> emitTelemetry(" },
+        "typescript": { "source": "clients/ts/src/telemetry.ts", "owner": "", "symbol": "emitTelemetry", "kind": "function", "async": true, "declaration": "export async function emitTelemetry(" }
+      }
+    },
+    {
+      "id": "observeSyncCycle",
+      "category": "protocol",
+      "semantics": "Wrap an existing sync-cycle call with metadata-only lifecycle events while preserving its exact result or error.",
+      "bindings": {
+        "rust": { "source": "clients/rust/src/telemetry.rs", "owner": "", "symbol": "observe_sync_cycle", "kind": "function", "async": false, "declaration": "pub fn observe_sync_cycle<" },
+        "dart": { "source": "clients/dart/lib/telemetry.dart", "owner": "", "symbol": "observeSyncCycle", "kind": "function", "async": true, "declaration": "Future<ProtocolSyncCycleResult> observeSyncCycle(" },
+        "typescript": { "source": "clients/ts/src/telemetry.ts", "owner": "", "symbol": "observeSyncCycle", "kind": "function", "async": true, "declaration": "export async function observeSyncCycle(" }
+      }
+    }
+  ]
+}

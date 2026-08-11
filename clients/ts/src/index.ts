@@ -34,6 +34,7 @@ export * as connectivity from './connectivity.js';
 export * as connectedClient from './connected-client.js';
 export * as rx from './rx/index.js';
 export * as schema from './schema/ingest.js';
+export * as telemetry from './telemetry.js';
 
 /*
  * CURATED TOP-LEVEL NAMES — the everyday API, re-exported once each (never
@@ -159,3 +160,15 @@ export type {
   LocalSaveOperation,
   SaveSubscribeOptions,
 } from './connected-client.js';
+export {
+  TELEMETRY_SCHEMA_VERSION,
+  createTelemetryEvent,
+  emitTelemetry,
+  observeSyncCycle,
+} from './telemetry.js';
+export type {
+  TelemetryEvent,
+  TelemetryFields,
+  TelemetryLevel,
+  TelemetrySink,
+} from './telemetry.js';

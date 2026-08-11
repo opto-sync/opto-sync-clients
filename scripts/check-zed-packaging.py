@@ -43,10 +43,24 @@ def main() -> int:
     if repository.get("url") != "https://github.com/opto-sync/opto-sync-clients":
         fail("package.repository.url must be the canonical GitHub repository")
 
+    # These are package-level contracts, not replacement native engines. SDKs
+    # consume both through injected interfaces so installing this package does
+    # not configure a process-global OpenTelemetry provider. Keep the exact
+    # coordinates in lockstep with schema/opto-sync-sdk-api.v1.json.
+    expected_dependencies = {
+        "ores-otel/ores-interfaces": "^0.1.0",
+        "oresoftware/next-loggers": "^0.1.0",
+    }
+    dependencies = manifest.get("dependencies", {})
+    if dependencies != expected_dependencies:
+        fail(
+            "dependencies must be the canonical interfaces/logging set; "
+            f"expected {expected_dependencies!r}, got {dependencies!r}"
+        )
     # The artifact already contains the exact syncer.c gitlink contents used by
     # every native manifest. Declaring the same source again as a Zed dependency
     # would produce two potentially different core revisions in one install.
-    if manifest.get("dependencies"):
+    if any(name.startswith("opto-sync/syncer") for name in dependencies):
         fail("the bundled pinned core must not be duplicated as a Zed dependency")
 
     # Language slices remain unsafe: each client reaches the shared root core.

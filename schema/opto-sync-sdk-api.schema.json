@@ -1,0 +1,178 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opto-sync.dev/schema/opto-sync-sdk-api.schema.json",
+  "title": "opto-sync portable SDK API contract",
+  "description": "Schema for the versioned manifest that binds one portable opto-sync API to the Rust, Dart, and TypeScript SDKs. The manifest records semantic operation ids and idiomatic language symbols; platform-specific storage types may differ, but the listed behavior and wire schemas may not.",
+  "type": "object",
+  "required": [
+    "$schema",
+    "contract",
+    "contractVersion",
+    "envelopeSchema",
+    "mergeOptionsSchema",
+    "dependencies",
+    "telemetry",
+    "operations"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "const": "https://opto-sync.dev/schema/opto-sync-sdk-api.schema.json"
+    },
+    "contract": { "const": "opto-sync.sdk-api.v1" },
+    "contractVersion": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$"
+    },
+    "envelopeSchema": {
+      "type": "object",
+      "required": ["path", "id"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "const": "schema/opto-sync-envelope.schema.json" },
+        "id": {
+          "const": "https://opto-sync.dev/schema/opto-sync-envelope.schema.json"
+        }
+      }
+    },
+    "mergeOptionsSchema": {
+      "description": "Canonical merge-option wire contract owned by the Rust reference engine. SDKs consume this identifier rather than duplicating option keys or strategy values.",
+      "type": "object",
+      "required": ["repository", "commit", "path", "id", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "const": "opto-sync/syncer.rs" },
+        "commit": {
+          "const": "8ef3d4bb63738a90b1e3958500578aebb89ee8cc"
+        },
+        "path": { "const": "schema/merge-options.schema.json" },
+        "id": {
+          "const": "https://opto-sync.dev/schema/merge-options.schema.json"
+        },
+        "sha256": {
+          "const": "d5bd069eefc24293e3f8d8e666bdbd1d2461b59853f73c0cea7bb7c0424d7bd8"
+        }
+      }
+    },
+    "dependencies": {
+      "type": "object",
+      "required": ["sharedInterfaces", "structuredLogging"],
+      "additionalProperties": false,
+      "properties": {
+        "sharedInterfaces": { "$ref": "#/$defs/dependency" },
+        "structuredLogging": { "$ref": "#/$defs/dependency" }
+      }
+    },
+    "telemetry": {
+      "type": "object",
+      "required": [
+        "mode",
+        "namespace",
+        "payloadPolicy",
+        "sinkFailurePolicy",
+        "eventSchema"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "const": "injected" },
+        "namespace": { "const": "opto_sync" },
+        "payloadPolicy": { "const": "metadata_only" },
+        "sinkFailurePolicy": { "const": "ignore" },
+        "eventSchema": {
+          "type": "object",
+          "required": ["path", "id"],
+          "additionalProperties": false,
+          "properties": {
+            "path": { "const": "schema/opto-sync-telemetry-event.schema.json" },
+            "id": {
+              "const": "https://opto-sync.dev/schema/opto-sync-telemetry-event.schema.json"
+            }
+          }
+        }
+      }
+    },
+    "operations": {
+      "type": "array",
+      "minItems": 19,
+      "items": { "$ref": "#/$defs/operation" }
+    }
+  },
+  "$defs": {
+    "dependency": {
+      "type": "object",
+      "required": ["coordinate", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "coordinate": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9.-]*/[a-z0-9][a-z0-9.-]*$"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "required": [
+        "source",
+        "owner",
+        "symbol",
+        "kind",
+        "async",
+        "declaration"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "pattern": "^clients/(?:rust|dart|ts)/.+\\.(?:rs|dart|ts)$"
+        },
+        "owner": {
+          "type": "string",
+          "pattern": "^(?:[A-Za-z_][A-Za-z0-9_]*)?$"
+        },
+        "symbol": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "kind": { "enum": ["function", "method", "type"] },
+        "async": { "type": "boolean" },
+        "declaration": { "type": "string", "minLength": 4 }
+      }
+    },
+    "operation": {
+      "type": "object",
+      "required": ["id", "category", "semantics", "bindings"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][A-Za-z0-9]*$"
+        },
+        "category": {
+          "enum": [
+            "queue",
+            "protocol",
+            "reconciliation",
+            "clock",
+            "validation",
+            "transport"
+          ]
+        },
+        "semantics": { "type": "string", "minLength": 12 },
+        "bindings": {
+          "type": "object",
+          "required": ["rust", "dart", "typescript"],
+          "additionalProperties": false,
+          "properties": {
+            "rust": { "$ref": "#/$defs/binding" },
+            "dart": { "$ref": "#/$defs/binding" },
+            "typescript": { "$ref": "#/$defs/binding" }
+          }
+        }
+      }
+    }
+  }
+}

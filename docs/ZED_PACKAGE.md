@@ -9,10 +9,13 @@ so a client commit names the exact core commit it was tested with. Clone with
 `--recurse-submodules` (or run `git submodule update --init --recursive`) before
 building, testing, packing, or publishing.
 
-The root `.zpkg.lock` is committed even though this package currently has no
-Zed-managed dependencies. It is source/reproducibility metadata and is
-intentionally stripped from published archives by zed-pkg; consumers create
-their own dependency lock.
+The root manifest declares `ores-otel/ores-interfaces` and
+`oresoftware/next-loggers` for shared contracts and injected structured
+logging. The reconciliation engine is different: it is already pinned and
+bundled by the `syncer.c` gitlink, so it must not also appear as a Zed
+dependency. The committed `.zpkg.lock` is source/reproducibility metadata and
+is intentionally stripped from published archives by zed-pkg; consumers create
+their own resolved dependency lock.
 
 ## Why this is one repository package
 
@@ -40,6 +43,8 @@ Possible future designs include:
 The artifact includes:
 
 - the root package manifest, license, README, and `.gitmodules` declaration;
+- the canonical envelope, telemetry-event, and portable SDK API JSON Schema
+  contracts;
 - every maintained client source tree and native manifest; and
 - the initialized `syncer.c` submodule at the pinned gitlink revision.
 
@@ -54,6 +59,8 @@ The normal `CI` workflow runs the four runtime suites against the pinned
 submodule. The `Zed package contract` workflow additionally:
 
 - verifies the mode-`160000` gitlink and every native dependency path;
+- verifies the exact shared-interface/logging coordinates and all portable
+  Rust/Dart/TypeScript API bindings;
 - builds pinned `zed-cli` and `zed-interfaces` revisions;
 - packs twice and requires byte-for-byte identical archives;
 - audits required files and rejects generated/VCS state; and

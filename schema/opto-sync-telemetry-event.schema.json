@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opto-sync.dev/schema/opto-sync-telemetry-event.schema.json",
+  "title": "opto-sync structured telemetry event",
+  "description": "Metadata-only event accepted by the injection-based Rust, Dart, and TypeScript telemetry sinks. The closed fields object intentionally cannot carry mutation payloads, request/response bodies, credentials, cookies, or tokens.",
+  "type": "object",
+  "required": ["schemaVersion", "name", "level", "fields"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "name": {
+      "type": "string",
+      "pattern": "^opto_sync(?:\\.[a-z][a-z0-9_]*){2,4}$",
+      "maxLength": 128
+    },
+    "level": { "enum": ["debug", "info", "warn", "error"] },
+    "fields": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operation": { "type": "string", "maxLength": 64 },
+        "table": { "type": "string", "maxLength": 63 },
+        "recordId": { "type": "string", "maxLength": 512 },
+        "mutationId": { "type": "string", "pattern": "^(?:0|[1-9][0-9]*)$" },
+        "checkpoint": { "type": "string", "pattern": "^(?:0|[1-9][0-9]*)$" },
+        "status": { "type": "string", "maxLength": 48 },
+        "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{0,63}$" },
+        "durationMs": { "type": "integer", "minimum": 0 },
+        "pushedMutations": { "type": "integer", "minimum": 0 },
+        "acknowledgedMutations": { "type": "integer", "minimum": 0 },
+        "pulledChanges": { "type": "integer", "minimum": 0 },
+        "installedSnapshots": { "type": "integer", "minimum": 0 },
+        "hasMorePending": { "type": "boolean" },
+        "consecutiveFailures": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

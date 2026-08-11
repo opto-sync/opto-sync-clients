@@ -36,6 +36,7 @@ pub mod protocol_sync;
 pub mod schema;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
+pub mod telemetry;
 pub mod transport;
 pub use clock::{
     compare_hlc, compose_node_id, format_hlc, parse_hlc, random_node_id, system_now_ms, ClockError,
