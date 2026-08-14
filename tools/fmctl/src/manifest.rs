@@ -494,6 +494,18 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
                 verification.backend
             ));
         }
+        if verification.backend == "tlc" && !verification.exhaustive_finite_model {
+            errors.push("TLC verification must declare exhaustive_finite_model = true".to_owned());
+        }
+        if verification.backend == "apalache" && verification.exhaustive_finite_model {
+            errors.push(
+                "Apalache bounded verification cannot declare exhaustive_finite_model = true"
+                    .to_owned(),
+            );
+        }
+        if verification.backend == "apalache" && verification.max_steps.is_none() {
+            errors.push("Apalache verification requires an explicit max_steps bound".to_owned());
+        }
         if verification.backend == "tlc" && verification.max_steps.is_some() {
             errors.push("verification.max_steps is only valid for Apalache".to_owned());
         }
@@ -1138,6 +1150,7 @@ mod tests {
         let mut manifest = valid_manifest();
         let verification = manifest.verification.as_mut().expect("verification");
         verification.backend = "apalache".to_owned();
+        verification.exhaustive_finite_model = false;
         verification.max_steps = Some(MAX_VERIFICATION_STEPS);
         assert_valid(&manifest);
 
@@ -1147,6 +1160,37 @@ mod tests {
             .expect("verification")
             .max_steps = Some(MAX_VERIFICATION_STEPS + 1);
         assert_error(&manifest, "verification.max_steps must be at most");
+    }
+
+    #[test]
+    fn verification_backend_and_assurance_claim_must_agree() {
+        let mut manifest = valid_manifest();
+        manifest
+            .verification
+            .as_mut()
+            .expect("verification")
+            .exhaustive_finite_model = false;
+        assert_error(
+            &manifest,
+            "TLC verification must declare exhaustive_finite_model = true",
+        );
+
+        let verification = manifest.verification.as_mut().expect("verification");
+        verification.backend = "apalache".to_owned();
+        verification.exhaustive_finite_model = true;
+        verification.max_steps = Some(12);
+        assert_error(
+            &manifest,
+            "Apalache bounded verification cannot declare exhaustive_finite_model = true",
+        );
+
+        let verification = manifest.verification.as_mut().expect("verification");
+        verification.exhaustive_finite_model = false;
+        verification.max_steps = None;
+        assert_error(
+            &manifest,
+            "Apalache verification requires an explicit max_steps bound",
+        );
     }
 
     #[test]
