@@ -6,7 +6,7 @@ name = "opto-sync-clients"
 # distinct from earlier immutable release evidence; publishing requires fresh
 # approval and a reviewed tag.
 version = "0.4.0"
-description = "Pinned polyglot local-first sync clients for TypeScript, Dart, Rust, Gleam, C#, and F#"
+description = "Pinned polyglot local-first sync clients for TypeScript, Dart, Rust, Gleam, PHP, C#, and F#"
 license = "MIT"
 keywords = ["sync", "local-first", "optimistic", "indexeddb", "sqlite", "polyglot"]
 

@@ -13,6 +13,12 @@ clients, and run as separate executable contract suites in CI. This additive
 binding remains outside the canonical portable API manifest until its durable
 queue and transport surface reaches parity with the three primary SDKs.
 
+The PHP 8.2+ target under `php/` provides a bounded, transport-neutral protocol
+v1 queue for server and CLI applications. It preserves immutable retry bodies,
+validates acknowledgements against the exact request, and supports validated
+durable queue export/restore. Reconciliation remains a separate injected
+boundary until the PHP target gains a native-core binding.
+
 Rust, Dart, and TypeScript additionally share the versioned portable surface in
 [`../schema/opto-sync-sdk-api.v1.json`](../schema/opto-sync-sdk-api.v1.json).
 That manifest is validated by
