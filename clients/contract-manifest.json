@@ -1,12 +1,12 @@
 {
-  "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+  "apiSurfaceSha256": "cc67781905d6383dfdf5c18ffcb8a1fd9bcd5ae54eba1ae769ad07640364ae3f",
   "coordinate": "opto-sync/opto-sync-clients",
   "schemaVersion": 1,
   "targetCount": 20,
   "targets": [
     {
       "apiSurface": "clients/api-surface.json",
-      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "apiSurfaceSha256": "cc67781905d6383dfdf5c18ffcb8a1fd9bcd5ae54eba1ae769ad07640364ae3f",
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/c",
       "runtime": "c",
@@ -17,7 +17,7 @@
     },
     {
       "apiSurface": "clients/api-surface.json",
-      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "apiSurfaceSha256": "cc67781905d6383dfdf5c18ffcb8a1fd9bcd5ae54eba1ae769ad07640364ae3f",
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/cpp",
       "runtime": "cpp",
@@ -28,7 +28,7 @@
     },
     {
       "apiSurface": "clients/api-surface.json",
-      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "apiSurfaceSha256": "cc67781905d6383dfdf5c18ffcb8a1fd9bcd5ae54eba1ae769ad07640364ae3f",
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/zig",
       "runtime": "zig",
@@ -39,7 +39,7 @@
     },
     {
       "apiSurface": "clients/api-surface.json",
-      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "apiSurfaceSha256": "cc67781905d6383dfdf5c18ffcb8a1fd9bcd5ae54eba1ae769ad07640364ae3f",
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/wasm",
       "runtime": "wasm",
@@ -50,7 +50,7 @@
     },
     {
       "apiSurface": "clients/api-surface.json",
-      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "apiSurfaceSha256": "cc67781905d6383dfdf5c18ffcb8a1fd9bcd5ae54eba1ae769ad07640364ae3f",
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/gleamlang",
       "runtime": "gleamlang",
@@ -61,7 +61,7 @@
     },
     {
       "apiSurface": "clients/api-surface.json",
-      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "apiSurfaceSha256": "cc67781905d6383dfdf5c18ffcb8a1fd9bcd5ae54eba1ae769ad07640364ae3f",
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/erlang",
       "runtime": "erlang",
@@ -72,7 +72,7 @@
     },
     {
       "apiSurface": "clients/api-surface.json",
-      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "apiSurfaceSha256": "cc67781905d6383dfdf5c18ffcb8a1fd9bcd5ae54eba1ae769ad07640364ae3f",
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/elixir",
       "runtime": "elixir",
@@ -83,7 +83,7 @@
     },
     {
       "apiSurface": "clients/api-surface.json",
-      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "apiSurfaceSha256": "cc67781905d6383dfdf5c18ffcb8a1fd9bcd5ae54eba1ae769ad07640364ae3f",
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/dart",
       "runtime": "dart",
@@ -94,7 +94,7 @@
     },
     {
       "apiSurface": "clients/api-surface.json",
-      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "apiSurfaceSha256": "cc67781905d6383dfdf5c18ffcb8a1fd9bcd5ae54eba1ae769ad07640364ae3f",
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/rust",
       "runtime": "rust",
@@ -105,7 +105,7 @@
     },
     {
       "apiSurface": "clients/api-surface.json",
-      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "apiSurfaceSha256": "cc67781905d6383dfdf5c18ffcb8a1fd9bcd5ae54eba1ae769ad07640364ae3f",
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/java",
       "runtime": "java",
@@ -116,7 +116,7 @@
     },
     {
       "apiSurface": "clients/api-surface.json",
-      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "apiSurfaceSha256": "cc67781905d6383dfdf5c18ffcb8a1fd9bcd5ae54eba1ae769ad07640364ae3f",
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/golang",
       "runtime": "golang",
@@ -127,7 +127,7 @@
     },
     {
       "apiSurface": "clients/api-surface.json",
-      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "apiSurfaceSha256": "cc67781905d6383dfdf5c18ffcb8a1fd9bcd5ae54eba1ae769ad07640364ae3f",
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/python3",
       "runtime": "python3",
@@ -138,7 +138,7 @@
     },
     {
       "apiSurface": "clients/api-surface.json",
-      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "apiSurfaceSha256": "cc67781905d6383dfdf5c18ffcb8a1fd9bcd5ae54eba1ae769ad07640364ae3f",
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/ruby",
       "runtime": "ruby",
@@ -149,7 +149,7 @@
     },
     {
       "apiSurface": "clients/api-surface.json",
-      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "apiSurfaceSha256": "cc67781905d6383dfdf5c18ffcb8a1fd9bcd5ae54eba1ae769ad07640364ae3f",
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/php",
       "runtime": "php",
@@ -160,7 +160,7 @@
     },
     {
       "apiSurface": "clients/api-surface.json",
-      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "apiSurfaceSha256": "cc67781905d6383dfdf5c18ffcb8a1fd9bcd5ae54eba1ae769ad07640364ae3f",
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/kotlin",
       "runtime": "kotlin",
@@ -171,7 +171,7 @@
     },
     {
       "apiSurface": "clients/api-surface.json",
-      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "apiSurfaceSha256": "cc67781905d6383dfdf5c18ffcb8a1fd9bcd5ae54eba1ae769ad07640364ae3f",
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/swift",
       "runtime": "swift",
@@ -182,7 +182,7 @@
     },
     {
       "apiSurface": "clients/api-surface.json",
-      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "apiSurfaceSha256": "cc67781905d6383dfdf5c18ffcb8a1fd9bcd5ae54eba1ae769ad07640364ae3f",
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/typescript/nodejs",
       "runtime": "nodejs",
@@ -193,7 +193,7 @@
     },
     {
       "apiSurface": "clients/api-surface.json",
-      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "apiSurfaceSha256": "cc67781905d6383dfdf5c18ffcb8a1fd9bcd5ae54eba1ae769ad07640364ae3f",
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/typescript/deno",
       "runtime": "deno",
@@ -204,7 +204,7 @@
     },
     {
       "apiSurface": "clients/api-surface.json",
-      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "apiSurfaceSha256": "cc67781905d6383dfdf5c18ffcb8a1fd9bcd5ae54eba1ae769ad07640364ae3f",
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/typescript/bun",
       "runtime": "bun",
@@ -215,7 +215,7 @@
     },
     {
       "apiSurface": "clients/api-surface.json",
-      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "apiSurfaceSha256": "cc67781905d6383dfdf5c18ffcb8a1fd9bcd5ae54eba1ae769ad07640364ae3f",
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/typescript/edge",
       "runtime": "edge",
