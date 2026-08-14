@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.20)
+project(opto_sync_client_cpp CXX)
+add_library(opto_sync_client_cpp INTERFACE)
+target_include_directories(opto_sync_client_cpp INTERFACE include)
+target_compile_features(opto_sync_client_cpp INTERFACE cxx_std_17)

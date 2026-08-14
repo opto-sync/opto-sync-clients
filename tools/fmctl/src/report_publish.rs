@@ -354,7 +354,7 @@ fn write_report_file(directory: &Path, name: &str, bytes: &[u8]) -> Result<(), F
 }
 
 fn ensure_private_root(path: &Path) -> Result<PathBuf, FmError> {
-    let expected = lexical_absolute(path)?;
+    let expected = normalize_platform_root_alias(lexical_absolute(path)?)?;
     create_private_directory_all(&expected)?;
     let canonical = fs::canonicalize(&expected).map_err(|source| FmError::io(&expected, source))?;
     if canonical != expected {
@@ -372,6 +372,35 @@ fn ensure_private_root(path: &Path) -> Result<PathBuf, FmError> {
         )));
     }
     Ok(canonical)
+}
+
+#[cfg(target_os = "macos")]
+fn normalize_platform_root_alias(path: PathBuf) -> Result<PathBuf, FmError> {
+    // macOS intentionally exposes /var as a root-owned compatibility symlink
+    // to /private/var, and the system temporary-directory API returns paths
+    // below that alias. Trust only this exact platform mapping; components
+    // below /private/var still pass the no-symlink walk in
+    // create_private_directory_all.
+    let alias = Path::new("/var");
+    if !path.starts_with(alias) {
+        return Ok(path);
+    }
+    let metadata = fs::symlink_metadata(alias).map_err(|source| FmError::io(alias, source))?;
+    let canonical_alias = fs::canonicalize(alias).map_err(|source| FmError::io(alias, source))?;
+    if !metadata.file_type().is_symlink() || canonical_alias != Path::new("/private/var") {
+        return Err(FmError::Validation(
+            "macOS /var does not resolve through the expected root-owned platform alias".to_owned(),
+        ));
+    }
+    let remainder = path
+        .strip_prefix(alias)
+        .map_err(|_| FmError::Validation("failed to normalize the macOS /var alias".to_owned()))?;
+    Ok(canonical_alias.join(remainder))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn normalize_platform_root_alias(path: PathBuf) -> Result<PathBuf, FmError> {
+    Ok(path)
 }
 
 fn lexical_absolute(path: &Path) -> Result<PathBuf, FmError> {
