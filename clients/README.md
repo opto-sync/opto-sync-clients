@@ -6,6 +6,13 @@ repository currently ships as one complete package around its bundled,
 git-pinned native core. It does not declare `opto-sync-interfaces` or
 `opto-sync-lib` as installable Zed dependencies.
 
+The .NET target under `dotnet/` adds supported C# and F# reconciliation
+surfaces for SAFE Stack and other managed applications. Both languages call
+the pinned native core, share the same CRDT-style default policy as the primary
+clients, and run as separate executable contract suites in CI. This additive
+binding remains outside the canonical portable API manifest until its durable
+queue and transport surface reaches parity with the three primary SDKs.
+
 Rust, Dart, and TypeScript additionally share the versioned portable surface in
 [`../schema/opto-sync-sdk-api.v1.json`](../schema/opto-sync-sdk-api.v1.json).
 That manifest is validated by

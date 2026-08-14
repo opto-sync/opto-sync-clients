@@ -5,7 +5,7 @@ name = "opto-sync-clients"
 # OpenTelemetry bridge. Keep this additive minor bump distinct from the
 # immutable v0.2.0 release evidence; publishing v0.3.0 requires fresh approval.
 version = "0.3.0"
-description = "Pinned polyglot local-first sync clients for TypeScript, Dart, Rust, and Gleam"
+description = "Pinned polyglot local-first sync clients for TypeScript, Dart, Rust, Gleam, C#, and F#"
 license = "MIT"
 keywords = ["sync", "local-first", "optimistic", "indexeddb", "sqlite", "polyglot"]
 

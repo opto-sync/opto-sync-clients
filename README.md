@@ -29,6 +29,7 @@ opto-sync-clients/
     ts/             package @opto-sync/client — Dexie/IndexedDB mutation queue + native syncer
     rust/           crate opto-sync-client — first-party SQLite protocol store + pluggable seams
     gleam/          package opto_sync_client — protocol queue + BEAM NIF reconciliation
+    dotnet/         C# binding + idiomatic F# facade for SAFE Stack and managed apps
     reactive-ts/    package @opto-sync/reactive — RxJS, Service Worker, HTTP/WS/TCP/Supabase hints
     reactive-dart/  package opto_sync_reactive — RxDart + Flutter/iOS/Android background adapters
 ```
@@ -132,6 +133,10 @@ cmake --build syncer.c/core/build --target syncer
 (cd clients/dart && dart pub get && dart analyze && dart test)
 (cd clients/rust && cargo test --locked --all-targets)
 (cd clients/gleam && gleam deps download && gleam test)
+OPTO_SYNC_NATIVE_LIBRARY="$PWD/syncer.c/core/build/libsyncer.so" \
+  dotnet run --project clients/dotnet/tests/OptoSync.Client.Contract --configuration Release
+OPTO_SYNC_NATIVE_LIBRARY="$PWD/syncer.c/core/build/libsyncer.so" \
+  dotnet run --project clients/dotnet/tests/OptoSync.FSharp.Contract --configuration Release
 
 # reactive/background suites
 (cd clients/reactive-ts && npm ci && npm test)

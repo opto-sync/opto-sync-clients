@@ -10,6 +10,8 @@ structured_logging_mode = "injected"
 ores_zed_dependency_status = "pending-release"
 
 [targets]
+csharp = true
+fsharp = true
 gleamlang = true
 erlang = true
 elixir = true
