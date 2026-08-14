@@ -148,12 +148,12 @@ fn execution_uses_the_planned_artifact_root_if_the_manifest_changes_mid_run() {
         .execute_with_report_bundle(&Operation::Check)
         .expect("bundle root comes from the executed plan");
     assert_complete_bundle(&execution.bundle.directory);
-    assert!(execution.bundle.directory.starts_with(
-        fixture
-            .directory
-            .path()
-            .join(".formal-artifacts/fmctl/bundles")
-    ));
+    let canonical_workspace =
+        fs::canonicalize(fixture.directory.path()).expect("canonical fixture workspace");
+    assert!(execution
+        .bundle
+        .directory
+        .starts_with(canonical_workspace.join(".formal-artifacts/fmctl/bundles")));
 }
 
 #[test]
