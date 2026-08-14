@@ -1,12 +1,18 @@
 {
   "name": "opto-sync/opto-sync-client",
   "type": "library",
+  "description": "Transport-neutral OptoSync protocol v1 queue for PHP 8.2+",
+  "license": "MIT",
   "require": {
-    "php": ">=8.2"
+    "php": ">=8.2",
+    "ext-json": "*"
   },
   "autoload": {
     "psr-4": {
-      "ZedPkg\\OptoSync\\\\": "src/"
+      "ZedPkg\\OptoSync\\": "src/"
     }
+  },
+  "scripts": {
+    "test": "php tests/contract.php"
   }
 }
