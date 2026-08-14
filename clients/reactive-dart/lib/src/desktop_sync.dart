@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'background_sync.dart';
+import 'sync_lifecycle.dart';
 
 enum DesktopWakeReason {
   processStart,
@@ -163,7 +164,7 @@ final class DesktopSyncCycleContext {
 typedef DesktopSyncCycle<R> =
     Future<R> Function(DesktopSyncCycleContext context);
 
-enum DesktopSyncOutcomeStatus { completed, busy, failed }
+enum DesktopSyncOutcomeStatus { completed, busy, cancelled, failed }
 
 enum DesktopSyncFailurePhase { acquire, cycle, release }
 
@@ -266,19 +267,23 @@ final class DesktopSyncRunner<R> {
   final Set<DesktopWakeReason> _pendingReasons = <DesktopWakeReason>{};
   Future<DesktopSyncDrainResult<R>>? _drain;
   BackgroundSyncContext? _activeContext;
-  bool _closed = false;
+  final SyncLifecycleMachine _lifecycle = SyncLifecycleMachine();
 
-  bool get isClosed => _closed;
+  SyncLifecycleSnapshot get lifecycle => _lifecycle.state;
+
+  bool get isClosed =>
+      lifecycle.phase == SyncLifecyclePhase.closed || lifecycle.closeRequested;
 
   Future<DesktopSyncDrainResult<R>> wake([
     DesktopWakeReason reason = DesktopWakeReason.manual,
   ]) {
-    if (_closed) {
+    if (isClosed) {
       return Future<DesktopSyncDrainResult<R>>.error(
         StateError('desktop sync runner is closed'),
       );
     }
     _pendingReasons.add(reason);
+    _lifecycle.apply(SyncLifecycleEvent.wake);
     final current = _drain;
     if (current != null) return current;
 
@@ -296,8 +301,8 @@ final class DesktopSyncRunner<R> {
   Future<DesktopSyncDrainResult<R>> runNow() => wake();
 
   void close() {
-    if (_closed) return;
-    _closed = true;
+    if (isClosed) return;
+    _lifecycle.apply(SyncLifecycleEvent.close);
     _pendingReasons.clear();
     _activeContext?.cancel('desktop sync runner closed');
   }
@@ -308,7 +313,7 @@ final class DesktopSyncRunner<R> {
 
   Future<DesktopSyncDrainResult<R>> _drainPending() async {
     final outcomes = <DesktopSyncOutcome<R>>[];
-    while (!_closed && _pendingReasons.isNotEmpty) {
+    while (!isClosed && _pendingReasons.isNotEmpty) {
       final reasons = _pendingReasons.toList(growable: false)
         ..sort((left, right) => left.index.compareTo(right.index));
       _pendingReasons.clear();
@@ -323,6 +328,7 @@ final class DesktopSyncRunner<R> {
     final startedAt = _now();
     final token = _tokenFactory();
     _validateIdentifier('tokenFactory result', token);
+    _lifecycle.apply(SyncLifecycleEvent.beginAcquire);
     DesktopLeaseGrant? grant;
     try {
       grant = await _leaseStore.tryAcquire(
@@ -335,6 +341,7 @@ final class DesktopSyncRunner<R> {
         ),
       );
     } catch (error, stackTrace) {
+      _lifecycle.apply(SyncLifecycleEvent.acquireDeferred);
       return DesktopSyncOutcome<R>(
         status: DesktopSyncOutcomeStatus.failed,
         reasons: reasons,
@@ -346,11 +353,40 @@ final class DesktopSyncRunner<R> {
       );
     }
     if (grant == null) {
+      _lifecycle.apply(SyncLifecycleEvent.acquireDeferred);
       return DesktopSyncOutcome<R>(
         status: DesktopSyncOutcomeStatus.busy,
         reasons: reasons,
         startedAt: startedAt,
         finishedAt: _now(),
+      );
+    }
+
+    _lifecycle.apply(SyncLifecycleEvent.acquireGranted);
+    if (lifecycle.phase == SyncLifecyclePhase.releasing) {
+      Object? releaseError;
+      StackTrace? releaseStackTrace;
+      try {
+        await _leaseStore.release(grant);
+      } catch (error, stackTrace) {
+        releaseError = error;
+        releaseStackTrace = stackTrace;
+      } finally {
+        _lifecycle.apply(SyncLifecycleEvent.releaseSettled);
+      }
+      return DesktopSyncOutcome<R>(
+        status: releaseError == null
+            ? DesktopSyncOutcomeStatus.cancelled
+            : DesktopSyncOutcomeStatus.failed,
+        reasons: reasons,
+        startedAt: startedAt,
+        finishedAt: _now(),
+        fence: grant.fence,
+        failurePhase: releaseError == null
+            ? null
+            : DesktopSyncFailurePhase.release,
+        error: releaseError,
+        stackTrace: releaseStackTrace,
       );
     }
 
@@ -361,10 +397,10 @@ final class DesktopSyncRunner<R> {
     Object? cycleError;
     StackTrace? cycleStackTrace;
     try {
-      deadline = Timer(
-        budget,
-        () => cancellation.cancel('desktop sync deadline exceeded'),
-      );
+      deadline = Timer(budget, () {
+        cancellation.cancel('desktop sync deadline exceeded');
+        _lifecycle.apply(SyncLifecycleEvent.cancel);
+      });
       result = await _syncOnce(
         DesktopSyncCycleContext(
           cancellation: cancellation,
@@ -381,6 +417,7 @@ final class DesktopSyncRunner<R> {
     } finally {
       deadline?.cancel();
       if (identical(_activeContext, cancellation)) _activeContext = null;
+      _lifecycle.apply(SyncLifecycleEvent.cycleSettled);
     }
 
     Object? releaseError;
@@ -390,6 +427,8 @@ final class DesktopSyncRunner<R> {
     } catch (error, stackTrace) {
       releaseError = error;
       releaseStackTrace = stackTrace;
+    } finally {
+      _lifecycle.apply(SyncLifecycleEvent.releaseSettled);
     }
 
     if (cycleError != null) {

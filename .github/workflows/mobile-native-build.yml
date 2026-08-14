@@ -15,6 +15,9 @@ on:
     paths:
       - 'clients/flutter_background/**'
       - 'clients/reactive-dart/native/**'
+      - 'clients/reactive-dart/lib/src/background_sync.dart'
+      - 'clients/reactive-dart/lib/src/sync_lifecycle.dart'
+      - 'formal/mobile_desktop_lifecycle.qnt'
       - 'scripts/build-mobile-native.py'
       - 'scripts/check-mobile-background-contracts.py'
       - '.github/workflows/mobile-native-build.yml'
@@ -23,6 +26,9 @@ on:
     paths:
       - 'clients/flutter_background/**'
       - 'clients/reactive-dart/native/**'
+      - 'clients/reactive-dart/lib/src/background_sync.dart'
+      - 'clients/reactive-dart/lib/src/sync_lifecycle.dart'
+      - 'formal/mobile_desktop_lifecycle.qnt'
       - 'scripts/build-mobile-native.py'
       - 'scripts/check-mobile-background-contracts.py'
       - '.github/workflows/mobile-native-build.yml'

@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:rxdart/rxdart.dart';
 
+import 'sync_lifecycle.dart';
+
 enum BackgroundWakeReason {
   localMutation,
   remoteHint,
@@ -66,10 +68,24 @@ final class BackgroundSyncRunner<R> {
   Future<R>? _operation;
   Future<R>? _visibleResult;
   BackgroundSyncContext? _context;
+  final SyncLifecycleMachine _lifecycle = SyncLifecycleMachine();
+
+  /// Observable, immutable projection of the formally modeled runner state.
+  SyncLifecycleSnapshot get lifecycle => _lifecycle.state;
 
   Future<R> runOnce() {
     final visible = _visibleResult;
-    if (visible != null) return visible;
+    if (visible != null) {
+      _lifecycle.apply(SyncLifecycleEvent.join);
+      return visible;
+    }
+
+    _lifecycle
+      ..apply(SyncLifecycleEvent.wake)
+      ..apply(SyncLifecycleEvent.beginAcquire)
+      // Mobile owns an isolate-local permit rather than a durable desktop
+      // lease. The same modeled ownership transition still prevents overlap.
+      ..apply(SyncLifecycleEvent.acquireGranted);
 
     final context = BackgroundSyncContext(budget);
     // Future.sync converts setup-time exceptions (credential restoration,
@@ -81,6 +97,7 @@ final class BackgroundSyncRunner<R> {
       budget,
       onTimeout: () {
         context.cancel('deadline exceeded');
+        _lifecycle.apply(SyncLifecycleEvent.cancel);
         throw TimeoutException(
           'opto-sync background cycle exceeded $budget',
           budget,
@@ -102,11 +119,17 @@ final class BackgroundSyncRunner<R> {
   }
 
   void cancel([Object reason = 'native scheduler stopped the worker']) {
-    _context?.cancel(reason);
+    final context = _context;
+    if (context == null) return;
+    context.cancel(reason);
+    _lifecycle.apply(SyncLifecycleEvent.cancel);
   }
 
   void _clearIfCurrent(Future<R> operation) {
     if (!identical(_operation, operation)) return;
+    _lifecycle
+      ..apply(SyncLifecycleEvent.cycleSettled)
+      ..apply(SyncLifecycleEvent.releaseSettled);
     _context = null;
     _operation = null;
     _visibleResult = null;

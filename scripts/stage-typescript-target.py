@@ -173,7 +173,7 @@ def main() -> int:
         "syncerSourceSha": nested_sha,
         "coreResolution": "bundled-source",
         "publicationEnabled": False,
-        "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.3.0",
+        "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.4.0",
         "coexistenceRule": "all installed opto-sync targets must resolve the same syncerSourceSha",
     }
     write(

@@ -110,6 +110,68 @@ Future<void> _leaseTest() async {
   }
 }
 
+final class _DelayedLeaseStore implements DesktopLeaseStore {
+  final requestSeen = Completer<DesktopLeaseRequest>();
+  final grantReady = Completer<DesktopLeaseGrant?>();
+  var releases = 0;
+
+  @override
+  Future<DesktopLeaseGrant?> tryAcquire(DesktopLeaseRequest request) {
+    requestSeen.complete(request);
+    return grantReady.future;
+  }
+
+  @override
+  Future<void> release(DesktopLeaseGrant grant) async {
+    releases += 1;
+  }
+}
+
+Future<void> _closeDuringAcquireTest() async {
+  final store = _DelayedLeaseStore();
+  var cycleCalls = 0;
+  final runner = DesktopSyncRunner<void>(
+    leaseStore: store,
+    leaseKey: 'account:closing',
+    ownerId: 'desktop-process-closing',
+    budget: const Duration(seconds: 2),
+    leaseTtl: const Duration(seconds: 4),
+    tokenFactory: () => 'closing-token',
+    syncOnce: (_) async {
+      cycleCalls += 1;
+    },
+  );
+
+  final drain = runner.runNow();
+  final request = await store.requestSeen.future;
+  if (runner.lifecycle.phase != SyncLifecyclePhase.acquiring) {
+    throw StateError('desktop runner did not enter modeled acquisition');
+  }
+  runner.close();
+  store.grantReady.complete(
+    DesktopLeaseGrant(
+      key: request.key,
+      ownerId: request.ownerId,
+      token: request.token,
+      fence: '1',
+      expiresAt: request.expiresAt,
+    ),
+  );
+
+  final result = await drain;
+  if (cycleCalls != 0 ||
+      store.releases != 1 ||
+      result.outcomes.single.status != DesktopSyncOutcomeStatus.cancelled ||
+      runner.lifecycle.phase != SyncLifecyclePhase.closed ||
+      !runner.lifecycle.isValid) {
+    throw StateError(
+      'close-during-acquire escaped the modeled release path: '
+      'calls=$cycleCalls releases=${store.releases} '
+      'status=${result.outcomes.single.status} state=${runner.lifecycle}',
+    );
+  }
+}
+
 void _capabilityTest() {
   final wasm = resolveDesktopSyncCapability(
     const DesktopCapabilityInput(
@@ -155,5 +217,6 @@ Future<void> main() async {
   _capabilityTest();
   await _trailingWakeTest();
   await _leaseTest();
-  print('Dart desktop capability/lease/wake self-test passed');
+  await _closeDuringAcquireTest();
+  print('Dart desktop capability/lease/wake/state-machine self-test passed');
 }

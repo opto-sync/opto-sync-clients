@@ -1,3 +1,11 @@
+## 0.2.0
+
+- Route headless drains through the formally modeled single-flight lifecycle.
+- Coalesce duplicate native invocations and reject callback replacement while
+  an existing callback owns the execution permit.
+- Add exhaustive mobile/desktop lifecycle verification and runtime conformance
+  checks for wake, acquire, cancel, release, close, and process-abort paths.
+
 ## 0.1.3
 
 - Make the headless Dart dispatcher a top-level entrypoint so Android and iOS

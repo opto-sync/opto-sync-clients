@@ -56,6 +56,24 @@ The booleans `ambiguous_commit_reached`, `duplicate_retry_reached`, and
 those scenarios so an accidental overconstraint cannot make the safety proof
 vacuous.
 
+## Mobile and desktop lifecycle model
+
+`mobile_desktop_lifecycle.qnt` is a second finite transition system for the
+application runners themselves. It is implemented directly by
+`SyncLifecycleMachine` in reactive TypeScript, reactive Dart, and the Rust
+desktop crate, and the Flutter headless dispatcher uses the Dart runner to
+coalesce concurrent native invocations. The model makes wake queuing, permit acquisition, execution,
+cooperative cancellation, release, close-during-acquire, and process abort
+explicit. Undefined runtime transitions fail closed.
+
+TLC exhaustively checks every reachable state in the declared finite model.
+The TypeScript, Dart, and Rust suites independently enumerate every event from every
+reachable implementation state and require the same safety invariants. This
+proves the transition system within its boundary; OS process loss, durable-store
+correctness, transport behavior, and user callback cooperation remain explicit
+environmental assumptions covered by fencing, restart, and fault tests rather
+than being overstated as a whole-product proof.
+
 ## Run locally
 
 The canonical entry point is `fmctl`. Local runs require Node.js 22, Java 17 or

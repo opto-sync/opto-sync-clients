@@ -179,7 +179,7 @@ def main() -> int:
     expected = {
         "org": "opto-sync",
         "name": "opto-sync-clients",
-        "version": "0.3.0",
+        "version": "0.4.0",
         "license": "MIT",
     }
     for key, value in expected.items():

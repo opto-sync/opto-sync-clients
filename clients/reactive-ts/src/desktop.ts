@@ -139,7 +139,11 @@ export type DesktopSyncCycle<R> = (
   context: DesktopSyncCycleContext,
 ) => Promise<R>;
 
-export type DesktopSyncOutcomeStatus = 'completed' | 'busy' | 'failed';
+export type DesktopSyncOutcomeStatus =
+  | 'completed'
+  | 'busy'
+  | 'cancelled'
+  | 'failed';
 export type DesktopSyncFailurePhase = 'acquire' | 'cycle' | 'release';
 
 export interface DesktopSyncOutcome<R> {
@@ -214,7 +218,7 @@ export class DesktopSyncRunner<R> {
   readonly #pendingReasons = new Set<DesktopWakeReason>();
   #drain?: Promise<DesktopSyncDrainResult<R>>;
   #activeController?: AbortController;
-  #closed = false;
+  readonly #lifecycle = new SyncLifecycleMachine();
 
   constructor(options: DesktopSyncRunnerOptions<R>) {
     validateIdentifier('leaseKey', options.leaseKey);
@@ -249,16 +253,24 @@ export class DesktopSyncRunner<R> {
   }
 
   get closed(): boolean {
-    return this.#closed;
+    return (
+      this.#lifecycle.state.phase === 'closed' ||
+      this.#lifecycle.state.closeRequested
+    );
+  }
+
+  get lifecycle(): SyncLifecycleSnapshot {
+    return this.#lifecycle.state;
   }
 
   wake(
     reason: DesktopWakeReason = 'manual',
   ): Promise<DesktopSyncDrainResult<R>> {
-    if (this.#closed) {
+    if (this.closed) {
       return Promise.reject(new Error('desktop sync runner is closed'));
     }
     this.#pendingReasons.add(reason);
+    this.#lifecycle.apply('wake');
     if (this.#drain) return this.#drain;
 
     const running = this.#drainPending().finally(() => {
@@ -273,8 +285,8 @@ export class DesktopSyncRunner<R> {
   }
 
   close(): void {
-    if (this.#closed) return;
-    this.#closed = true;
+    if (this.closed) return;
+    this.#lifecycle.apply('close');
     this.#pendingReasons.clear();
     this.#activeController?.abort(
       abortError('desktop sync runner closed during an active cycle'),
@@ -283,7 +295,7 @@ export class DesktopSyncRunner<R> {
 
   async #drainPending(): Promise<DesktopSyncDrainResult<R>> {
     const outcomes: DesktopSyncOutcome<R>[] = [];
-    while (!this.#closed && this.#pendingReasons.size > 0) {
+    while (!this.closed && this.#pendingReasons.size > 0) {
       const reasons = [...this.#pendingReasons].sort();
       this.#pendingReasons.clear();
       const outcome = await this.#runCycle(reasons);
@@ -299,6 +311,7 @@ export class DesktopSyncRunner<R> {
     const startedAtMs = this.#now();
     const token = this.#tokenFactory();
     validateIdentifier('tokenFactory result', token);
+    this.#lifecycle.apply('begin-acquire');
     let grant: DesktopLeaseGrant | null;
     try {
       grant = await this.#leaseStore.tryAcquire({
@@ -309,6 +322,7 @@ export class DesktopSyncRunner<R> {
         expiresAtMs: startedAtMs + this.#leaseTtlMs,
       });
     } catch (error) {
+      this.#lifecycle.apply('acquire-deferred');
       return {
         status: 'failed',
         reasons,
@@ -320,11 +334,33 @@ export class DesktopSyncRunner<R> {
     }
 
     if (grant === null) {
+      this.#lifecycle.apply('acquire-deferred');
       return {
         status: 'busy',
         reasons,
         startedAtMs,
         finishedAtMs: this.#now(),
+      };
+    }
+
+    this.#lifecycle.apply('acquire-granted');
+    if (this.#lifecycle.state.phase === 'releasing') {
+      let releaseError: unknown;
+      try {
+        await this.#leaseStore.release(grant);
+      } catch (error) {
+        releaseError = error;
+      } finally {
+        this.#lifecycle.apply('release-settled');
+      }
+      return {
+        status: releaseError === undefined ? 'cancelled' : 'failed',
+        reasons,
+        startedAtMs,
+        finishedAtMs: this.#now(),
+        fence: grant.fence,
+        failurePhase: releaseError === undefined ? undefined : 'release',
+        error: releaseError,
       };
     }
 
@@ -347,6 +383,7 @@ export class DesktopSyncRunner<R> {
       );
       timer = setTimeout(() => {
         controller.abort(abortError('opto-sync desktop cycle timed out'));
+        this.#lifecycle.apply('cancel');
       }, this.#timeoutMs);
       result = await operation;
       if (controller.signal.aborted) {
@@ -362,6 +399,7 @@ export class DesktopSyncRunner<R> {
       if (this.#activeController === controller) {
         this.#activeController = undefined;
       }
+      this.#lifecycle.apply('cycle-settled');
     }
 
     let releaseError: unknown;
@@ -369,6 +407,8 @@ export class DesktopSyncRunner<R> {
       await this.#leaseStore.release(grant);
     } catch (error) {
       releaseError = error;
+    } finally {
+      this.#lifecycle.apply('release-settled');
     }
 
     if (cycleError !== undefined) {
@@ -440,3 +480,7 @@ export class InMemoryDesktopLeaseStore implements DesktopLeaseStore {
     }
   }
 }
+import {
+  SyncLifecycleMachine,
+  type SyncLifecycleSnapshot,
+} from './sync-lifecycle.ts';

@@ -92,6 +92,14 @@ jobs:
       - name: Exhaustively model-check the finite protocol state space through fmctl
         run: nix develop --command tools/fmctl/target/release/fmctl verify
 
+      - name: Check the mobile and desktop lifecycle transition system
+        run: |
+          lifecycle_manifest='formal/mobile_desktop_lifecycle.fm.toml'
+          nix develop --command tools/fmctl/target/release/fmctl --manifest "$lifecycle_manifest" validate
+          nix develop --command tools/fmctl/target/release/fmctl --manifest "$lifecycle_manifest" check
+          nix develop --command tools/fmctl/target/release/fmctl --manifest "$lifecycle_manifest" simulate
+          nix develop --command tools/fmctl/target/release/fmctl --manifest "$lifecycle_manifest" verify
+
       - name: Generate the deterministic model-based testing corpus through fmctl
         run: |
           nix develop --command tools/fmctl/target/release/fmctl trace \

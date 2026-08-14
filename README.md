@@ -16,7 +16,9 @@ current.
 
 `nix develop` provides the Rust, Node, Java, and native dependencies used by
 the formal workflow. Quint/TLC plus implementation-trace replay prove the
-protocol lifecycle; Kani proves Rust queue arithmetic, while the pinned
+protocol lifecycle. A second finite Quint model exhaustively checks the mobile
+and desktop runner lifecycle, with the transition function executed directly
+by TypeScript, Dart, and Rust; Kani proves Rust queue arithmetic, while the pinned
 `syncer.c` submodule owns CBMC and Rust-FFI proofs for reconciliation.
 
 ## Layout
@@ -140,13 +142,14 @@ OPTO_SYNC_NATIVE_LIBRARY="$PWD/syncer.c/core/build/libsyncer.so" \
 
 # reactive/background suites
 (cd clients/reactive-ts && npm ci && npm test)
-(cd clients/reactive-dart && dart pub get && dart analyze && dart run tool/self_test.dart)
+(cd clients/reactive-dart && dart pub get && dart analyze && \
+  dart run tool/lifecycle_formal_self_test.dart && dart run tool/self_test.dart)
 python3 clients/reactive-dart/tool/check_native_background_adapters.py
 ```
 
 ## Zed package
 
-The repository root declares `opto-sync/opto-sync-clients@0.3.0` in
+The repository root declares `opto-sync/opto-sync-clients@0.4.0` in
 `.zpkg.toml`, with `.zpkg.lock` committed for frozen source workflows. The first
 release is intentionally one whole-repository package: a language-only target
 would omit the root native submodule required by that client. The package

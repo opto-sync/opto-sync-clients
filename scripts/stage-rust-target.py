@@ -136,7 +136,7 @@ def main() -> int:
         "syncerSourceSha": gitlink_sha,
         "cargoLockSha256": lock_hash,
         "coreResolution": "bundled-source",
-        "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.3.0",
+        "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.4.0",
         "coexistenceRule": (
             "all installed opto-sync targets must resolve the same syncerSourceSha"
         ),

@@ -170,7 +170,7 @@ jobs:
             --dry-run \
             --allow-dirty \
             --skip-vcs-checks | tee ../zed-dry-run.txt
-          grep -F 'opto-sync/opto-sync-clients@0.3.0' ../zed-dry-run.txt
+          grep -F 'opto-sync/opto-sync-clients@0.4.0' ../zed-dry-run.txt
           test "$(grep -c '^dry run: would publish opto-sync/' ../zed-dry-run.txt)" -eq 1
 
       - name: Run a clean local registry/install roundtrip
