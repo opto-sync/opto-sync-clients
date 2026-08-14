@@ -1,0 +1,343 @@
+{
+  "$schema": "./client-api.schema.json",
+  "package": {
+    "coordinate": "opto-sync/opto-sync-clients",
+    "description": "Canonical polyglot API contract for opto-sync/opto-sync-clients.",
+    "namespace": "OptoSync"
+  },
+  "schemaVersion": 1,
+  "symbols": [
+    {
+      "definition": {
+        "fields": [
+          {
+            "name": "baseUrl",
+            "readonly": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "visibility": "public"
+          },
+          {
+            "name": "bearerToken",
+            "readonly": true,
+            "type": {
+              "item": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "kind": "optional"
+            },
+            "visibility": "public"
+          }
+        ],
+        "kind": "object"
+      },
+      "description": "Portable client construction options.",
+      "kind": "type",
+      "name": "OptoSyncClientOptions",
+      "visibility": "public"
+    },
+    {
+      "definition": {
+        "fields": [
+          {
+            "name": "requestId",
+            "readonly": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "visibility": "private"
+          }
+        ],
+        "kind": "object"
+      },
+      "description": "Internal request correlation state.",
+      "kind": "type",
+      "name": "_OptoSyncRequestContext",
+      "visibility": "private"
+    },
+    {
+      "description": "Transport abstraction implemented by runtime adapters.",
+      "kind": "interface",
+      "methods": [
+        {
+          "async": true,
+          "name": "send",
+          "parameters": [
+            {
+              "name": "path",
+              "type": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            {
+              "name": "body",
+              "type": {
+                "item": {
+                  "kind": "primitive",
+                  "name": "bytes"
+                },
+                "kind": "optional"
+              }
+            }
+          ],
+          "returns": {
+            "kind": "primitive",
+            "name": "bytes"
+          },
+          "static": false,
+          "throws": [
+            {
+              "kind": "named",
+              "name": "OptoSyncClientError"
+            }
+          ],
+          "visibility": "public"
+        }
+      ],
+      "name": "OptoSyncTransport",
+      "visibility": "public"
+    },
+    {
+      "description": "Internal telemetry sink.",
+      "kind": "interface",
+      "methods": [
+        {
+          "async": false,
+          "name": "record",
+          "parameters": [
+            {
+              "name": "event",
+              "type": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          ],
+          "returns": {
+            "kind": "primitive",
+            "name": "void"
+          },
+          "static": false,
+          "throws": [],
+          "visibility": "private"
+        }
+      ],
+      "name": "_OptoSyncTelemetrySink",
+      "visibility": "private"
+    },
+    {
+      "definition": {
+        "kind": "enum",
+        "values": [
+          "InvalidConfiguration",
+          "TransportFailure",
+          "Unauthorized",
+          "UnexpectedResponse"
+        ]
+      },
+      "description": "Stable cross-runtime error categories.",
+      "kind": "type",
+      "name": "OptoSyncClientError",
+      "visibility": "public"
+    },
+    {
+      "constructors": [
+        {
+          "async": false,
+          "name": "new",
+          "parameters": [
+            {
+              "name": "options",
+              "type": {
+                "kind": "named",
+                "name": "OptoSyncClientOptions"
+              }
+            }
+          ],
+          "returns": {
+            "kind": "named",
+            "name": "OptoSyncClient"
+          },
+          "static": true,
+          "throws": [
+            {
+              "kind": "named",
+              "name": "OptoSyncClientError"
+            }
+          ],
+          "visibility": "public"
+        }
+      ],
+      "description": "Standard public client entry point.",
+      "fields": [
+        {
+          "name": "options",
+          "readonly": true,
+          "type": {
+            "kind": "named",
+            "name": "OptoSyncClientOptions"
+          },
+          "visibility": "private"
+        }
+      ],
+      "implements": [],
+      "kind": "class",
+      "methods": [
+        {
+          "async": true,
+          "name": "health",
+          "parameters": [],
+          "returns": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "static": false,
+          "throws": [
+            {
+              "kind": "named",
+              "name": "OptoSyncClientError"
+            }
+          ],
+          "visibility": "public"
+        },
+        {
+          "async": true,
+          "name": "_request",
+          "parameters": [
+            {
+              "name": "path",
+              "type": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            {
+              "name": "context",
+              "type": {
+                "kind": "named",
+                "name": "_OptoSyncRequestContext"
+              }
+            }
+          ],
+          "returns": {
+            "kind": "primitive",
+            "name": "bytes"
+          },
+          "static": false,
+          "throws": [
+            {
+              "kind": "named",
+              "name": "OptoSyncClientError"
+            }
+          ],
+          "visibility": "private"
+        }
+      ],
+      "name": "OptoSyncClient",
+      "visibility": "public"
+    },
+    {
+      "constructors": [
+        {
+          "async": false,
+          "name": "new",
+          "parameters": [],
+          "returns": {
+            "kind": "named",
+            "name": "_OptoSyncRequestBuilder"
+          },
+          "static": true,
+          "throws": [],
+          "visibility": "private"
+        }
+      ],
+      "description": "Internal request builder.",
+      "fields": [],
+      "implements": [],
+      "kind": "class",
+      "methods": [
+        {
+          "async": false,
+          "name": "build",
+          "parameters": [
+            {
+              "name": "path",
+              "type": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          ],
+          "returns": {
+            "kind": "primitive",
+            "name": "bytes"
+          },
+          "static": false,
+          "throws": [],
+          "visibility": "private"
+        }
+      ],
+      "name": "_OptoSyncRequestBuilder",
+      "visibility": "private"
+    },
+    {
+      "async": false,
+      "description": "Construct the standard client entry point.",
+      "kind": "function",
+      "name": "createOptoSyncClient",
+      "parameters": [
+        {
+          "name": "options",
+          "type": {
+            "kind": "named",
+            "name": "OptoSyncClientOptions"
+          }
+        }
+      ],
+      "returns": {
+        "kind": "named",
+        "name": "OptoSyncClient"
+      },
+      "static": true,
+      "throws": [
+        {
+          "kind": "named",
+          "name": "OptoSyncClientError"
+        }
+      ],
+      "visibility": "public"
+    },
+    {
+      "async": false,
+      "description": "Normalize a base URL without network access.",
+      "kind": "function",
+      "name": "_normalizeOptoSyncBaseUrl",
+      "parameters": [
+        {
+          "name": "baseUrl",
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      ],
+      "returns": {
+        "kind": "primitive",
+        "name": "string"
+      },
+      "static": true,
+      "throws": [
+        {
+          "kind": "named",
+          "name": "OptoSyncClientError"
+        }
+      ],
+      "visibility": "private"
+    }
+  ]
+}

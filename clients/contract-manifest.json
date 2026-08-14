@@ -1,0 +1,228 @@
+{
+  "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+  "coordinate": "opto-sync/opto-sync-clients",
+  "schemaVersion": 1,
+  "targetCount": 20,
+  "targets": [
+    {
+      "apiSurface": "clients/api-surface.json",
+      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "coordinate": "opto-sync/opto-sync-clients",
+      "dir": "clients/c",
+      "runtime": "c",
+      "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
+      "schemaVersion": 1,
+      "target": "c",
+      "zedTarget": "c"
+    },
+    {
+      "apiSurface": "clients/api-surface.json",
+      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "coordinate": "opto-sync/opto-sync-clients",
+      "dir": "clients/cpp",
+      "runtime": "cpp",
+      "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
+      "schemaVersion": 1,
+      "target": "cpp",
+      "zedTarget": "cpp"
+    },
+    {
+      "apiSurface": "clients/api-surface.json",
+      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "coordinate": "opto-sync/opto-sync-clients",
+      "dir": "clients/zig",
+      "runtime": "zig",
+      "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
+      "schemaVersion": 1,
+      "target": "zig",
+      "zedTarget": "zig"
+    },
+    {
+      "apiSurface": "clients/api-surface.json",
+      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "coordinate": "opto-sync/opto-sync-clients",
+      "dir": "clients/wasm",
+      "runtime": "wasm",
+      "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
+      "schemaVersion": 1,
+      "target": "wasm",
+      "zedTarget": "rust-wasm"
+    },
+    {
+      "apiSurface": "clients/api-surface.json",
+      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "coordinate": "opto-sync/opto-sync-clients",
+      "dir": "clients/gleamlang",
+      "runtime": "gleamlang",
+      "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
+      "schemaVersion": 1,
+      "target": "gleamlang",
+      "zedTarget": "gleamlang"
+    },
+    {
+      "apiSurface": "clients/api-surface.json",
+      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "coordinate": "opto-sync/opto-sync-clients",
+      "dir": "clients/erlang",
+      "runtime": "erlang",
+      "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
+      "schemaVersion": 1,
+      "target": "erlang",
+      "zedTarget": "erlang"
+    },
+    {
+      "apiSurface": "clients/api-surface.json",
+      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "coordinate": "opto-sync/opto-sync-clients",
+      "dir": "clients/elixir",
+      "runtime": "elixir",
+      "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
+      "schemaVersion": 1,
+      "target": "elixir",
+      "zedTarget": "elixir"
+    },
+    {
+      "apiSurface": "clients/api-surface.json",
+      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "coordinate": "opto-sync/opto-sync-clients",
+      "dir": "clients/dart",
+      "runtime": "dart",
+      "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
+      "schemaVersion": 1,
+      "target": "dart",
+      "zedTarget": "dart"
+    },
+    {
+      "apiSurface": "clients/api-surface.json",
+      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "coordinate": "opto-sync/opto-sync-clients",
+      "dir": "clients/rust",
+      "runtime": "rust",
+      "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
+      "schemaVersion": 1,
+      "target": "rust",
+      "zedTarget": "rust"
+    },
+    {
+      "apiSurface": "clients/api-surface.json",
+      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "coordinate": "opto-sync/opto-sync-clients",
+      "dir": "clients/java",
+      "runtime": "java",
+      "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
+      "schemaVersion": 1,
+      "target": "java",
+      "zedTarget": "java"
+    },
+    {
+      "apiSurface": "clients/api-surface.json",
+      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "coordinate": "opto-sync/opto-sync-clients",
+      "dir": "clients/golang",
+      "runtime": "golang",
+      "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
+      "schemaVersion": 1,
+      "target": "golang",
+      "zedTarget": "golang"
+    },
+    {
+      "apiSurface": "clients/api-surface.json",
+      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "coordinate": "opto-sync/opto-sync-clients",
+      "dir": "clients/python3",
+      "runtime": "python3",
+      "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
+      "schemaVersion": 1,
+      "target": "python3",
+      "zedTarget": "python3"
+    },
+    {
+      "apiSurface": "clients/api-surface.json",
+      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "coordinate": "opto-sync/opto-sync-clients",
+      "dir": "clients/ruby",
+      "runtime": "ruby",
+      "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
+      "schemaVersion": 1,
+      "target": "ruby",
+      "zedTarget": "ruby"
+    },
+    {
+      "apiSurface": "clients/api-surface.json",
+      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "coordinate": "opto-sync/opto-sync-clients",
+      "dir": "clients/php",
+      "runtime": "php",
+      "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
+      "schemaVersion": 1,
+      "target": "php",
+      "zedTarget": "php"
+    },
+    {
+      "apiSurface": "clients/api-surface.json",
+      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "coordinate": "opto-sync/opto-sync-clients",
+      "dir": "clients/kotlin",
+      "runtime": "kotlin",
+      "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
+      "schemaVersion": 1,
+      "target": "kotlin",
+      "zedTarget": "kotlin"
+    },
+    {
+      "apiSurface": "clients/api-surface.json",
+      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "coordinate": "opto-sync/opto-sync-clients",
+      "dir": "clients/swift",
+      "runtime": "swift",
+      "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
+      "schemaVersion": 1,
+      "target": "swift",
+      "zedTarget": "swift"
+    },
+    {
+      "apiSurface": "clients/api-surface.json",
+      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "coordinate": "opto-sync/opto-sync-clients",
+      "dir": "clients/typescript/nodejs",
+      "runtime": "nodejs",
+      "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
+      "schemaVersion": 1,
+      "target": "typescript-nodejs",
+      "zedTarget": "typescript-nodejs"
+    },
+    {
+      "apiSurface": "clients/api-surface.json",
+      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "coordinate": "opto-sync/opto-sync-clients",
+      "dir": "clients/typescript/deno",
+      "runtime": "deno",
+      "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
+      "schemaVersion": 1,
+      "target": "typescript-deno",
+      "zedTarget": "typescript-deno"
+    },
+    {
+      "apiSurface": "clients/api-surface.json",
+      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "coordinate": "opto-sync/opto-sync-clients",
+      "dir": "clients/typescript/bun",
+      "runtime": "bun",
+      "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
+      "schemaVersion": 1,
+      "target": "typescript-bun",
+      "zedTarget": "typescript-bun"
+    },
+    {
+      "apiSurface": "clients/api-surface.json",
+      "apiSurfaceSha256": "f5f24da93b3e54d6d18b998d6ac6e71f49759da4a6665f334c6878eb885faa1b",
+      "coordinate": "opto-sync/opto-sync-clients",
+      "dir": "clients/typescript/edge",
+      "runtime": "edge",
+      "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
+      "schemaVersion": 1,
+      "target": "typescript-edge",
+      "zedTarget": "typescript-edge"
+    }
+  ]
+}
