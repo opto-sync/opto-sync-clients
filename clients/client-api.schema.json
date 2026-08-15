@@ -1,13 +1,68 @@
 {
   "$defs": {
+    "auth": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "none",
+            "optional",
+            "required"
+          ],
+          "type": "string"
+        },
+        "schemes": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "scopes": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "mode",
+        "schemes",
+        "scopes"
+      ],
+      "type": "object"
+    },
+    "behavior": {
+      "enum": [
+        "sync",
+        "async",
+        "streaming"
+      ],
+      "type": "string"
+    },
     "callable": {
       "additionalProperties": false,
       "properties": {
         "async": {
           "type": "boolean"
         },
+        "auth": {
+          "$ref": "#/$defs/auth"
+        },
+        "behavior": {
+          "$ref": "#/$defs/behavior"
+        },
+        "deprecation": {
+          "$ref": "#/$defs/deprecation"
+        },
         "description": {
           "type": "string"
+        },
+        "documentationId": {
+          "$ref": "#/$defs/documentationId"
         },
         "name": {
           "$ref": "#/$defs/identifier"
@@ -20,6 +75,9 @@
         },
         "returns": {
           "$ref": "#/$defs/typeRef"
+        },
+        "stability": {
+          "$ref": "#/$defs/stability"
         },
         "static": {
           "default": false,
@@ -40,7 +98,12 @@
         "visibility",
         "parameters",
         "returns",
-        "async"
+        "async",
+        "behavior",
+        "auth",
+        "documentationId",
+        "stability",
+        "deprecation"
       ],
       "type": "object"
     },
@@ -53,8 +116,14 @@
           },
           "type": "array"
         },
+        "deprecation": {
+          "$ref": "#/$defs/deprecation"
+        },
         "description": {
           "type": "string"
+        },
+        "documentationId": {
+          "$ref": "#/$defs/documentationId"
         },
         "fields": {
           "items": {
@@ -80,6 +149,9 @@
         "name": {
           "$ref": "#/$defs/identifier"
         },
+        "stability": {
+          "$ref": "#/$defs/stability"
+        },
         "visibility": {
           "$ref": "#/$defs/visibility"
         }
@@ -90,15 +162,63 @@
         "visibility",
         "fields",
         "constructors",
-        "methods"
+        "methods",
+        "documentationId",
+        "stability",
+        "deprecation"
       ],
       "type": "object"
+    },
+    "deprecation": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "message": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "replacement": {
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/documentationId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "since": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "since",
+            "message"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "documentationId": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$",
+      "type": "string"
     },
     "field": {
       "additionalProperties": false,
       "properties": {
+        "deprecation": {
+          "$ref": "#/$defs/deprecation"
+        },
         "description": {
           "type": "string"
+        },
+        "documentationId": {
+          "$ref": "#/$defs/documentationId"
         },
         "name": {
           "$ref": "#/$defs/identifier"
@@ -106,6 +226,9 @@
         "readonly": {
           "default": false,
           "type": "boolean"
+        },
+        "stability": {
+          "$ref": "#/$defs/stability"
         },
         "type": {
           "$ref": "#/$defs/typeRef"
@@ -117,7 +240,10 @@
       "required": [
         "name",
         "visibility",
-        "type"
+        "type",
+        "documentationId",
+        "stability",
+        "deprecation"
       ],
       "type": "object"
     },
@@ -127,8 +253,20 @@
         "async": {
           "type": "boolean"
         },
+        "auth": {
+          "$ref": "#/$defs/auth"
+        },
+        "behavior": {
+          "$ref": "#/$defs/behavior"
+        },
+        "deprecation": {
+          "$ref": "#/$defs/deprecation"
+        },
         "description": {
           "type": "string"
+        },
+        "documentationId": {
+          "$ref": "#/$defs/documentationId"
         },
         "kind": {
           "const": "function"
@@ -144,6 +282,9 @@
         },
         "returns": {
           "$ref": "#/$defs/typeRef"
+        },
+        "stability": {
+          "$ref": "#/$defs/stability"
         },
         "static": {
           "default": false,
@@ -165,7 +306,12 @@
         "visibility",
         "parameters",
         "returns",
-        "async"
+        "async",
+        "documentationId",
+        "stability",
+        "deprecation",
+        "behavior",
+        "auth"
       ],
       "type": "object"
     },
@@ -176,8 +322,14 @@
     "interfaceSymbol": {
       "additionalProperties": false,
       "properties": {
+        "deprecation": {
+          "$ref": "#/$defs/deprecation"
+        },
         "description": {
           "type": "string"
+        },
+        "documentationId": {
+          "$ref": "#/$defs/documentationId"
         },
         "kind": {
           "const": "interface"
@@ -191,6 +343,9 @@
         "name": {
           "$ref": "#/$defs/identifier"
         },
+        "stability": {
+          "$ref": "#/$defs/stability"
+        },
         "visibility": {
           "$ref": "#/$defs/visibility"
         }
@@ -199,7 +354,10 @@
         "kind",
         "name",
         "visibility",
-        "methods"
+        "methods",
+        "documentationId",
+        "stability",
+        "deprecation"
       ],
       "type": "object"
     },
@@ -242,6 +400,14 @@
         "type"
       ],
       "type": "object"
+    },
+    "stability": {
+      "enum": [
+        "experimental",
+        "stable",
+        "deprecated"
+      ],
+      "type": "string"
     },
     "symbol": {
       "oneOf": [
@@ -449,14 +615,23 @@
             }
           ]
         },
+        "deprecation": {
+          "$ref": "#/$defs/deprecation"
+        },
         "description": {
           "type": "string"
+        },
+        "documentationId": {
+          "$ref": "#/$defs/documentationId"
         },
         "kind": {
           "const": "type"
         },
         "name": {
           "$ref": "#/$defs/identifier"
+        },
+        "stability": {
+          "$ref": "#/$defs/stability"
         },
         "visibility": {
           "$ref": "#/$defs/visibility"
@@ -466,7 +641,10 @@
         "kind",
         "name",
         "visibility",
-        "definition"
+        "definition",
+        "documentationId",
+        "stability",
+        "deprecation"
       ],
       "type": "object"
     },
@@ -481,7 +659,7 @@
   "$id": "https://zpkg.tech/schemas/client-api.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "Canonical public/private API declaration shared by every generated client runtime.",
+  "description": "Canonical public/private API declaration shared by every generated client runtime, including behavior, authorization, lifecycle, and documentation metadata.",
   "properties": {
     "$schema": {
       "type": "string"

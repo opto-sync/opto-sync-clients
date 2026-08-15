@@ -33,7 +33,7 @@
     "gleamlang": {
       "dir": "clients/gleamlang",
       "runtime": "gleamlang",
-      "zed_target": "gleamlang"
+      "zed_target": "gleam"
     },
     "golang": {
       "dir": "clients/golang",
@@ -58,7 +58,7 @@
     "python3": {
       "dir": "clients/python3",
       "runtime": "python3",
-      "zed_target": "python3"
+      "zed_target": "python"
     },
     "ruby": {
       "dir": "clients/ruby",
@@ -78,22 +78,22 @@
     "typescript-bun": {
       "dir": "clients/typescript/bun",
       "runtime": "bun",
-      "zed_target": "typescript-bun"
+      "zed_target": "nodejs"
     },
     "typescript-deno": {
       "dir": "clients/typescript/deno",
       "runtime": "deno",
-      "zed_target": "typescript-deno"
+      "zed_target": "nodejs"
     },
     "typescript-edge": {
       "dir": "clients/typescript/edge",
       "runtime": "edge",
-      "zed_target": "typescript-edge"
+      "zed_target": "nodejs"
     },
     "typescript-nodejs": {
       "dir": "clients/typescript/nodejs",
       "runtime": "nodejs",
-      "zed_target": "typescript-nodejs"
+      "zed_target": "nodejs"
     },
     "wasm": {
       "dir": "clients/wasm",

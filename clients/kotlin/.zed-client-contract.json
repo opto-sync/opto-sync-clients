@@ -1,6 +1,6 @@
 {
   "apiSurface": "clients/api-surface.json",
-  "apiSurfaceSha256": "cc67781905d6383dfdf5c18ffcb8a1fd9bcd5ae54eba1ae769ad07640364ae3f",
+  "apiSurfaceSha256": "09b49c4edf62be1aacefa10f64ecb0fd2d59c6c0cdb441cb481753f9c4cefa2b",
   "coordinate": "opto-sync/opto-sync-clients",
   "runtime": "kotlin",
   "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
