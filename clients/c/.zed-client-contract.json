@@ -1,6 +1,6 @@
 {
   "apiSurface": "clients/api-surface.json",
-  "apiSurfaceSha256": "cc67781905d6383dfdf5c18ffcb8a1fd9bcd5ae54eba1ae769ad07640364ae3f",
+  "apiSurfaceSha256": "49fe9b15202a8d1ab3e1193df837d922fdcda9c486846cb2debdb7096e0adbf7",
   "coordinate": "opto-sync/opto-sync-clients",
   "runtime": "c",
   "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",

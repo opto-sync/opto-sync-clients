@@ -11,8 +11,11 @@
       "definition": {
         "fields": [
           {
+            "deprecation": null,
+            "documentationId": "api.symbols.0.definition.fields.0.baseUrl",
             "name": "baseUrl",
             "readonly": true,
+            "stability": "stable",
             "type": {
               "kind": "primitive",
               "name": "string"
@@ -20,8 +23,11 @@
             "visibility": "public"
           },
           {
+            "deprecation": null,
+            "documentationId": "api.symbols.0.definition.fields.1.bearerToken",
             "name": "bearerToken",
             "readonly": true,
+            "stability": "stable",
             "type": {
               "item": {
                 "kind": "primitive",
@@ -34,17 +40,23 @@
         ],
         "kind": "object"
       },
+      "deprecation": null,
       "description": "Portable client construction options.",
+      "documentationId": "api.symbols.0.OptoSyncClientOptions",
       "kind": "type",
       "name": "OptoSyncClientOptions",
+      "stability": "stable",
       "visibility": "public"
     },
     {
       "definition": {
         "fields": [
           {
+            "deprecation": null,
+            "documentationId": "api.symbols.1.definition.fields.0.requestId",
             "name": "requestId",
             "readonly": true,
+            "stability": "stable",
             "type": {
               "kind": "primitive",
               "name": "string"
@@ -54,17 +66,30 @@
         ],
         "kind": "object"
       },
+      "deprecation": null,
       "description": "Internal request correlation state.",
+      "documentationId": "api.symbols.1._OptoSyncRequestContext",
       "kind": "type",
       "name": "_OptoSyncRequestContext",
+      "stability": "stable",
       "visibility": "private"
     },
     {
+      "deprecation": null,
       "description": "Transport abstraction implemented by runtime adapters.",
+      "documentationId": "api.symbols.2.OptoSyncTransport",
       "kind": "interface",
       "methods": [
         {
           "async": true,
+          "auth": {
+            "mode": "none",
+            "schemes": [],
+            "scopes": []
+          },
+          "behavior": "async",
+          "deprecation": null,
+          "documentationId": "api.symbols.2.methods.0.send",
           "name": "send",
           "parameters": [
             {
@@ -89,6 +114,7 @@
             "kind": "primitive",
             "name": "bytes"
           },
+          "stability": "stable",
           "static": false,
           "throws": [
             {
@@ -100,14 +126,25 @@
         }
       ],
       "name": "OptoSyncTransport",
+      "stability": "stable",
       "visibility": "public"
     },
     {
+      "deprecation": null,
       "description": "Internal telemetry sink.",
+      "documentationId": "api.symbols.3._OptoSyncTelemetrySink",
       "kind": "interface",
       "methods": [
         {
           "async": false,
+          "auth": {
+            "mode": "none",
+            "schemes": [],
+            "scopes": []
+          },
+          "behavior": "sync",
+          "deprecation": null,
+          "documentationId": "api.symbols.3.methods.0.record",
           "name": "record",
           "parameters": [
             {
@@ -122,12 +159,14 @@
             "kind": "primitive",
             "name": "void"
           },
+          "stability": "stable",
           "static": false,
           "throws": [],
           "visibility": "private"
         }
       ],
       "name": "_OptoSyncTelemetrySink",
+      "stability": "stable",
       "visibility": "private"
     },
     {
@@ -140,15 +179,26 @@
           "UnexpectedResponse"
         ]
       },
+      "deprecation": null,
       "description": "Stable cross-runtime error categories.",
+      "documentationId": "api.symbols.4.OptoSyncClientError",
       "kind": "type",
       "name": "OptoSyncClientError",
+      "stability": "stable",
       "visibility": "public"
     },
     {
       "constructors": [
         {
           "async": false,
+          "auth": {
+            "mode": "none",
+            "schemes": [],
+            "scopes": []
+          },
+          "behavior": "sync",
+          "deprecation": null,
+          "documentationId": "api.symbols.5.constructors.0.new",
           "name": "new",
           "parameters": [
             {
@@ -163,6 +213,7 @@
             "kind": "named",
             "name": "OptoSyncClient"
           },
+          "stability": "stable",
           "static": true,
           "throws": [
             {
@@ -173,11 +224,16 @@
           "visibility": "public"
         }
       ],
+      "deprecation": null,
       "description": "Standard public client entry point.",
+      "documentationId": "api.symbols.5.OptoSyncClient",
       "fields": [
         {
+          "deprecation": null,
+          "documentationId": "api.symbols.5.fields.0.options",
           "name": "options",
           "readonly": true,
+          "stability": "stable",
           "type": {
             "kind": "named",
             "name": "OptoSyncClientOptions"
@@ -190,12 +246,21 @@
       "methods": [
         {
           "async": true,
+          "auth": {
+            "mode": "none",
+            "schemes": [],
+            "scopes": []
+          },
+          "behavior": "async",
+          "deprecation": null,
+          "documentationId": "api.symbols.5.methods.0.health",
           "name": "health",
           "parameters": [],
           "returns": {
             "kind": "primitive",
             "name": "boolean"
           },
+          "stability": "stable",
           "static": false,
           "throws": [
             {
@@ -207,6 +272,14 @@
         },
         {
           "async": true,
+          "auth": {
+            "mode": "none",
+            "schemes": [],
+            "scopes": []
+          },
+          "behavior": "async",
+          "deprecation": null,
+          "documentationId": "api.symbols.5.methods.1._request",
           "name": "_request",
           "parameters": [
             {
@@ -228,6 +301,7 @@
             "kind": "primitive",
             "name": "bytes"
           },
+          "stability": "stable",
           "static": false,
           "throws": [
             {
@@ -239,30 +313,50 @@
         }
       ],
       "name": "OptoSyncClient",
+      "stability": "stable",
       "visibility": "public"
     },
     {
       "constructors": [
         {
           "async": false,
+          "auth": {
+            "mode": "none",
+            "schemes": [],
+            "scopes": []
+          },
+          "behavior": "sync",
+          "deprecation": null,
+          "documentationId": "api.symbols.6.constructors.0.new",
           "name": "new",
           "parameters": [],
           "returns": {
             "kind": "named",
             "name": "_OptoSyncRequestBuilder"
           },
+          "stability": "stable",
           "static": true,
           "throws": [],
           "visibility": "private"
         }
       ],
+      "deprecation": null,
       "description": "Internal request builder.",
+      "documentationId": "api.symbols.6._OptoSyncRequestBuilder",
       "fields": [],
       "implements": [],
       "kind": "class",
       "methods": [
         {
           "async": false,
+          "auth": {
+            "mode": "none",
+            "schemes": [],
+            "scopes": []
+          },
+          "behavior": "sync",
+          "deprecation": null,
+          "documentationId": "api.symbols.6.methods.0.build",
           "name": "build",
           "parameters": [
             {
@@ -277,17 +371,27 @@
             "kind": "primitive",
             "name": "bytes"
           },
+          "stability": "stable",
           "static": false,
           "throws": [],
           "visibility": "private"
         }
       ],
       "name": "_OptoSyncRequestBuilder",
+      "stability": "stable",
       "visibility": "private"
     },
     {
       "async": false,
+      "auth": {
+        "mode": "none",
+        "schemes": [],
+        "scopes": []
+      },
+      "behavior": "sync",
+      "deprecation": null,
       "description": "Construct the standard client entry point.",
+      "documentationId": "api.symbols.7.createOptoSyncClient",
       "kind": "function",
       "name": "createOptoSyncClient",
       "parameters": [
@@ -303,6 +407,7 @@
         "kind": "named",
         "name": "OptoSyncClient"
       },
+      "stability": "stable",
       "static": true,
       "throws": [
         {
@@ -314,7 +419,15 @@
     },
     {
       "async": false,
+      "auth": {
+        "mode": "none",
+        "schemes": [],
+        "scopes": []
+      },
+      "behavior": "sync",
+      "deprecation": null,
       "description": "Normalize a base URL without network access.",
+      "documentationId": "api.symbols.8._normalizeOptoSyncBaseUrl",
       "kind": "function",
       "name": "_normalizeOptoSyncBaseUrl",
       "parameters": [
@@ -330,6 +443,7 @@
         "kind": "primitive",
         "name": "string"
       },
+      "stability": "stable",
       "static": true,
       "throws": [
         {
