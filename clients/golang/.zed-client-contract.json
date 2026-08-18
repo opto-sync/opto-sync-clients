@@ -1,6 +1,6 @@
 {
   "apiSurface": "clients/api-surface.json",
-  "apiSurfaceSha256": "49fe9b15202a8d1ab3e1193df837d922fdcda9c486846cb2debdb7096e0adbf7",
+  "apiSurfaceSha256": "09b49c4edf62be1aacefa10f64ecb0fd2d59c6c0cdb441cb481753f9c4cefa2b",
   "coordinate": "opto-sync/opto-sync-clients",
   "runtime": "golang",
   "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
