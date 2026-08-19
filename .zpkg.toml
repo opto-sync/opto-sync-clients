@@ -65,3 +65,77 @@ test = "python3 scripts/check-package-layout.py"
 # installable [targets.*] absent until DEN-311 proves every extracted target is
 # clean-room self-contained and cannot escape into sibling paths or a second
 # native-core revision.
+
+[install]
+dir = ".vendor/.zed"
+
+[targets.repository]
+dir = "."
+
+[targets.c]
+dir = "clients/c"
+adapter = "none"
+
+[targets.cpp]
+dir = "clients/cpp"
+adapter = "none"
+
+[targets.zig]
+dir = "clients/zig"
+adapter = "none"
+
+[targets.rust-wasm]
+dir = "clients/wasm"
+adapter = "node"
+
+[targets.gleam]
+dir = "clients/gleamlang"
+adapter = "none"
+
+[targets.erlang]
+dir = "clients/erlang"
+adapter = "none"
+
+[targets.elixir]
+dir = "clients/elixir"
+adapter = "none"
+
+[targets.dart]
+dir = "clients/dart"
+adapter = "none"
+
+[targets.rust]
+dir = "clients/rust"
+adapter = "none"
+
+[targets.java]
+dir = "clients/java"
+adapter = "java"
+
+[targets.golang]
+dir = "clients/golang"
+adapter = "none"
+
+[targets.python]
+dir = "clients/python3"
+adapter = "none"
+
+[targets.ruby]
+dir = "clients/ruby"
+adapter = "none"
+
+[targets.php]
+dir = "clients/php"
+adapter = "none"
+
+[targets.kotlin]
+dir = "clients/kotlin"
+adapter = "java"
+
+[targets.swift]
+dir = "clients/swift"
+adapter = "none"
+
+[targets.nodejs]
+dir = "clients/typescript/nodejs"
+adapter = "node"
