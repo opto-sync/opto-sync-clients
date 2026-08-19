@@ -60,3 +60,8 @@ exclude = [
 
 [scripts]
 test = "python3 scripts/check-package-layout.py"
+
+# Per-language capabilities remain declared in clients/sdk-matrix.toml. Keep
+# installable [targets.*] absent until DEN-311 proves every extracted target is
+# clean-room self-contained and cannot escape into sibling paths or a second
+# native-core revision.
