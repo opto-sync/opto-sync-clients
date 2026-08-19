@@ -1,0 +1,100 @@
+name: Refresh target-local API evidence
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - synchronize
+    paths:
+      - '.github/workflows/refresh-target-api-evidence.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'automation/nightly-client-hardening'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout exact PR head branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          ref: automation/nightly-client-hardening
+          submodules: recursive
+
+      - name: Refresh exactly the manifest-declared target evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import json
+          from pathlib import Path
+
+          root = Path('.')
+          clients = root / 'clients'
+          old = '09b49c4edf62be1aacefa10f64ecb0fd2d59c6c0cdb441cb481753f9c4cefa2b'
+          actual = hashlib.sha256((clients / 'api-surface.json').read_bytes()).hexdigest()
+          declared = (clients / '.api-surface.sha256').read_text().strip()
+          if actual != declared:
+              raise SystemExit(f'root digest mismatch: declared={declared}, actual={actual}')
+          manifest = json.loads((clients / 'contract-manifest.json').read_text())
+          targets = manifest.get('targets')
+          if not isinstance(targets, list) or len(targets) != 20:
+              raise SystemExit(f'expected exactly 20 manifest targets, found {len(targets) if isinstance(targets, list) else "non-list"}')
+          if manifest.get('apiSurfaceSha256') != actual:
+              raise SystemExit('root contract manifest digest is not current')
+
+          seen = set()
+          changed_contracts = 0
+          changed_digests = 0
+          for target in targets:
+              name = target['target']
+              directory = Path(target['dir'])
+              if name in seen:
+                  raise SystemExit(f'duplicate target {name}')
+              seen.add(name)
+              if target.get('apiSurfaceSha256') != actual:
+                  raise SystemExit(f'manifest target {name} is stale')
+              contract_path = directory / '.zed-client-contract.json'
+              digest_path = directory / '.zed-api-surface.sha256'
+              contract_text = contract_path.read_text()
+              contract = json.loads(contract_text)
+              current = contract.get('apiSurfaceSha256')
+              if current not in {old, actual}:
+                  raise SystemExit(f'target {name} has unexpected contract digest {current}')
+              if current == old:
+                  if contract_text.count(old) != 1:
+                      raise SystemExit(f'target {name} contract does not contain exactly one stale digest')
+                  contract_path.write_text(contract_text.replace(old, actual))
+                  changed_contracts += 1
+              current_digest = digest_path.read_text().strip()
+              if current_digest not in {old, actual}:
+                  raise SystemExit(f'target {name} has unexpected fingerprint {current_digest}')
+              if current_digest == old:
+                  digest_path.write_text(actual + '\n')
+                  changed_digests += 1
+
+          if seen != {target['target'] for target in targets}:
+              raise SystemExit('target identity set changed unexpectedly')
+          if changed_contracts != 20 or changed_digests != 20:
+              raise SystemExit(
+                  f'expected to refresh 20 contracts and 20 fingerprints; '
+                  f'changed contracts={changed_contracts}, fingerprints={changed_digests}'
+              )
+          PY
+          python3 scripts/check-zed-packaging.py
+          git diff --check
+
+      - name: Commit corrected target-local evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'opto-sync automation'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add clients
+          git commit -m 'fix(ci): refresh target-local API surface evidence'
+          git push origin HEAD:automation/nightly-client-hardening
