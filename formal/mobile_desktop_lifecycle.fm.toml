@@ -7,6 +7,11 @@ main = "mobile_desktop_lifecycle"
 init = "init"
 step = "step"
 invariants = ["lifecycle_safety"]
+temporal_properties = [
+  "acquisition_eventually_settles",
+  "running_cycle_eventually_settles",
+  "close_eventually_terminates",
+]
 witnesses = [
   "close_during_acquire_reached",
   "trailing_wake_reached",

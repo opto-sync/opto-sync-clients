@@ -188,6 +188,7 @@ fn build_quint_plan(
             push_machine_arguments(&mut args, loaded);
             args.push(format!("--backend={}", verification.backend));
             push_named_values(&mut args, "--invariants", &manifest.invariants);
+            push_temporal_properties(&mut args, &manifest.temporal_properties);
             if verification.max_steps.is_some() {
                 args.push(format!(
                     "--max-steps={}",
@@ -549,6 +550,12 @@ fn push_named_values(args: &mut Vec<String>, flag: &str, values: &[String]) {
     }
 }
 
+fn push_temporal_properties(args: &mut Vec<String>, values: &[String]) {
+    if !values.is_empty() {
+        args.push(format!("--temporal={}", values.join(",")));
+    }
+}
+
 fn path_argument(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
@@ -595,6 +602,7 @@ init = "init"
 step = "step"
 invariants = ["safe"]
 witnesses = ["safe"]
+temporal_properties = ["eventual_progress", "eventual_quiescence"]
 
 [toolchain]
 quint = "0.32.0"
@@ -644,6 +652,18 @@ max_steps = 10
             plan.max_output_bytes as u64,
             plan.resource_policy.effective.scalar.max_output_bytes
         );
+    }
+
+    #[test]
+    fn verification_plan_passes_temporal_properties_as_one_quint_argument() {
+        let (_directory, loaded) = fixture();
+        let plan = build_plan(&loaded, &Operation::Verify).expect("verification plan");
+        assert!(plan.args.contains(&"--invariants".to_owned()));
+        assert!(plan.args.contains(&"safe".to_owned()));
+        assert!(plan
+            .args
+            .contains(&"--temporal=eventual_progress,eventual_quiescence".to_owned()));
+        assert!(!plan.args.contains(&"--temporal".to_owned()));
     }
 
     #[test]

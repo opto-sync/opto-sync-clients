@@ -192,6 +192,8 @@ module mobile_desktop_lifecycle {
 
   action idle = s' = s
 
+  action settle_acquire = any { acquire_granted, acquire_deferred }
+
   action step = any {
     wake,
     join,
@@ -230,6 +232,31 @@ module mobile_desktop_lifecycle {
     closing_rejects_wakes,
     cancellation_is_controlled,
   }
+
+  // These progress claims are conditional on the environment eventually
+  // settling permit acquisition, the user callback, and durable-fence release.
+  // `process_abort` remains an unrestricted fault: it also leaves Acquiring or
+  // Running, and a close request is terminal across an abort.
+  temporal lifecycle_progress_is_fair = and {
+    settle_acquire.strongFair(Set(s)),
+    cycle_settled.strongFair(Set(s)),
+    release_settled.strongFair(Set(s)),
+  }
+
+  temporal acquisition_eventually_settles =
+    lifecycle_progress_is_fair.implies(
+      (s.phase == Acquiring).leadsTo(s.phase != Acquiring)
+    )
+
+  temporal running_cycle_eventually_settles =
+    lifecycle_progress_is_fair.implies(
+      (s.phase == Running).leadsTo(s.phase != Running)
+    )
+
+  temporal close_eventually_terminates =
+    lifecycle_progress_is_fair.implies(
+      s.close_requested.leadsTo(s.phase == Closed)
+    )
 
   val close_during_acquire_reached = s.saw_close_during_acquire
   val trailing_wake_reached = s.saw_trailing_wake

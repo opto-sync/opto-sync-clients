@@ -89,10 +89,10 @@ jobs:
       - name: Simulate safety and reach failure-recovery witnesses through fmctl
         run: nix develop --command tools/fmctl/target/release/fmctl simulate
 
-      - name: Exhaustively model-check the finite protocol state space through fmctl
+      - name: Exhaustively check protocol safety and fair-progress liveness
         run: nix develop --command tools/fmctl/target/release/fmctl verify
 
-      - name: Check the mobile and desktop lifecycle transition system
+      - name: Check lifecycle safety and fair-settlement liveness
         run: |
           lifecycle_manifest='formal/mobile_desktop_lifecycle.fm.toml'
           nix develop --command tools/fmctl/target/release/fmctl --manifest "$lifecycle_manifest" validate

@@ -11,6 +11,7 @@ pub const MANIFEST_SCHEMA_VERSION: u32 = 1;
 pub const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
 pub const MAX_INVARIANTS: usize = 256;
 pub const MAX_WITNESSES: usize = 256;
+pub const MAX_TEMPORAL_PROPERTIES: usize = 256;
 pub const MAX_ADAPTERS: usize = 32;
 pub const MAX_REQUIRED_ACTIONS: usize = 256;
 pub const MAX_OBSERVABLE_FIELDS: usize = 256;
@@ -48,6 +49,8 @@ pub struct Manifest {
     pub invariants: Vec<String>,
     #[serde(default)]
     pub witnesses: Vec<String>,
+    #[serde(default)]
+    pub temporal_properties: Vec<String>,
     pub toolchain: ToolchainConfig,
     #[serde(default)]
     pub execution: ExecutionConfig,
@@ -162,18 +165,13 @@ pub struct AdapterConfig {
     pub environment: BTreeMap<String, String>,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum AdapterStatus {
+    #[default]
     Planned,
     Active,
     Disabled,
-}
-
-impl Default for AdapterStatus {
-    fn default() -> Self {
-        Self::Planned
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -196,6 +194,7 @@ pub struct ValidationReport {
     pub spec: PathBuf,
     pub invariants: Vec<String>,
     pub witnesses: Vec<String>,
+    pub temporal_properties: Vec<String>,
     pub adapters: BTreeMap<String, AdapterStatus>,
     pub warnings: Vec<String>,
 }
@@ -285,6 +284,7 @@ impl LoadedManifest {
             spec: self.spec_path.clone(),
             invariants: self.manifest.invariants.clone(),
             witnesses: self.manifest.witnesses.clone(),
+            temporal_properties: self.manifest.temporal_properties.clone(),
             adapters,
             warnings,
         }
@@ -401,6 +401,12 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
         &mut errors,
     );
     validate_collection_limit(
+        "temporal_properties",
+        manifest.temporal_properties.len(),
+        MAX_TEMPORAL_PROPERTIES,
+        &mut errors,
+    );
+    validate_collection_limit(
         "adapters",
         manifest.adapters.len(),
         MAX_ADAPTERS,
@@ -408,6 +414,14 @@ fn validate_manifest_shape(manifest: &Manifest) -> Vec<String> {
     );
     validate_unique_identifiers("invariants", &manifest.invariants, &mut errors);
     validate_unique_identifiers("witnesses", &manifest.witnesses, &mut errors);
+    validate_unique_identifiers(
+        "temporal_properties",
+        &manifest.temporal_properties,
+        &mut errors,
+    );
+    if !manifest.temporal_properties.is_empty() && manifest.verification.is_none() {
+        errors.push("temporal_properties require a [verification] configuration".to_owned());
+    }
 
     if !is_safe_version(&manifest.toolchain.quint) {
         errors.push(format!(
@@ -976,16 +990,32 @@ mod tests {
     }
 
     #[test]
-    fn invariant_and_witness_boundaries_are_exact() {
+    fn property_collection_boundaries_are_exact() {
         let mut manifest = valid_manifest();
         manifest.invariants = identifiers("invariant", MAX_INVARIANTS);
         manifest.witnesses = identifiers("witness", MAX_WITNESSES);
+        manifest.temporal_properties = identifiers("temporal", MAX_TEMPORAL_PROPERTIES);
         assert_valid(&manifest);
 
         manifest.invariants.push("invariant_overflow".to_owned());
         manifest.witnesses.push("witness_overflow".to_owned());
+        manifest
+            .temporal_properties
+            .push("temporal_overflow".to_owned());
         assert_error(&manifest, "invariants must contain at most");
         assert_error(&manifest, "witnesses must contain at most");
+        assert_error(&manifest, "temporal_properties must contain at most");
+    }
+
+    #[test]
+    fn temporal_properties_require_verification() {
+        let mut manifest = valid_manifest();
+        manifest.temporal_properties = vec!["eventual_progress".to_owned()];
+        manifest.verification = None;
+        assert_error(
+            &manifest,
+            "temporal_properties require a [verification] configuration",
+        );
     }
 
     #[test]
