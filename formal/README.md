@@ -20,7 +20,10 @@ The design separates three concerns:
 This keeps the trusted design artifact independent of the runtime while still
 letting Rust own the operational tooling and protocol schemas.
 
-## Current model
+The machine-by-machine proof boundary, current evidence, and prioritized gaps
+are maintained in [`STATE_MACHINE_ASSURANCE.md`](STATE_MACHINE_ASSURANCE.md).
+
+## Protocol model
 
 `opto_sync_protocol.qnt` models the protocol-v1 client/server lifecycle with a
 small finite domain so TLC can exhaust the complete reachable state graph.
@@ -79,17 +82,44 @@ cooperative cancellation, release, close-during-acquire, and process abort
 explicit. Undefined runtime transitions fail closed.
 
 TLC exhaustively checks every reachable state in the declared finite model.
-The TypeScript, Dart, and Rust suites independently enumerate every event from every
-reachable implementation state and require the same safety invariants. This
-proves the transition system within its boundary; OS process loss, durable-store
-correctness, transport behavior, and user callback cooperation remain explicit
-environmental assumptions covered by fencing, restart, and fault tests rather
-than being overstated as a whole-product proof.
+One deterministic 128-trace ITF corpus is replayed through the production
+TypeScript, Dart, and Rust machines. Every adapter independently requires all 12
+model actions plus seven state-dependent fault/close/wake scenarios, and compares
+phase, pending wake, close/cancel requests, and permit ownership after every
+action. Implementation-side exhaustive transition tests remain a second,
+independent check. This proves the selected transition-system
+projection within its boundary; OS process loss, durable-store correctness,
+transport behavior, and user callback cooperation remain explicit environmental
+assumptions covered by fencing, restart, and fault tests rather than being
+overstated as a whole-product proof.
 
 The lifecycle model additionally verifies that permit acquisition, a running
 cycle, and a requested close eventually settle under explicit fairness for the
 permit provider, user callback, and durable-fence release. Process abort remains
 an unrestricted fault and is included in the checked state graph.
+
+## Connectivity override model
+
+`connectivity_override.qnt` specifies the shared core behind browser, Dart,
+Flutter, Android, and Apple connectivity adapters. It separates the latest
+automatic platform observation from the exposed state. While total-offline mode
+is active, platform observations continue to update the cache but cannot leak an
+online state or verified-internet claim; restoring automatic mode exposes the
+latest cache atomically.
+
+TLC exhaustively checks all 92 reachable states for three composed safety
+contracts: forced offline is authoritative, automatic mode exposes exactly the
+cache, and verification is true exactly for exposed Internet state. A
+deterministic 64-trace corpus covers all eight actions and both idempotent
+same-mode setter scenarios, and is actively replayed through the production
+TypeScript and Dart watchers. The adapter also checks whether a semantic-change
+listener fired for each action.
+
+There is intentionally no connectivity liveness theorem: a platform observer
+may remain silent forever and an application may remain in total-offline mode
+forever. Android and Apple OS adapters are integration-tested but are not yet
+active ITF refinements; extracting their pure reducers is tracked as the next
+native proof step in the assurance ledger.
 
 ## Run locally
 
@@ -119,7 +149,22 @@ done
 $FMCTL replay --adapter rust "${traces[@]}"
 $FMCTL replay --adapter typescript "${traces[@]}"
 $FMCTL replay --adapter dart "${traces[@]}"
+
+for manifest in \
+  formal/mobile_desktop_lifecycle.fm.toml \
+  formal/connectivity_override.fm.toml; do
+  $FMCTL --manifest "$manifest" validate
+  $FMCTL --manifest "$manifest" check
+  $FMCTL --manifest "$manifest" simulate
+  $FMCTL --manifest "$manifest" verify
+  $FMCTL --manifest "$manifest" trace
+done
 ```
+
+The hosted workflow additionally replays the lifecycle corpus through Rust,
+TypeScript, and Dart and the connectivity corpus through TypeScript and Dart.
+Each manifest declares its active adapter commands and exact observable
+projection, so `fmctl replay` remains the canonical entry point.
 
 `temporal_properties` in an `fm.toml` manifest are passed only to model
 verification—never simulation—as a single pinned Quint `--temporal` argument.
@@ -256,7 +301,11 @@ Every adapter consumes the same raw ITF corpus and projection vocabulary.
 | TypeScript | `formal/typescript-itf-replay.mjs` against public `OptoSyncClient` + Dexie | Active |
 | Dart | `clients/dart/tool/formal_itf_replay.dart` against public `OptoSyncClient` + Drift/SQLite | Active |
 | Go | Generic trace-runner SDK; opto-sync can add a client when one exists | Planned |
-| Gleam | BEAM runner for implemented protocol codec/state transitions | Planned |
+| Gleam | Production protocol state + volatile BEAM replay store | Active (no durable-restart claim) |
+
+Lifecycle refinement is active for Rust, TypeScript, and Dart. Connectivity
+override refinement is active for TypeScript and Dart; the native Kotlin and
+Swift bridges remain explicitly tracked as tested rather than model-refined.
 
 Adapters must never compare private storage layout byte-for-byte. They compare
 observable protocol state: pending identities, request envelope, durable
@@ -301,13 +350,19 @@ space.
 
 The next opto-sync models should cover, in order:
 
-1. immutable `(clientId, mutationId) -> content` and batch gap/reuse rejection;
-2. pull pagination, filtered global checkpoints, and commit ordering;
-3. HLC monotonicity, LWW/FWW policies, tombstone resurrection, and pending rebase;
-4. additional historical IndexedDB migration fixtures (Drift/SQLite v1/v2
+1. protocol sync-loop scheduling across single-flight execution, coalesced
+   hints, stop/abort, offline recovery, permanent failure, and bounded backoff;
+2. two-process SQLite lease and fencing behavior across expiry, renewal, stale
+   completion, process death, and takeover;
+3. WebSocket connection, request-correlation, timeout, close, fallback, and
+   reconnect behavior under a deterministic socket and clock;
+4. immutable `(clientId, mutationId) -> content`, multi-item batch gap/reuse
+   rejection, and multi-client convergence;
+5. HLC monotonicity, LWW/FWW policies, tombstone resurrection, and pending rebase;
+6. additional historical IndexedDB migration fixtures (Drift/SQLite v1/v2
    identity adoption, interruption, reopen, and rollback are enforced by the
    Dart production migration tests);
-5. multi-client convergence plus Go and Gleam trace replay.
+7. Go protocol trace replay and durable Gleam storage refinement.
 
 `fm.toml` is the active schema-v1 manifest for the incubating Rust orchestrator.
 GitHub Actions builds and tests `fmctl`, runs every Quint phase through it, checks

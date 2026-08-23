@@ -55,50 +55,24 @@ module mobile_desktop_lifecycle {
     s' = { ...s, phase: Acquiring, wake_pending: false },
   }
 
-  action acquire_granted = any {
-    all {
-      s.phase == Acquiring,
-      not(s.close_requested),
-      s' = {
-        ...s,
-        phase: Running,
-        permit_held: true,
-        cancel_requested: false,
-      },
-    },
-    all {
-      s.phase == Acquiring,
-      s.close_requested,
-      s' = {
-        ...s,
-        phase: Releasing,
-        permit_held: true,
-        cancel_requested: false,
-      },
+  action acquire_granted = all {
+    s.phase == Acquiring,
+    s' = {
+      ...s,
+      phase: if (s.close_requested) Releasing else Running,
+      permit_held: true,
+      cancel_requested: false,
     },
   }
 
-  action acquire_deferred = any {
-    all {
-      s.phase == Acquiring,
-      not(s.close_requested),
-      s' = {
-        ...s,
-        phase: Idle,
-        cancel_requested: false,
-        permit_held: false,
-      },
-    },
-    all {
-      s.phase == Acquiring,
-      s.close_requested,
-      s' = {
-        ...s,
-        phase: Closed,
-        wake_pending: false,
-        cancel_requested: false,
-        permit_held: false,
-      },
+  action acquire_deferred = all {
+    s.phase == Acquiring,
+    s' = {
+      ...s,
+      phase: if (s.close_requested) Closed else Idle,
+      wake_pending: if (s.close_requested) false else s.wake_pending,
+      cancel_requested: false,
+      permit_held: false,
     },
   }
 
@@ -117,65 +91,32 @@ module mobile_desktop_lifecycle {
     s' = { ...s, phase: Releasing, cancel_requested: false },
   }
 
-  action release_settled = any {
-    all {
-      s.phase == Releasing,
-      s.permit_held,
-      not(s.close_requested),
-      s' = {
-        ...s,
-        phase: Idle,
-        cancel_requested: false,
-        permit_held: false,
-      },
-    },
-    all {
-      s.phase == Releasing,
-      s.permit_held,
-      s.close_requested,
-      s' = {
-        ...s,
-        phase: Closed,
-        wake_pending: false,
-        cancel_requested: false,
-        permit_held: false,
-      },
+  action release_settled = all {
+    s.phase == Releasing,
+    s.permit_held,
+    s' = {
+      ...s,
+      phase: if (s.close_requested) Closed else Idle,
+      wake_pending: if (s.close_requested) false else s.wake_pending,
+      cancel_requested: false,
+      permit_held: false,
     },
   }
 
-  action close = any {
-    all {
-      s.phase == Idle,
-      s' = {
-        ...s,
-        phase: Closed,
-        wake_pending: false,
-        close_requested: true,
-        cancel_requested: false,
-      },
-    },
-    all {
-      s.phase == Acquiring,
-      s' = {
-        ...s,
-        wake_pending: false,
-        close_requested: true,
-        saw_close_during_acquire: true,
-      },
-    },
-    all {
-      s.phase == Running,
-      s' = {
-        ...s,
-        wake_pending: false,
-        close_requested: true,
-        cancel_requested: true,
-        saw_cancellation: true,
-      },
-    },
-    all {
-      s.phase == Releasing,
-      s' = { ...s, wake_pending: false, close_requested: true },
+  // Keep this as one named transition rather than a nested `any`: Quint's MBT
+  // instrumentation cannot attribute a selected inner branch to the outer
+  // action, which would make close behavior invisible to refinement replay.
+  action request_close = all {
+    s.phase != Closed,
+    s' = {
+      ...s,
+      phase: if (s.phase == Idle) Closed else s.phase,
+      wake_pending: false,
+      close_requested: true,
+      cancel_requested: s.phase == Running,
+      saw_close_during_acquire:
+        s.saw_close_during_acquire or s.phase == Acquiring,
+      saw_cancellation: s.saw_cancellation or s.phase == Running,
     },
   }
 
@@ -203,7 +144,7 @@ module mobile_desktop_lifecycle {
     cancel,
     cycle_settled,
     release_settled,
-    close,
+    request_close,
     process_abort,
     idle,
   }

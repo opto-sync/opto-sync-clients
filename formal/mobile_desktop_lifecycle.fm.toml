@@ -38,3 +38,85 @@ max_steps = 30
 [verification]
 backend = "tlc"
 exhaustive_finite_model = true
+
+[traces]
+format = "itf"
+model_based_testing_metadata = true
+backend = "rust"
+seed = "0x7f4a7c159e3779b9"
+count = 128
+max_steps = 30
+max_samples = 128
+required_actions = [
+  "init",
+  "idle",
+  "wake",
+  "join",
+  "begin_acquire",
+  "acquire_granted",
+  "acquire_deferred",
+  "cancel",
+  "cycle_settled",
+  "release_settled",
+  "request_close",
+  "process_abort",
+]
+
+[adapters.rust]
+strategy = "itf-json-driver"
+target = "clients/desktop-rust"
+working_directory = "."
+command = [
+  "cargo",
+  "run",
+  "--quiet",
+  "--locked",
+  "--manifest-path",
+  "clients/desktop-rust/Cargo.toml",
+  "--example",
+  "lifecycle_itf_replay",
+  "--",
+]
+implementation = "clients/desktop-rust production SyncLifecycleMachine"
+observable_state = [
+  "phase",
+  "wakePending",
+  "closeRequested",
+  "cancelRequested",
+  "permitHeld",
+]
+status = "active"
+
+[adapters.typescript]
+strategy = "itf-json-driver"
+target = "formal/typescript-lifecycle-itf-replay.mjs"
+working_directory = "."
+command = [
+  "node",
+  "--experimental-strip-types",
+  "formal/typescript-lifecycle-itf-replay.mjs",
+]
+implementation = "clients/reactive-ts production SyncLifecycleMachine"
+observable_state = [
+  "phase",
+  "wakePending",
+  "closeRequested",
+  "cancelRequested",
+  "permitHeld",
+]
+status = "active"
+
+[adapters.dart]
+strategy = "itf-json-driver"
+target = "clients/reactive-dart/tool/lifecycle_itf_replay.dart"
+working_directory = "clients/reactive-dart"
+command = ["dart", "run", "tool/lifecycle_itf_replay.dart"]
+implementation = "clients/reactive-dart production SyncLifecycleMachine"
+observable_state = [
+  "phase",
+  "wakePending",
+  "closeRequested",
+  "cancelRequested",
+  "permitHeld",
+]
+status = "active"
