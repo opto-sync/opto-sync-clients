@@ -6,6 +6,7 @@ import {
   switchMap,
   timer,
 } from 'rxjs';
+import type { SchedulerLike } from 'rxjs';
 
 import {
   requireAuthenticated,
@@ -51,6 +52,8 @@ export interface WebSocketHintOptions {
   ) => DecodedSyncHint | null;
   retryBaseMs?: number;
   retryMaxMs?: number;
+  retryAttempts?: number;
+  retryScheduler?: SchedulerLike;
 }
 
 function defaultDecode(message: unknown): DecodedSyncHint | null {
@@ -86,11 +89,15 @@ export function createWebSocketHints$(
   const decode = options.decode ?? defaultDecode;
   const retryBase = options.retryBaseMs ?? 500;
   const retryMax = options.retryMaxMs ?? 30_000;
+  const retryAttempts = options.retryAttempts ?? 8;
   if (!Number.isFinite(retryBase) || retryBase < 0) {
     throw new RangeError('retryBaseMs must be a non-negative finite number');
   }
   if (!Number.isFinite(retryMax) || retryMax < retryBase) {
     throw new RangeError('retryMaxMs must be finite and >= retryBaseMs');
+  }
+  if (!Number.isSafeInteger(retryAttempts) || retryAttempts < 0) {
+    throw new RangeError('retryAttempts must be a non-negative safe integer');
   }
 
   return options.session$.pipe(
@@ -125,9 +132,9 @@ export function createWebSocketHints$(
         const onClose = (event: { code?: number; reason?: string }) => {
           subscriber.error(
             new Error(
-              `opto-sync WebSocket closed (${event.code ?? 0}): ${
-                event.reason ?? ''
-              }`,
+              `opto-sync WebSocket closed (code=${
+                Number.isSafeInteger(event.code) ? event.code : 0
+              })`,
             ),
           );
         };
@@ -142,12 +149,14 @@ export function createWebSocketHints$(
         };
       }).pipe(
         retry({
+          count: retryAttempts,
           delay: (_error, count) =>
             timer(
               Math.min(
                 retryMax,
                 retryBase * 2 ** Math.min(count - 1, 10),
               ),
+              options.retryScheduler,
             ),
         }),
       );

@@ -171,6 +171,7 @@ export interface DesktopSyncRunnerOptions<R> {
   now?: () => number;
   tokenFactory?: () => string;
   onOutcome?: (outcome: DesktopSyncOutcome<R>) => void;
+  onLifecycleTransition?: SyncLifecycleObserver;
 }
 
 function validateIdentifier(name: string, value: string): void {
@@ -218,7 +219,7 @@ export class DesktopSyncRunner<R> {
   readonly #pendingReasons = new Set<DesktopWakeReason>();
   #drain?: Promise<DesktopSyncDrainResult<R>>;
   #activeController?: AbortController;
-  readonly #lifecycle = new SyncLifecycleMachine();
+  readonly #lifecycle: SyncLifecycleMachine;
 
   constructor(options: DesktopSyncRunnerOptions<R>) {
     validateIdentifier('leaseKey', options.leaseKey);
@@ -250,6 +251,7 @@ export class DesktopSyncRunner<R> {
     this.#now = options.now ?? Date.now;
     this.#tokenFactory = options.tokenFactory ?? defaultTokenFactory;
     this.#onOutcome = options.onOutcome;
+    this.#lifecycle = new SyncLifecycleMachine(options.onLifecycleTransition);
   }
 
   get closed(): boolean {
@@ -482,5 +484,6 @@ export class InMemoryDesktopLeaseStore implements DesktopLeaseStore {
 }
 import {
   SyncLifecycleMachine,
+  type SyncLifecycleObserver,
   type SyncLifecycleSnapshot,
 } from './sync-lifecycle.ts';

@@ -163,6 +163,49 @@ test('capabilities do not misrepresent WASM as a persistent OS daemon', () => {
   );
 });
 
+test('desktop owner exposes redacted lifecycle transitions', async () => {
+  const transitions: Array<{
+    event: string;
+    before: { phase: string };
+    after: { phase: string };
+  }> = [];
+  const runner = new DesktopSyncRunner<void>({
+    leaseStore: new InMemoryDesktopLeaseStore(),
+    leaseKey: 'account:observed',
+    ownerId: 'desktop-observed',
+    timeoutMs: 2_000,
+    leaseTtlMs: 4_000,
+    tokenFactory: () => 'observed-token',
+    async syncOnce() {},
+    onLifecycleTransition: (transition) => transitions.push(transition),
+  });
+
+  await runner.runNow();
+  runner.close();
+
+  assert.deepEqual(
+    transitions.map(({ event, before, after }) => [
+      before.phase,
+      event,
+      after.phase,
+    ]),
+    [
+      ['idle', 'wake', 'idle'],
+      ['idle', 'begin-acquire', 'acquiring'],
+      ['acquiring', 'acquire-granted', 'running'],
+      ['running', 'cycle-settled', 'releasing'],
+      ['releasing', 'release-settled', 'idle'],
+      ['idle', 'close', 'closed'],
+    ],
+  );
+  assert.equal(
+    transitions.some((transition) =>
+      JSON.stringify(transition).includes('observed-token'),
+    ),
+    false,
+  );
+});
+
 test('close aborts the active cycle and refuses new wakes', async () => {
   const store = new InMemoryDesktopLeaseStore();
   const runner = new DesktopSyncRunner<void>({
@@ -299,4 +342,28 @@ test('lifecycle relation is closed across every reachable event pair', () => {
     SyncLifecycleTransitionError,
   );
   assert.strictEqual(machine.state, before);
+});
+
+test('lifecycle observer is bounded metadata and cannot alter ownership', () => {
+  const observed: unknown[] = [];
+  const machine = new SyncLifecycleMachine((transition) => {
+    observed.push(transition);
+    if (transition.event === 'wake') {
+      throw new Error('broken diagnostics sink');
+    }
+  });
+
+  machine.apply('wake');
+  machine.apply('begin-acquire');
+  machine.apply('acquire-deferred');
+  machine.apply('close');
+
+  assert.equal(machine.state.phase, 'closed');
+  assert.equal(observed.length, 4);
+  assert.deepEqual(Object.keys(observed[0] as object).sort(), [
+    'after',
+    'before',
+    'event',
+  ]);
+  assert.equal(Object.isFrozen(observed[0]), true);
 });

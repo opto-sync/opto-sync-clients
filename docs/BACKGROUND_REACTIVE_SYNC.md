@@ -129,6 +129,8 @@ Modern stream lifecycle choices:
 - `switchMap` cancels old-session sources;
 - `concatMap` serializes asynchronous projection/rebase work;
 - `exhaustMap` prevents overlapping queue owners;
+- WebSocket reconnect has a finite retry count and bounded exponential delay;
+- scheduler injection makes retry and coalescing deterministic in tests;
 - bounded event-key retention prevents an unbounded dedupe set;
 - `shareReplay({bufferSize: 1, refCount: true})` replays the latest UI state
   without leaking a socket/observer when all views unsubscribe;
@@ -255,7 +257,8 @@ reserved for trusted native/server environments.
 
 The branch-specific workflow runs:
 
-1. RxJS package lock, typecheck, unit tests, HTTP/TCP tests;
+1. RxJS package lock, typecheck, unit tests, HTTP/TCP tests, finite virtual-time
+   reconnect/coalescing, listener/socket teardown, and the browser bundle budget;
 2. real Chromium/two-tab Service Worker + IndexedDB, including browser-owned
    legacy sync dispatch and forced worker termination/restart;
 3. RxDart analysis and behavioral self-test;
@@ -269,6 +272,11 @@ The branch-specific workflow runs:
 The C/Rust differential test is intentionally an ABI/wrapper parity test: the
 Rust binding must translate every option and output byte exactly to the C core.
 It does not claim a second independent Rust merge algorithm.
+
+The TypeScript pilot measurement bundles the browser hint entry points as
+minified ESM, enforces 65,000 raw and 20,000 gzip byte ceilings, and reports 20
+module-evaluation samples. Transition instrumentation is explicit and
+payload-free; WebSocket close reason text is intentionally discarded.
 
 ## Primary references
 

@@ -10,6 +10,7 @@ import {
   of,
   share,
 } from 'rxjs';
+import type { SchedulerLike } from 'rxjs';
 
 import type { SyncHint } from './contracts.ts';
 
@@ -25,6 +26,7 @@ export interface SyncWakePipelineOptions<R> {
   syncNow: () => Promise<R>;
   coalesceMs?: number;
   lockName?: string;
+  scheduler?: SchedulerLike;
 }
 
 interface LockManagerLike {
@@ -72,7 +74,7 @@ export function createSyncWakePipeline<R>(
   const lockName = options.lockName ?? 'opto-sync:protocol-cycle';
 
   return merge(...options.hints).pipe(
-    auditTime(coalesceMs),
+    auditTime(coalesceMs, options.scheduler),
     concatMap((trigger) =>
       from(runWithBrowserSyncLock(lockName, options.syncNow)).pipe(
         map((result) => ({

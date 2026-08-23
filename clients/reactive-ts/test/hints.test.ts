@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { BehaviorSubject, Subject, firstValueFrom, take } from 'rxjs';
+import {
+  BehaviorSubject,
+  Subject,
+  VirtualTimeScheduler,
+  firstValueFrom,
+  take,
+} from 'rxjs';
 
 import {
   createBroadcastHintBus,
@@ -79,7 +85,7 @@ test('WebSocket hints rotate with session_id and never carry authority', async (
       checkpoint: '8',
     }),
   });
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  await Promise.resolve();
   assert.deepEqual(
     hints.map((hint) => ({
       source: hint.source,
@@ -182,23 +188,28 @@ test('custom live decoders cannot override source, reason, or session ownership'
   sessions.complete();
 });
 
-test('wake pipeline coalesces bursts, serializes ownership, and preserves a trailing wake', async () => {
+test('wake pipeline uses virtual time, serializes ownership, and preserves a trailing wake', async () => {
   const hints = new Subject<SyncHint>();
+  const scheduler = new VirtualTimeScheduler();
   let cycles = 0;
   let active = 0;
   let maxActive = 0;
   const outcomes: unknown[] = [];
+  const releases: Array<() => void> = [];
   const subscription = createSyncWakePipeline({
     hints: [hints],
     coalesceMs: 5,
-    syncNow: async () => {
+    scheduler,
+    syncNow: () => new Promise<number>((resolve) => {
       cycles += 1;
       active += 1;
       maxActive = Math.max(maxActive, active);
-      await new Promise((resolve) => setTimeout(resolve, 40));
-      active -= 1;
-      return cycles;
-    },
+      const result = cycles;
+      releases.push(() => {
+        active -= 1;
+        resolve(result);
+      });
+    }),
   }).subscribe((outcome) => outcomes.push(outcome));
   const hint: SyncHint = {
     reason: 'local-mutation',
@@ -208,13 +219,66 @@ test('wake pipeline coalesces bursts, serializes ownership, and preserves a trai
   hints.next(hint);
   hints.next({ ...hint, source: 'websocket' });
   hints.next({ ...hint, source: 'supabase' });
-  await new Promise((resolve) => setTimeout(resolve, 10));
+  scheduler.flush();
+  assert.equal(cycles, 1);
   hints.next({ ...hint, source: 'broadcast' });
-  await new Promise((resolve) => setTimeout(resolve, 110));
+  scheduler.flush();
+  assert.equal(cycles, 1, 'the trailing wake waits for the active owner');
+  releases.shift()?.();
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(cycles, 2);
+  releases.shift()?.();
+  await new Promise<void>((resolve) => setImmediate(resolve));
   assert.equal(cycles, 2, 'a wake arriving during the first cycle is not lost');
   assert.equal(outcomes.length, 2);
   assert.equal(maxActive, 1, 'protocol cycles never overlap');
   subscription.unsubscribe();
+});
+
+test('WebSocket retry is finite, scheduler-controlled, redacted, and leak-free', () => {
+  const sessions = new BehaviorSubject<SyncSession>({
+    status: 'authenticated',
+    identity,
+  });
+  const scheduler = new VirtualTimeScheduler();
+  const sockets: FakeSocket[] = [];
+  const errors: Error[] = [];
+  const subscription = createWebSocketHints$({
+    session$: sessions,
+    url: () => 'ws://127.0.0.1/hints',
+    create: () => {
+      const socket = new FakeSocket();
+      sockets.push(socket);
+      return socket;
+    },
+    retryBaseMs: 10,
+    retryMaxMs: 20,
+    retryAttempts: 2,
+    retryScheduler: scheduler,
+  }).subscribe({ error: (error) => errors.push(error as Error) });
+
+  sockets[0].emit('close', { code: 1011, reason: 'credential-in-reason' });
+  scheduler.flush();
+  assert.equal(sockets.length, 2);
+  sockets[1].emit('close', { code: 1012, reason: 'tenant-in-reason' });
+  scheduler.flush();
+  assert.equal(sockets.length, 3);
+  sockets[2].emit('close', { code: 1013, reason: 'payload-in-reason' });
+
+  assert.equal(errors.length, 1);
+  assert.match(errors[0].message, /code=1013/);
+  assert.doesNotMatch(errors[0].message, /credential|tenant|payload/);
+  assert.equal(sockets.every((socket) => socket.closed), true);
+  assert.equal(
+    sockets.every((socket) =>
+      [...socket.listeners.values()].every((listeners) => listeners.size === 0),
+    ),
+    true,
+  );
+  assert.equal(scheduler.actions.length, 0);
+
+  subscription.unsubscribe();
+  sessions.complete();
 });
 
 test('BroadcastChannel bus sanitizes metadata for local and remote tabs', async () => {
