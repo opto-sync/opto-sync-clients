@@ -9,6 +9,7 @@
 pub mod sqlite;
 
 use std::collections::BTreeMap;
+use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -209,9 +210,255 @@ pub enum DesktopSyncOutcome<ResultValue, CycleError, StoreError> {
     },
 }
 
+/// Formally modeled lifecycle phase shared with the Dart mobile/desktop SDK.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum SyncLifecyclePhase {
+    Idle,
+    Acquiring,
+    Running,
+    Releasing,
+    Closed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum SyncLifecycleEvent {
+    Wake,
+    Join,
+    BeginAcquire,
+    AcquireGranted,
+    AcquireDeferred,
+    Cancel,
+    CycleSettled,
+    ReleaseSettled,
+    Close,
+    ProcessAbort,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct SyncLifecycleSnapshot {
+    pub phase: SyncLifecyclePhase,
+    pub wake_pending: bool,
+    pub close_requested: bool,
+    pub cancel_requested: bool,
+    pub permit_held: bool,
+}
+
+impl SyncLifecycleSnapshot {
+    pub const INITIAL: Self = Self {
+        phase: SyncLifecyclePhase::Idle,
+        wake_pending: false,
+        close_requested: false,
+        cancel_requested: false,
+        permit_held: false,
+    };
+
+    #[must_use]
+    pub fn is_valid(self) -> bool {
+        let active_permit = matches!(
+            self.phase,
+            SyncLifecyclePhase::Running | SyncLifecyclePhase::Releasing
+        );
+        if self.permit_held != active_permit {
+            return false;
+        }
+        if self.phase == SyncLifecyclePhase::Closed {
+            return self.close_requested
+                && !self.wake_pending
+                && !self.cancel_requested
+                && !self.permit_held;
+        }
+        if self.close_requested && self.wake_pending {
+            return false;
+        }
+        !self.cancel_requested || self.phase == SyncLifecyclePhase::Running
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SyncLifecycleTransitionError {
+    pub before: SyncLifecycleSnapshot,
+    pub event: SyncLifecycleEvent,
+}
+
+impl std::fmt::Display for SyncLifecycleTransitionError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "undefined opto-sync lifecycle transition: {:?} + {:?}",
+            self.before, self.event
+        )
+    }
+}
+
+impl std::error::Error for SyncLifecycleTransitionError {}
+
+#[derive(Debug, Default)]
+pub struct SyncLifecycleMachine {
+    state: SyncLifecycleSnapshot,
+}
+
+impl Default for SyncLifecycleSnapshot {
+    fn default() -> Self {
+        Self::INITIAL
+    }
+}
+
+impl SyncLifecycleMachine {
+    #[must_use]
+    pub fn state(&self) -> SyncLifecycleSnapshot {
+        self.state
+    }
+
+    pub fn apply(
+        &mut self,
+        event: SyncLifecycleEvent,
+    ) -> Result<SyncLifecycleSnapshot, SyncLifecycleTransitionError> {
+        let Some(next) = Self::transition(self.state, event) else {
+            return Err(SyncLifecycleTransitionError {
+                before: self.state,
+                event,
+            });
+        };
+        assert!(
+            next.is_valid(),
+            "lifecycle transition produced invalid state"
+        );
+        self.state = next;
+        Ok(next)
+    }
+
+    #[must_use]
+    pub fn transition(
+        state: SyncLifecycleSnapshot,
+        event: SyncLifecycleEvent,
+    ) -> Option<SyncLifecycleSnapshot> {
+        if !state.is_valid() {
+            return None;
+        }
+        let mut next = state;
+        match event {
+            SyncLifecycleEvent::Wake => {
+                if state.phase == SyncLifecyclePhase::Closed || state.close_requested {
+                    return None;
+                }
+                next.wake_pending = true;
+            }
+            SyncLifecycleEvent::Join => {
+                if !matches!(
+                    state.phase,
+                    SyncLifecyclePhase::Acquiring
+                        | SyncLifecyclePhase::Running
+                        | SyncLifecyclePhase::Releasing
+                ) {
+                    return None;
+                }
+            }
+            SyncLifecycleEvent::BeginAcquire => {
+                if state.phase != SyncLifecyclePhase::Idle
+                    || !state.wake_pending
+                    || state.close_requested
+                {
+                    return None;
+                }
+                next.phase = SyncLifecyclePhase::Acquiring;
+                next.wake_pending = false;
+            }
+            SyncLifecycleEvent::AcquireGranted => {
+                if state.phase != SyncLifecyclePhase::Acquiring {
+                    return None;
+                }
+                next.phase = if state.close_requested {
+                    SyncLifecyclePhase::Releasing
+                } else {
+                    SyncLifecyclePhase::Running
+                };
+                next.permit_held = true;
+                next.cancel_requested = false;
+            }
+            SyncLifecycleEvent::AcquireDeferred => {
+                if state.phase != SyncLifecyclePhase::Acquiring {
+                    return None;
+                }
+                next.phase = if state.close_requested {
+                    SyncLifecyclePhase::Closed
+                } else {
+                    SyncLifecyclePhase::Idle
+                };
+                if state.close_requested {
+                    next.wake_pending = false;
+                }
+                next.cancel_requested = false;
+                next.permit_held = false;
+            }
+            SyncLifecycleEvent::Cancel => {
+                if state.phase != SyncLifecyclePhase::Running {
+                    return None;
+                }
+                next.cancel_requested = true;
+            }
+            SyncLifecycleEvent::CycleSettled => {
+                if state.phase != SyncLifecyclePhase::Running || !state.permit_held {
+                    return None;
+                }
+                next.phase = SyncLifecyclePhase::Releasing;
+                next.cancel_requested = false;
+            }
+            SyncLifecycleEvent::ReleaseSettled => {
+                if state.phase != SyncLifecyclePhase::Releasing || !state.permit_held {
+                    return None;
+                }
+                next.phase = if state.close_requested {
+                    SyncLifecyclePhase::Closed
+                } else {
+                    SyncLifecyclePhase::Idle
+                };
+                if state.close_requested {
+                    next.wake_pending = false;
+                }
+                next.cancel_requested = false;
+                next.permit_held = false;
+            }
+            SyncLifecycleEvent::Close => {
+                if state.phase == SyncLifecyclePhase::Closed {
+                    return None;
+                }
+                next.wake_pending = false;
+                next.close_requested = true;
+                if state.phase == SyncLifecyclePhase::Idle {
+                    next.phase = SyncLifecyclePhase::Closed;
+                    next.cancel_requested = false;
+                } else {
+                    next.cancel_requested = state.phase == SyncLifecyclePhase::Running;
+                }
+            }
+            SyncLifecycleEvent::ProcessAbort => {
+                if !matches!(
+                    state.phase,
+                    SyncLifecyclePhase::Acquiring
+                        | SyncLifecyclePhase::Running
+                        | SyncLifecyclePhase::Releasing
+                ) {
+                    return None;
+                }
+                next.phase = if state.close_requested {
+                    SyncLifecyclePhase::Closed
+                } else {
+                    SyncLifecyclePhase::Idle
+                };
+                next.wake_pending = false;
+                next.cancel_requested = false;
+                next.permit_held = false;
+            }
+        }
+        next.is_valid().then_some(next)
+    }
+}
+
 #[derive(Debug)]
 pub enum DesktopRunnerError<StoreError> {
     InvalidConfiguration(&'static str),
+    Lifecycle(SyncLifecycleTransitionError),
+    LifecyclePoisoned,
     Store(StoreError),
     StorePoisoned,
 }
@@ -220,6 +467,8 @@ impl<StoreError: std::fmt::Display> std::fmt::Display for DesktopRunnerError<Sto
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidConfiguration(message) => formatter.write_str(message),
+            Self::Lifecycle(error) => error.fmt(formatter),
+            Self::LifecyclePoisoned => formatter.write_str("desktop lifecycle mutex is poisoned"),
             Self::Store(error) => write!(formatter, "desktop lease store failed: {error}"),
             Self::StorePoisoned => formatter.write_str("desktop lease store mutex is poisoned"),
         }
@@ -244,6 +493,7 @@ pub struct DesktopSyncRunner<Store> {
     cycle_budget_ms: u64,
     lease_ttl_ms: u64,
     in_process: AtomicBool,
+    lifecycle: Mutex<SyncLifecycleMachine>,
 }
 
 impl<Store> DesktopSyncRunner<Store> {
@@ -283,7 +533,28 @@ impl<Store> DesktopSyncRunner<Store> {
             cycle_budget_ms,
             lease_ttl_ms,
             in_process: AtomicBool::new(false),
+            lifecycle: Mutex::new(SyncLifecycleMachine::default()),
         })
+    }
+
+    #[must_use]
+    pub fn lifecycle_snapshot(&self) -> SyncLifecycleSnapshot {
+        match self.lifecycle.lock() {
+            Ok(machine) => machine.state(),
+            Err(poisoned) => poisoned.into_inner().state(),
+        }
+    }
+
+    fn apply_lifecycle<StoreError>(
+        &self,
+        event: SyncLifecycleEvent,
+    ) -> Result<(), DesktopRunnerError<StoreError>> {
+        self.lifecycle
+            .lock()
+            .map_err(|_| DesktopRunnerError::LifecyclePoisoned)?
+            .apply(event)
+            .map(|_| ())
+            .map_err(DesktopRunnerError::Lifecycle)
     }
 
     pub fn run_once<ResultValue, CycleError, Cycle>(
@@ -315,7 +586,10 @@ impl<Store> DesktopSyncRunner<Store> {
                 reasons,
             });
         }
-        let _guard = InProcessGuard(&self.in_process);
+        let _guard = InProcessGuard {
+            active: &self.in_process,
+            lifecycle: &self.lifecycle,
+        };
 
         let token = token.into();
         if token.is_empty() || token.len() > 512 {
@@ -323,6 +597,8 @@ impl<Store> DesktopSyncRunner<Store> {
                 "lease token must be 1 through 512 bytes",
             ));
         }
+        self.apply_lifecycle(SyncLifecycleEvent::Wake)?;
+        self.apply_lifecycle(SyncLifecycleEvent::BeginAcquire)?;
         let request = DesktopLeaseRequest {
             key: self.lease_key.clone(),
             owner_id: self.owner_id.clone(),
@@ -330,21 +606,27 @@ impl<Store> DesktopSyncRunner<Store> {
             now_ms,
             expires_at_ms: now_ms.saturating_add(self.lease_ttl_ms),
         };
-        let grant = {
-            let mut store = self
-                .store
-                .lock()
-                .map_err(|_| DesktopRunnerError::StorePoisoned)?;
-            store
-                .try_acquire(request)
-                .map_err(DesktopRunnerError::Store)?
+        let grant = match self.store.lock() {
+            Ok(mut store) => match store.try_acquire(request) {
+                Ok(grant) => grant,
+                Err(error) => {
+                    self.apply_lifecycle(SyncLifecycleEvent::AcquireDeferred)?;
+                    return Err(DesktopRunnerError::Store(error));
+                }
+            },
+            Err(_) => {
+                self.apply_lifecycle(SyncLifecycleEvent::AcquireDeferred)?;
+                return Err(DesktopRunnerError::StorePoisoned);
+            }
         };
         let Some(grant) = grant else {
+            self.apply_lifecycle(SyncLifecycleEvent::AcquireDeferred)?;
             return Ok(DesktopSyncOutcome::Busy {
                 reason: DesktopBusyReason::DurableLease,
                 reasons,
             });
         };
+        self.apply_lifecycle(SyncLifecycleEvent::AcquireGranted)?;
         let context = DesktopSyncContext {
             reasons: reasons.clone(),
             owner_id: self.owner_id.clone(),
@@ -352,10 +634,17 @@ impl<Store> DesktopSyncRunner<Store> {
             fence: grant.fence.clone(),
             deadline_ms: now_ms.saturating_add(self.cycle_budget_ms),
         };
-        let cycle_result = cycle(&context);
+        let cycle_result = catch_unwind(AssertUnwindSafe(|| cycle(&context)));
+        self.apply_lifecycle(SyncLifecycleEvent::CycleSettled)?;
         let release_error = match self.store.lock() {
             Ok(mut store) => store.release(&grant).err().map(DesktopReleaseError::Store),
             Err(_) => Some(DesktopReleaseError::StorePoisoned),
+        };
+        self.apply_lifecycle(SyncLifecycleEvent::ReleaseSettled)?;
+
+        let cycle_result = match cycle_result {
+            Ok(result) => result,
+            Err(payload) => resume_unwind(payload),
         };
 
         Ok(match cycle_result {
@@ -375,11 +664,26 @@ impl<Store> DesktopSyncRunner<Store> {
     }
 }
 
-struct InProcessGuard<'a>(&'a AtomicBool);
+struct InProcessGuard<'a> {
+    active: &'a AtomicBool,
+    lifecycle: &'a Mutex<SyncLifecycleMachine>,
+}
 
 impl Drop for InProcessGuard<'_> {
     fn drop(&mut self) {
-        self.0.store(false, Ordering::Release);
+        let mut machine = match self.lifecycle.lock() {
+            Ok(machine) => machine,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if matches!(
+            machine.state().phase,
+            SyncLifecyclePhase::Acquiring
+                | SyncLifecyclePhase::Running
+                | SyncLifecyclePhase::Releasing
+        ) {
+            let _ = machine.apply(SyncLifecycleEvent::ProcessAbort);
+        }
+        self.active.store(false, Ordering::Release);
     }
 }
 
@@ -435,6 +739,8 @@ impl DesktopLeaseStore for InMemoryDesktopLeaseStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::{HashSet, VecDeque};
+    use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::mpsc;
     use std::thread;
 
@@ -556,6 +862,83 @@ mod tests {
         assert!(matches!(
             result,
             Err(DesktopRunnerError::InvalidConfiguration(_))
+        ));
+    }
+
+    #[test]
+    fn lifecycle_relation_is_closed_and_every_reached_state_is_valid() {
+        const EVENTS: [SyncLifecycleEvent; 10] = [
+            SyncLifecycleEvent::Wake,
+            SyncLifecycleEvent::Join,
+            SyncLifecycleEvent::BeginAcquire,
+            SyncLifecycleEvent::AcquireGranted,
+            SyncLifecycleEvent::AcquireDeferred,
+            SyncLifecycleEvent::Cancel,
+            SyncLifecycleEvent::CycleSettled,
+            SyncLifecycleEvent::ReleaseSettled,
+            SyncLifecycleEvent::Close,
+            SyncLifecycleEvent::ProcessAbort,
+        ];
+        let mut reached = HashSet::from([SyncLifecycleSnapshot::INITIAL]);
+        let mut pending = VecDeque::from([SyncLifecycleSnapshot::INITIAL]);
+        let mut examined = 0_usize;
+        let mut saw_close_during_acquire = false;
+        let mut saw_trailing_wake = false;
+        let mut saw_cancel = false;
+
+        while let Some(state) = pending.pop_front() {
+            assert!(state.is_valid());
+            for event in EVENTS {
+                examined += 1;
+                let Some(next) = SyncLifecycleMachine::transition(state, event) else {
+                    continue;
+                };
+                assert!(next.is_valid(), "{state:?} + {event:?} => {next:?}");
+                saw_close_during_acquire |= state.phase == SyncLifecyclePhase::Acquiring
+                    && event == SyncLifecycleEvent::Close
+                    && next.close_requested;
+                saw_trailing_wake |= state.phase == SyncLifecyclePhase::Running
+                    && event == SyncLifecycleEvent::Wake
+                    && next.wake_pending;
+                saw_cancel |= state.phase == SyncLifecyclePhase::Running
+                    && event == SyncLifecycleEvent::Cancel
+                    && next.cancel_requested;
+                if reached.insert(next) {
+                    pending.push_back(next);
+                }
+            }
+        }
+
+        assert!(examined >= reached.len() * EVENTS.len());
+        assert!(saw_close_during_acquire && saw_trailing_wake && saw_cancel);
+    }
+
+    #[test]
+    fn callback_panic_releases_the_fence_and_returns_to_idle() {
+        let store = Arc::new(Mutex::new(InMemoryDesktopLeaseStore::default()));
+        let runner = runner(store, "panic-owner");
+        let panic = catch_unwind(AssertUnwindSafe(|| {
+            let _ = runner.run_once(
+                vec![DesktopWakeReason::Manual],
+                1_000,
+                "panic-token",
+                |_| -> Result<(), &'static str> { panic!("cycle panic") },
+            );
+        }));
+        assert!(panic.is_err());
+        assert_eq!(runner.lifecycle_snapshot(), SyncLifecycleSnapshot::INITIAL);
+
+        let retry = runner
+            .run_once(
+                vec![DesktopWakeReason::Manual],
+                1_001,
+                "retry-token",
+                |_| -> Result<(), &'static str> { Ok(()) },
+            )
+            .expect("retry after panic");
+        assert!(matches!(
+            retry,
+            DesktopSyncOutcome::Completed { ref fence, .. } if fence == "2"
         ));
     }
 }

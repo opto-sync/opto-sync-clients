@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opto-sync.dev/schema/opto-sync-telemetry-event.schema.json",
+  "title": "Deprecated opto-sync telemetry schema alias",
+  "description": "Compatibility identifier only. New code must use the canonical privacy-bounded Ores/OpenTelemetry v1 schema.",
+  "deprecated": true,
+  "$ref": "https://opto-sync.dev/schema/opto-sync-telemetry.v1.schema.json"
+}

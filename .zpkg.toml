@@ -1,14 +1,24 @@
 [package]
 org = "opto-sync"
 name = "opto-sync-clients"
-version = "0.2.0"
-description = "Pinned polyglot local-first sync clients for TypeScript, Dart, Rust, and Gleam"
+# The lifecycle state-machine API and explicit cancelled desktop outcome are an
+# additive but switch-exhaustiveness-sensitive SDK change. Keep this minor bump
+# distinct from earlier immutable release evidence; publishing requires fresh
+# approval and a reviewed tag.
+version = "0.4.0"
+description = "Pinned polyglot local-first sync clients for TypeScript, Dart, Rust, Gleam, PHP, C#, and F#"
 license = "MIT"
 keywords = ["sync", "local-first", "optimistic", "indexeddb", "sqlite", "polyglot"]
 
 [package.repository]
 vcs = "git"
 url = "https://github.com/opto-sync/opto-sync-clients"
+
+# Cross-organization interfaces and structured logging remain injected at the
+# native SDK boundary. Their intended Zed coordinates are recorded by the SDK
+# contract, but are deliberately absent here until immutable 0.1.0 packages
+# exist in the public registry and a clean `zed install --frozen` can resolve
+# them. Never seed a private registry and commit its result as release proof.
 
 # The engine relationship is represented by the committed syncer.c gitlink and
 # .gitmodules URL, then verified by scripts/check-package-layout.py and
@@ -21,7 +31,10 @@ include_readme = true
 tag_format = "v{version}"
 smoke_test = "python3 \"$ZED_PKG_TEST_TARGET/scripts/check-package-layout.py\""
 exclude = [
+  ".gitmodules",
   ".zed/**",
+  ".formal-artifacts/**",
+  "_apalache-out/**",
   "syncer.c/.git",
   "syncer.c/.git/**",
   "syncer.c/.github/**",
@@ -29,15 +42,26 @@ exclude = [
   "syncer.c/core/test/**",
   "syncer.c/test-differential/**",
   "syncer.c/fuzz-*.log",
+  "syncer.c/bindings/beam/priv/native/**",
   "clients/**/test/**",
   "clients/**/tests/**",
+  "clients/php/composer.lock",
+  "clients/php/vendor/**",
   "**/node_modules/**",
+  "**/dist/**",
   "**/target/**",
   "**/build/**",
   "**/_build/**",
   "**/deps/**",
   "**/.dart_tool/**",
+  "**/__pycache__/**",
+  "**/pubspec.lock",
 ]
 
 [scripts]
 test = "python3 scripts/check-package-layout.py"
+
+# Per-language capabilities remain declared in clients/sdk-matrix.toml. Keep
+# installable [targets.*] absent until DEN-311 proves every extracted target is
+# clean-room self-contained and cannot escape into sibling paths or a second
+# native-core revision.

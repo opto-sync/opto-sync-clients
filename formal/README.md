@@ -56,6 +56,41 @@ The booleans `ambiguous_commit_reached`, `duplicate_retry_reached`, and
 those scenarios so an accidental overconstraint cannot make the safety proof
 vacuous.
 
+TLC also checks two temporal properties over the complete finite state graph:
+
+- `queued_work_eventually_settles`: once the finite workload is non-empty, it
+  eventually drains;
+- `replica_eventually_catches_up`: a lagging local checkpoint eventually equals
+  the server checkpoint.
+
+Both claims are conditional on named strong-fairness assumptions for send,
+server resolution, valid acknowledgement, malformed-response disposal, pull,
+and reset completion. This is deliberate: an unconstrained network or a user
+callback that never returns cannot support an honest liveness claim.
+
+## Mobile and desktop lifecycle model
+
+`mobile_desktop_lifecycle.qnt` is a second finite transition system for the
+application runners themselves. It is implemented directly by
+`SyncLifecycleMachine` in reactive TypeScript, reactive Dart, and the Rust
+desktop crate, and the Flutter headless dispatcher uses the Dart runner to
+coalesce concurrent native invocations. The model makes wake queuing, permit acquisition, execution,
+cooperative cancellation, release, close-during-acquire, and process abort
+explicit. Undefined runtime transitions fail closed.
+
+TLC exhaustively checks every reachable state in the declared finite model.
+The TypeScript, Dart, and Rust suites independently enumerate every event from every
+reachable implementation state and require the same safety invariants. This
+proves the transition system within its boundary; OS process loss, durable-store
+correctness, transport behavior, and user callback cooperation remain explicit
+environmental assumptions covered by fencing, restart, and fault tests rather
+than being overstated as a whole-product proof.
+
+The lifecycle model additionally verifies that permit acquisition, a running
+cycle, and a requested close eventually settle under explicit fairness for the
+permit provider, user callback, and durable-fence release. Process abort remains
+an unrestricted fault and is included in the checked state graph.
+
 ## Run locally
 
 The canonical entry point is `fmctl`. Local runs require Node.js 22, Java 17 or
@@ -85,6 +120,12 @@ $FMCTL replay --adapter rust "${traces[@]}"
 $FMCTL replay --adapter typescript "${traces[@]}"
 $FMCTL replay --adapter dart "${traces[@]}"
 ```
+
+`temporal_properties` in an `fm.toml` manifest are passed only to model
+verification—never simulation—as a single pinned Quint `--temporal` argument.
+`fmctl validate` rejects temporal claims that do not configure a verifier and
+includes every temporal property in its JSON report, so CI evidence records the
+exact liveness contract that was checked.
 
 `fmctl plan <operation>` or `--dry-run` prints the exact argv, working directory,
 sanitized environment, resource bounds, and artifact destinations without

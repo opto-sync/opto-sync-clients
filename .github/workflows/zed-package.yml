@@ -8,11 +8,13 @@ on:
       - '.gitmodules'
       - 'LICENSE'
       - 'clients/**'
+      - 'schema/**'
       - 'syncer.c'
       - 'scripts/check-dependency-boundary.py'
       - 'scripts/check-package-layout.py'
       - 'scripts/check-zed-packaging.py'
       - 'docs/ZED_PACKAGE.md'
+      - 'docs/SDK_API_CONTRACT.md'
       - '.github/workflows/zed-package.yml'
   push:
     branches: [main]
@@ -22,11 +24,13 @@ on:
       - '.gitmodules'
       - 'LICENSE'
       - 'clients/**'
+      - 'schema/**'
       - 'syncer.c'
       - 'scripts/check-dependency-boundary.py'
       - 'scripts/check-package-layout.py'
       - 'scripts/check-zed-packaging.py'
       - 'docs/ZED_PACKAGE.md'
+      - 'docs/SDK_API_CONTRACT.md'
       - '.github/workflows/zed-package.yml'
   workflow_dispatch:
 
@@ -38,8 +42,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  ZED_CLI_SHA: c636fb8f6b08695c6b4fe94e2481f4d57270b2d7
-  ZED_INTERFACES_SHA: 415e871b1fb3dd97744c134351408a3224805dfb
+  ZED_CLI_SHA: 14bc2fb1bdc2b85e5545e60e70fc94f047188662
+  ZED_INTERFACES_SHA: 60a8ab55f8a55eb212a72dcb334c1c118047c7ef
 
 jobs:
   pack:
@@ -109,7 +113,6 @@ jobs:
 
           required=(
             'pkg/.zpkg.toml'
-            'pkg/.gitmodules'
             'pkg/LICENSE'
             'pkg/README.md'
             'pkg/clients/ts/package.json'
@@ -117,6 +120,14 @@ jobs:
             'pkg/clients/dart/pubspec.yaml'
             'pkg/clients/rust/Cargo.toml'
             'pkg/clients/gleam/gleam.toml'
+            'pkg/clients/sdk-matrix.toml'
+            'pkg/schema/opto-sync-envelope.schema.json'
+            'pkg/schema/opto-sync-sdk-api.schema.json'
+            'pkg/schema/opto-sync-sdk-api.v1.json'
+            'pkg/schema/opto-sync-sdk-values.v1.schema.json'
+            'pkg/schema/opto-sync-telemetry.schema.json'
+            'pkg/schema/check-sdk-api-contract.mjs'
+            'pkg/schema/check-telemetry-corpus.mjs'
             'pkg/scripts/check-package-layout.py'
             'pkg/scripts/check-zed-packaging.py'
             'pkg/syncer.c/core/include/syncer.h'
@@ -132,6 +143,10 @@ jobs:
             }
           done
 
+          if grep -Fqx 'pkg/.gitmodules' "$listing"; then
+            echo '::error title=VCS metadata leaked into package::.gitmodules must stay in the source repository; the artifact carries the materialized syncer.c source instead'
+            exit 1
+          fi
           if grep -Fqx 'pkg/.zpkg.lock' "$listing"; then
             echo '::error title=source lock leaked into package::.zpkg.lock must stay outside the published artifact'
             exit 1
@@ -155,7 +170,7 @@ jobs:
             --dry-run \
             --allow-dirty \
             --skip-vcs-checks | tee ../zed-dry-run.txt
-          grep -F 'opto-sync/opto-sync-clients@0.2.0' ../zed-dry-run.txt
+          grep -F 'opto-sync/opto-sync-clients@0.4.0' ../zed-dry-run.txt
           test "$(grep -c '^dry run: would publish opto-sync/' ../zed-dry-run.txt)" -eq 1
 
       - name: Run a clean local registry/install roundtrip

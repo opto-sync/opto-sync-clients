@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.20)
+project(opto_sync_client C)
+add_library(opto_sync_client src/opto_sync_client.c)
+target_include_directories(opto_sync_client PUBLIC include)
+target_compile_features(opto_sync_client PUBLIC c_std_11)

@@ -1,6 +1,6 @@
 {
   "name": "@opto-sync/reactive",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "RxJS orchestration for opto-sync optimism policies, session-scoped source fusion, background sync, and live transport hints",
   "type": "module",
@@ -35,7 +35,7 @@
     "rxjs": "7.8.2"
   },
   "peerDependencies": {
-    "@opto-sync/client": "^0.2.0"
+    "@opto-sync/client": "^0.2.0 || ^0.3.0"
   },
   "peerDependenciesMeta": {
     "@opto-sync/client": {

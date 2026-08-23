@@ -1,0 +1,71 @@
+name: Connectivity contract
+
+on:
+  pull_request:
+    paths:
+      - 'clients/rust-connectivity/**'
+      - 'clients/ts/src/connectivity.ts'
+      - 'clients/ts/src/connected-client.ts'
+      - 'clients/dart/lib/connectivity.dart'
+      - 'clients/flutter_background/**'
+      - 'docs/CONNECTIVITY.md'
+      - '.github/workflows/connectivity-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'clients/rust-connectivity/**'
+      - 'clients/ts/src/connectivity.ts'
+      - 'clients/ts/src/connected-client.ts'
+      - 'clients/dart/lib/connectivity.dart'
+      - 'clients/flutter_background/**'
+      - 'docs/CONNECTIVITY.md'
+      - '.github/workflows/connectivity-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: connectivity-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-native-and-wasm:
+    name: Rust connectivity (native + WASM)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: clients/rust-connectivity
+    steps:
+      - name: Checkout clients
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Report Rust toolchain
+        run: |
+          rustc --version
+          cargo --version
+          rustfmt --version
+          cargo clippy --version
+
+      - name: Formatting
+        run: cargo fmt --all -- --check
+
+      - name: Native tests
+        run: cargo test --all-targets --no-fail-fast
+
+      - name: Native Clippy with all features
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Install the browser WebAssembly target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Compile the browser adapter
+        run: cargo check --target wasm32-unknown-unknown --features wasm
+
+      - name: Explain a failure
+        if: failure()
+        run: |
+          echo "::error title=opto-sync connectivity Rust/WASM FAILED::Reproduce with: cd clients/rust-connectivity && cargo fmt --all -- --check && cargo test --all-targets && cargo clippy --all-targets --all-features -- -D warnings && rustup target add wasm32-unknown-unknown && cargo check --target wasm32-unknown-unknown --features wasm"

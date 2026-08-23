@@ -1,6 +1,6 @@
 name: CI
 
-# Runs the TypeScript, Dart, Rust, and Gleam client suites on Linux. Dart is
+# Runs the TypeScript, Dart, Rust, Gleam, C#, and F# client suites on Linux. Dart is
 # tested twice: against native SQLite/FFI and in Chromium against IndexedDB/WASM.
 #
 # DEPENDENCY LAYOUT: syncer.c is a pinned git submodule at the repository root.
@@ -12,6 +12,7 @@ name: CI
 #     clients/dart/   -> ../../syncer.c/bindings/dart
 #     clients/rust/   -> ../../syncer.c/bindings/rust
 #     clients/gleam/  -> ../../syncer.c/bindings/gleam
+#     clients/dotnet/ -> P/Invoke over the pinned shared syncer.c core
 #
 # This removes the former mutable sibling checkout of syncer.c@main: a client
 # revision now names the exact reconciliation engine it was tested and packed
@@ -49,7 +50,7 @@ jobs:
           python3 scripts/check-zed-packaging.py
 
   envelope-schema:
-    name: Envelope schema agrees with the shared corpus
+    name: Envelope and SDK API schemas agree with source
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -60,10 +61,10 @@ jobs:
       - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4
         with:
           node-version: '22'
-      # Every language validator is hand-written from this schema and tested
-      # against these fixtures; this is the only check that holds the schema
-      # DOCUMENT itself to the same corpus.
-      - name: Evaluate the schema against every fixture
+      # The envelope gate evaluates fixtures; the SDK API gate distinguishes
+      # six proven portable operations from twelve bindings with explicit
+      # candidate differences and checks Zed dependency release states.
+      - name: Evaluate envelope fixtures and SDK capability bindings
         working-directory: schema
         run: |
           set -euo pipefail
@@ -87,6 +88,9 @@ jobs:
             rust: true
           - client: gleam
             gleam: true
+          - client: dotnet
+            dotnet: true
+            core_shared_lib: true
     steps:
       - name: Checkout opto-sync-clients and pinned core
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -118,6 +122,11 @@ jobs:
         if: matrix.dart
         with:
           sdk: stable
+
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        if: matrix.dotnet
+        with:
+          dotnet-version: '8.0.x'
 
       - name: Install pinned OTP and Elixir for Gleam
         if: matrix.gleam
@@ -288,6 +297,19 @@ jobs:
           OPTO_SYNC_ELIXIR_EBIN="$(
             elixir -e 'IO.puts(Path.join(:code.lib_dir(:elixir), "ebin"))'
           )" gleam test
+
+      - name: clients/dotnet — C# and F# native reconciliation contracts
+        if: matrix.dotnet
+        working-directory: opto-sync-clients
+        env:
+          OPTO_SYNC_NATIVE_LIBRARY: ${{ github.workspace }}/opto-sync-clients/syncer.c/core/build/libsyncer.so
+        run: |
+          dotnet build clients/dotnet/src/OptoSync.Client/OptoSync.Client.csproj --configuration Release
+          dotnet build clients/dotnet/src/OptoSync.FSharp/OptoSync.FSharp.fsproj --configuration Release
+          dotnet run --project clients/dotnet/tests/OptoSync.Client.Contract --configuration Release
+          dotnet run --project clients/dotnet/tests/OptoSync.FSharp.Contract --configuration Release
+          dotnet pack clients/dotnet/src/OptoSync.Client/OptoSync.Client.csproj --configuration Release --no-build
+          dotnet pack clients/dotnet/src/OptoSync.FSharp/OptoSync.FSharp.fsproj --configuration Release --no-build
 
       - name: Which suite broke
         if: failure()

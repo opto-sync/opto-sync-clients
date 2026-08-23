@@ -8,6 +8,10 @@ main = "opto_sync_protocol"
 init = "init"
 step = "step"
 invariants = ["protocol_safety"]
+temporal_properties = [
+  "queued_work_eventually_settles",
+  "replica_eventually_catches_up",
+]
 witnesses = [
   "ambiguous_commit_reached",
   "duplicate_retry_reached",

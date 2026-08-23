@@ -197,6 +197,19 @@ documentation for the event-driven execution model.
 
 ## Mobile background work
 
+The Flutter headless dispatcher and Dart background runner use the same
+formally specified lifecycle as the desktop runner. Native `runDrain` calls for
+the same callback join one visible cycle; a callback handle cannot be replaced
+while that cycle owns the permit. Wake, acquire, run, cancellation, release,
+close, and process-abort transitions are specified in
+`formal/mobile_desktop_lifecycle.qnt`, exhaustively checked by TLC, and
+enumerated again against the production Dart transition function.
+
+The machine controls isolate-local ownership. Cross-process correctness still
+depends on the durable protocol queue, immutable mutation identity, SQLite
+transactions, and server deduplication; the model does not claim to prevent an
+operating system from killing a process.
+
 ### Android
 
 - Kotlin uses `CoroutineWorker` and `withTimeout`.

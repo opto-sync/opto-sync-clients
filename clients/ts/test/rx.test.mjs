@@ -54,12 +54,23 @@ test('watchLocalView emits the optimistic view immediately after a queue write',
 
   const emissions = [];
   const subscription = view$.subscribe((view) => emissions.push(view));
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await firstValueFrom(
+    view$.pipe(
+      filter((view) => view?.title === 'server'),
+      take(1),
+    ),
+  );
   assert.equal(emissions.length, 1);
   assert.equal(emissions[0].title, 'server');
 
+  const localEmission = firstValueFrom(
+    view$.pipe(
+      filter((view) => view?.title === 'local edit'),
+      take(1),
+    ),
+  );
   await client.queueMutation('docs', 'r1', { title: 'local edit', updatedAt: '200' });
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await localEmission;
   const last = emissions[emissions.length - 1];
   assert.equal(last.title, 'local edit');
   subscription.unsubscribe();

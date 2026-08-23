@@ -43,7 +43,7 @@ def main() -> int:
     release = load(args.release_set.resolve())
     if release.get("target") != "rust":
         fail("release set does not describe the Rust target")
-    if release.get("wholeRepositoryPackage") != "opto-sync/opto-sync-clients@0.2.0":
+    if release.get("wholeRepositoryPackage") != "opto-sync/opto-sync-clients@0.4.0":
         fail("release set does not name the authoritative whole-repository package")
     if release.get("coexistenceRule") != (
         "all installed opto-sync targets must resolve the same syncerSourceSha"

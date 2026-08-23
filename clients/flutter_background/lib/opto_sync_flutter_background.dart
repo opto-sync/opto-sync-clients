@@ -27,11 +27,14 @@
 /// ```
 library;
 
+export 'opto_sync_connectivity.dart';
+
 import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import 'package:opto_sync_reactive/opto_sync_reactive.dart';
 
 /// The registered drain returns true when the queue is fully drained; false
 /// asks the OS to reschedule sooner (Android: Result.retry with backoff).
@@ -42,6 +45,13 @@ class OptoSyncBackground {
   /// applied before crossing the platform channel so Android and iOS callers
   /// do not observe different behavior for an impossible cadence.
   static const Duration minimumPeriodicFrequency = Duration(minutes: 15);
+
+  /// Matches the native worker's bounded drain window. OS expiration can still
+  /// cancel sooner, especially on iOS.
+  static const Duration maximumDrainDuration = Duration(
+    minutes: 8,
+    seconds: 30,
+  );
 
   static const MethodChannel _channel = MethodChannel(
     'dev.optosync.background/methods',
@@ -125,6 +135,8 @@ class OptoSyncBackground {
 Future<void> optoSyncBackgroundDispatcher() async {
   WidgetsFlutterBinding.ensureInitialized();
   const backgroundChannel = MethodChannel('dev.optosync.background/background');
+  BackgroundSyncRunner<bool>? runner;
+  int? runnerHandle;
   backgroundChannel.setMethodCallHandler((call) async {
     if (call.method != 'runDrain') return null;
     final arguments = call.arguments;
@@ -147,7 +159,20 @@ Future<void> optoSyncBackgroundDispatcher() async {
     if (callback is! BackgroundDrain) {
       throw StateError('registered callback is not a BackgroundDrain');
     }
-    return callback();
+    final current = runner;
+    if (current != null &&
+        current.lifecycle.phase != SyncLifecyclePhase.idle &&
+        runnerHandle != rawHandle) {
+      throw StateError('background callback changed while a drain was active');
+    }
+    if (current == null || current.lifecycle.phase == SyncLifecyclePhase.idle) {
+      runner = BackgroundSyncRunner<bool>(
+        syncOnce: (_) => callback(),
+        budget: OptoSyncBackground.maximumDrainDuration,
+      );
+      runnerHandle = rawHandle;
+    }
+    return runner!.runOnce();
   });
   await backgroundChannel.invokeMethod<void>('backgroundChannelReady');
 }

@@ -1,10 +1,10 @@
 name: opto_sync_flutter_background
 description: >-
-  Background mutation-queue draining for opto-sync Flutter apps: Android
-  WorkManager (Kotlin, with a plain-Java worker variant) and iOS
-  BGTaskScheduler (Swift, with an Objective-C registration shim) run the sync
-  drain while the app is backgrounded or terminated.
-version: 0.1.3
+  Background mutation-queue draining and UI-agnostic connectivity signals for
+  opto-sync Flutter apps: Android WorkManager/ConnectivityManager and iOS
+  BGTaskScheduler/NWPathMonitor adapters run while the app is backgrounded or
+  terminated.
+version: 0.2.0
 publish_to: 'none'
 
 environment:
@@ -14,6 +14,10 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  opto_sync_client:
+    path: ../dart
+  opto_sync_reactive:
+    path: ../reactive-dart
 
 dev_dependencies:
   flutter_test:

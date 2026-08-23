@@ -1,0 +1,314 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opto-sync.dev/schema/opto-sync-sdk-api.schema.json",
+  "title": "opto-sync portable SDK API contract",
+  "description": "Schema for the versioned manifest that binds one portable opto-sync API to the Rust, Dart, and TypeScript SDKs. The manifest records semantic operation ids and idiomatic language symbols; platform-specific storage types may differ, but the listed behavior and wire schemas may not.",
+  "type": "object",
+  "required": [
+    "$schema",
+    "contract",
+    "contractVersion",
+    "envelopeSchema",
+    "valuesSchema",
+    "mergeOptionsSchema",
+    "dependencies",
+    "telemetry",
+    "operations"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "const": "https://opto-sync.dev/schema/opto-sync-sdk-api.schema.json"
+    },
+    "contract": { "const": "opto-sync.sdk-api.v1" },
+    "contractVersion": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)\\.(?:0|[1-9][0-9]*)$"
+    },
+    "envelopeSchema": {
+      "type": "object",
+      "required": ["path", "id"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "const": "schema/opto-sync-envelope.schema.json" },
+        "id": {
+          "const": "https://opto-sync.dev/schema/opto-sync-envelope.schema.json"
+        }
+      }
+    },
+    "valuesSchema": {
+      "type": "object",
+      "required": ["path", "id"],
+      "additionalProperties": false,
+      "properties": {
+        "path": { "const": "schema/opto-sync-sdk-values.v1.schema.json" },
+        "id": {
+          "const": "https://opto-sync.dev/schema/opto-sync-sdk-values.v1.schema.json"
+        }
+      }
+    },
+    "mergeOptionsSchema": {
+      "description": "Canonical merge-option schema owned by the Rust reference engine, pinned to the source commit merged into upstream main and exposed by every primary client.",
+      "type": "object",
+      "required": ["repository", "commit", "path", "id", "sha256", "status", "blockers"],
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "const": "opto-sync/syncer.rs" },
+        "commit": {
+          "const": "bb71ac1b4b7d94dd7035e6cc7b76e5c10f284e98"
+        },
+        "path": { "const": "schema/merge-options.schema.json" },
+        "id": {
+          "const": "https://opto-sync.dev/schema/merge-options.schema.json"
+        },
+        "sha256": {
+          "const": "e9107667cee2868a922a70c9c48175c62b466fa728466c23bac766aebcbb2f2a"
+        },
+        "status": { "const": "canonical" },
+        "blockers": {
+          "type": "array",
+          "maxItems": 0
+        }
+      }
+    },
+    "dependencies": {
+      "type": "object",
+      "required": ["sharedInterfaces", "structuredLogging"],
+      "additionalProperties": false,
+      "properties": {
+        "sharedInterfaces": { "$ref": "#/$defs/dependency" },
+        "structuredLogging": { "$ref": "#/$defs/dependency" }
+      }
+    },
+    "telemetry": {
+      "type": "object",
+      "required": [
+        "mode",
+        "namespace",
+        "payloadPolicy",
+        "sinkFailurePolicy",
+        "eventSchema"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "const": "injected" },
+        "namespace": { "const": "opto.sync" },
+        "payloadPolicy": { "const": "metadata_only" },
+        "sinkFailurePolicy": { "const": "ignore" },
+        "eventSchema": {
+          "type": "object",
+          "required": ["path", "id"],
+          "additionalProperties": false,
+          "properties": {
+            "path": { "const": "schema/opto-sync-telemetry.schema.json" },
+            "id": {
+              "const": "https://opto-sync.dev/schema/opto-sync-telemetry.v1.schema.json"
+            }
+          }
+        }
+      }
+    },
+    "operations": {
+      "type": "array",
+      "minItems": 18,
+      "maxItems": 18,
+      "items": { "$ref": "#/$defs/operation" }
+    }
+  },
+  "$defs": {
+    "dependency": {
+      "type": "object",
+      "required": ["coordinate", "version", "status", "integration"],
+      "additionalProperties": false,
+      "properties": {
+        "coordinate": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9.-]*/[a-z0-9][a-z0-9.-]*$"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\^[0-9]+\\.[0-9]+\\.[0-9]+$"
+        },
+        "status": { "enum": ["pending-release", "available"] },
+        "integration": { "const": "injected" }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "required": [
+        "source",
+        "owner",
+        "symbol",
+        "kind",
+        "async",
+        "declaration"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "pattern": "^clients/(?:rust|dart|ts)/.+\\.(?:rs|dart|ts)$"
+        },
+        "owner": {
+          "type": "string",
+          "pattern": "^(?:[A-Za-z_][A-Za-z0-9_]*)?$"
+        },
+        "symbol": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        },
+        "kind": { "enum": ["function", "method", "type"] },
+        "async": { "type": "boolean" },
+        "declaration": { "type": "string", "minLength": 4 }
+      }
+    },
+    "normalizedCall": {
+      "type": "object",
+      "required": ["kind", "requestSchemaRef", "resultSchemaRef"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "call" },
+        "requestSchemaRef": {
+          "type": "string",
+          "pattern": "^https://opto-sync\\.dev/schema/opto-sync-sdk-values\\.v1\\.schema\\.json#/\\$defs/[A-Za-z][A-Za-z0-9]+$"
+        },
+        "resultSchemaRef": {
+          "type": "string",
+          "pattern": "^https://opto-sync\\.dev/schema/opto-sync-sdk-values\\.v1\\.schema\\.json#/\\$defs/[A-Za-z][A-Za-z0-9]+$"
+        },
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "authoritativeStore",
+              "envelopeValidator",
+              "protocolCallbacks",
+              "protocolPersistence",
+              "telemetrySink"
+            ]
+          }
+        }
+      }
+    },
+    "normalizedType": {
+      "type": "object",
+      "required": ["kind", "contractSchemaRef"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "type" },
+        "contractSchemaRef": {
+          "type": "string",
+          "pattern": "^https://opto-sync\\.dev/schema/opto-sync-sdk-values\\.v1\\.schema\\.json#/\\$defs/[A-Za-z][A-Za-z0-9]+$"
+        }
+      }
+    },
+    "difference": {
+      "type": "object",
+      "required": ["code", "dimension", "languages", "detail"],
+      "additionalProperties": false,
+      "properties": {
+        "code": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+        "dimension": {
+          "enum": [
+            "parameters",
+            "result",
+            "effect",
+            "validation",
+            "configuration",
+            "carrier",
+            "state",
+            "surface"
+          ]
+        },
+        "languages": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "enum": ["rust", "dart", "typescript"] }
+        },
+        "detail": { "type": "string", "minLength": 12 }
+      }
+    },
+    "projection": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "request": {
+          "enum": ["identity", "decoded-json-to-text", "native-time-to-rfc3339"]
+        },
+        "result": {
+          "enum": ["identity", "ordering-to-sign", "clamp-signed-int", "text-to-decoded-json"]
+        }
+      }
+    },
+    "operation": {
+      "type": "object",
+      "required": ["id", "category", "conformance", "semantics", "normalized", "bindings"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][A-Za-z0-9]*$"
+        },
+        "category": {
+          "enum": [
+            "queue",
+            "protocol",
+            "reconciliation",
+            "clock",
+            "validation",
+            "transport"
+          ]
+        },
+        "conformance": { "enum": ["portable", "candidate"] },
+        "semantics": { "type": "string", "minLength": 12 },
+        "normalized": {
+          "oneOf": [
+            { "$ref": "#/$defs/normalizedCall" },
+            { "$ref": "#/$defs/normalizedType" }
+          ]
+        },
+        "differences": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/difference" }
+        },
+        "projections": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": false,
+          "properties": {
+            "rust": { "$ref": "#/$defs/projection" },
+            "dart": { "$ref": "#/$defs/projection" },
+            "typescript": { "$ref": "#/$defs/projection" }
+          }
+        },
+        "bindings": {
+          "type": "object",
+          "required": ["rust", "dart", "typescript"],
+          "additionalProperties": false,
+          "properties": {
+            "rust": { "$ref": "#/$defs/binding" },
+            "dart": { "$ref": "#/$defs/binding" },
+            "typescript": { "$ref": "#/$defs/binding" }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "conformance": { "const": "candidate" } }, "required": ["conformance"] },
+          "then": {
+            "required": ["differences"],
+            "properties": { "differences": {} }
+          }
+        },
+        {
+          "if": { "properties": { "conformance": { "const": "portable" } }, "required": ["conformance"] },
+          "then": { "not": { "required": ["differences"] } }
+        }
+      ]
+    }
+  }
+}

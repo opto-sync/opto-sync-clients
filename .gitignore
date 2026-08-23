@@ -7,6 +7,8 @@
 **/_build/
 **/deps/
 **/__pycache__/
+**/bin/
+**/obj/
 *.py[cod]
 
 # Formal-methods runtime output
@@ -29,3 +31,6 @@ tmp
 temp
 tmp/worktrees
 temp/worktrees
+
+# Local cross-repository E2E worktree materialization
+e2e-lock-space/

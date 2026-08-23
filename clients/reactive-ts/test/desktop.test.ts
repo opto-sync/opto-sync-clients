@@ -5,7 +5,19 @@ import {
   DesktopSyncRunner,
   InMemoryDesktopLeaseStore,
   resolveDesktopSyncCapability,
+  type DesktopLeaseGrant,
+  type DesktopLeaseRequest,
+  type DesktopLeaseStore,
 } from '../src/desktop.ts';
+import {
+  initialSyncLifecycle,
+  isValidSyncLifecycle,
+  SyncLifecycleMachine,
+  SyncLifecycleTransitionError,
+  transitionSyncLifecycle,
+  type SyncLifecycleEvent,
+  type SyncLifecycleSnapshot,
+} from '../src/sync-lifecycle.ts';
 
 async function waitFor(testValue: () => boolean): Promise<void> {
   const deadline = Date.now() + 2_000;
@@ -177,4 +189,114 @@ test('close aborts the active cycle and refuses new wakes', async () => {
   assert.equal(result.outcomes[0]?.status, 'failed');
   assert.equal(result.outcomes[0]?.failurePhase, 'cycle');
   await assert.rejects(runner.runNow(), /closed/);
+});
+
+test('close during acquisition releases a late grant without running app code', async () => {
+  let request: DesktopLeaseRequest | undefined;
+  let resolveGrant!: (grant: DesktopLeaseGrant) => void;
+  let releases = 0;
+  const store: DesktopLeaseStore = {
+    tryAcquire(value) {
+      request = value;
+      return new Promise<DesktopLeaseGrant>((resolve) => {
+        resolveGrant = resolve;
+      });
+    },
+    async release() {
+      releases += 1;
+    },
+  };
+  let cycleCalls = 0;
+  const runner = new DesktopSyncRunner<void>({
+    leaseStore: store,
+    leaseKey: 'account:closing',
+    ownerId: 'desktop-process-closing',
+    timeoutMs: 2_000,
+    leaseTtlMs: 4_000,
+    tokenFactory: () => 'closing-token',
+    async syncOnce() {
+      cycleCalls += 1;
+    },
+  });
+
+  const active = runner.runNow();
+  await waitFor(() => request !== undefined);
+  assert.equal(runner.lifecycle.phase, 'acquiring');
+  runner.close();
+  resolveGrant({ ...request!, fence: '1' });
+  const result = await active;
+
+  assert.equal(cycleCalls, 0);
+  assert.equal(releases, 1);
+  assert.equal(result.outcomes[0]?.status, 'cancelled');
+  assert.equal(runner.lifecycle.phase, 'closed');
+  assert.equal(isValidSyncLifecycle(runner.lifecycle), true);
+});
+
+test('lifecycle relation is closed across every reachable event pair', () => {
+  const events: readonly SyncLifecycleEvent[] = [
+    'wake',
+    'join',
+    'begin-acquire',
+    'acquire-granted',
+    'acquire-deferred',
+    'cancel',
+    'cycle-settled',
+    'release-settled',
+    'close',
+    'process-abort',
+  ];
+  const key = (state: SyncLifecycleSnapshot): string =>
+    [
+      state.phase,
+      state.wakePending,
+      state.closeRequested,
+      state.cancelRequested,
+      state.permitHeld,
+    ].join('|');
+  const reached = new Map([[key(initialSyncLifecycle), initialSyncLifecycle]]);
+  const pending: SyncLifecycleSnapshot[] = [initialSyncLifecycle];
+  let examined = 0;
+  let sawCloseDuringAcquire = false;
+  let sawTrailingWake = false;
+  let sawCancellation = false;
+
+  while (pending.length > 0) {
+    const state = pending.pop()!;
+    assert.equal(isValidSyncLifecycle(state), true);
+    for (const event of events) {
+      examined += 1;
+      const next = transitionSyncLifecycle(state, event);
+      if (!next) continue;
+      assert.equal(isValidSyncLifecycle(next), true);
+      sawCloseDuringAcquire ||=
+        state.phase === 'acquiring' &&
+        event === 'close' &&
+        next.closeRequested;
+      sawTrailingWake ||=
+        state.phase === 'running' && event === 'wake' && next.wakePending;
+      sawCancellation ||=
+        state.phase === 'running' && event === 'cancel' && next.cancelRequested;
+      const nextKey = key(next);
+      if (!reached.has(nextKey)) {
+        reached.set(nextKey, next);
+        pending.push(next);
+      }
+    }
+  }
+
+  assert.equal(examined, reached.size * events.length);
+  assert.equal(reached.size, 14);
+  assert.equal(
+    sawCloseDuringAcquire && sawTrailingWake && sawCancellation,
+    true,
+  );
+
+  const machine = new SyncLifecycleMachine();
+  const before = machine.state;
+  assert.throws(
+    () => machine.apply('begin-acquire'),
+    SyncLifecycleTransitionError,
+  );
+  assert.strictEqual(machine.state, before);
 });

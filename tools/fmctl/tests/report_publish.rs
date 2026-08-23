@@ -26,7 +26,12 @@ fn publishes_a_complete_immutable_bundle() {
     let published = publish_report_bundle(&outcome, directory.path(), "verify-001")
         .expect("publish report bundle");
 
-    assert_eq!(published.directory, directory.path().join("verify-001"));
+    assert_eq!(
+        published.directory,
+        fs::canonicalize(directory.path())
+            .expect("canonical report root")
+            .join("verify-001")
+    );
     for path in [
         &published.result,
         &published.junit,

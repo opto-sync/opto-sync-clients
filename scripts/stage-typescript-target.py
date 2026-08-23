@@ -114,6 +114,10 @@ def main() -> int:
         source_tests / "helpers/corpus.mjs",
         smoke / "helpers/corpus.mjs",
     )
+    copy_required(
+        source_tests / "helpers/browser.mjs",
+        smoke / "helpers/browser.mjs",
+    )
     shutil.rmtree(output / "clients/ts/test", ignore_errors=True)
 
     # The staged artifact owns its smoke path, so its public npm commands must
@@ -138,6 +142,18 @@ def main() -> int:
     )
     copy_tree(ROOT / "syncer.c/bindings/wasm", output / "syncer.c/bindings/wasm")
 
+    # Keep the public telemetry API and its language-neutral contract together
+    # in the isolated target. The target omits conventional test directories,
+    # but consumers still need the schema and sanitized conformance records.
+    copy_required(
+        ROOT / "schema/opto-sync-telemetry.schema.json",
+        output / "schema/opto-sync-telemetry.schema.json",
+    )
+    copy_tree(
+        ROOT / "schema/telemetry-fixtures",
+        output / "schema/telemetry-fixtures",
+    )
+
     shutil.copy2(ROOT / "LICENSE", output / "LICENSE")
     validator = ROOT / "scripts/check-typescript-target.py"
     if not validator.is_file():
@@ -151,13 +167,13 @@ def main() -> int:
         "releaseSetId": "opto-sync-typescript-target-candidate",
         "target": "typescript",
         "package": "opto-sync/opto-sync-client-typescript",
-        "clientVersion": "0.2.1",
+        "clientVersion": "0.3.0",
         "syncerVersion": "0.2.1",
         "clientSourceSha": client_sha,
         "syncerSourceSha": nested_sha,
         "coreResolution": "bundled-source",
         "publicationEnabled": False,
-        "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.2.0",
+        "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.4.0",
         "coexistenceRule": "all installed opto-sync targets must resolve the same syncerSourceSha",
     }
     write(
@@ -170,7 +186,7 @@ def main() -> int:
         '''[package]
 org = "opto-sync"
 name = "opto-sync-client-typescript"
-version = "0.2.1"
+version = "0.3.0"
 description = "Self-contained TypeScript opto-sync client prototype with one pinned native/WASM core"
 license = "MIT"
 keywords = ["sync", "offline-first", "typescript", "indexeddb", "wasm"]
@@ -204,7 +220,7 @@ test = "python3 scripts/check-typescript-target.py ."
 
 This clean-room source target contains only:
 
-- `clients/ts` (`@opto-sync/client` 0.2.1);
+- `clients/ts` (`@opto-sync/client` 0.3.0);
 - `clients/ts/smoke` (credential-free extracted-artifact consumers);
 - `syncer.c/core`;
 - `syncer.c/bindings/typescript` (`@opto-sync/syncer` 0.2.1); and

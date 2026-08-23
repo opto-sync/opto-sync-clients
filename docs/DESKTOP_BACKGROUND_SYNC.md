@@ -50,6 +50,34 @@ remote-commit correctness boundary if a process dies after a server commit but
 before local release; fencing and transactional checkpoint rules remain the
 local correctness boundary.
 
+## Formally controlled runner lifecycle
+
+The TypeScript, Dart, and Rust runners expose the same finite lifecycle projection:
+`idle`, `acquiring`, `running`, `releasing`, and `closed`, with explicit
+`wakePending`, `closeRequested`, `cancelRequested`, and `permitHeld` facts.
+Every ownership change passes through the production `SyncLifecycleMachine`.
+An event that is not defined for the current state fails closed instead of
+guessing a recovery transition.
+
+The Quint source of truth is
+`formal/mobile_desktop_lifecycle.qnt`. TLC exhaustively explores its complete
+finite state graph and checks that an execution permit exists exactly while a
+cycle is running or releasing, closure is terminal, closing cannot retain a
+wake, and cancellation is observable only while running. Separate Dart and
+Rust, Dart, and TypeScript tests enumerate every event from every reachable
+implementation state.
+
+In particular, `close()` during asynchronous lease acquisition is modeled.
+If the store later grants the fence, the runner enters `releasing`, releases
+that exact grant, and returns a `cancelled` outcome without invoking application
+code. A Rust callback panic is caught at the ownership boundary, the fence is
+released, the machine returns to `idle`, and the panic is then resumed.
+
+This proof covers the declared transition system, not arbitrary host behavior.
+Durable-store atomicity, OS process termination, callback cooperation, and
+transport correctness remain environmental assumptions with separate fencing,
+restart, fault-injection, and integration tests.
+
 ## Runtime capability model
 
 | Runtime | Persistent native runner | Service Worker events | Raw TCP | Survives host termination |
@@ -72,6 +100,10 @@ a durable cross-process lease before invoking the protocol callback. It exposes
 `close()` cancellation and bounded cycle deadlines. The package also exports a
 capability resolver so Electron main processes, renderer/PWA surfaces, and
 plain Node daemons do not report the same guarantees.
+
+The runner also exposes its immutable formal lifecycle projection. A close that
+races lease acquisition releases a late grant and reports `cancelled` without
+starting application code.
 
 Renderer processes and windows should post payload-free wake reasons to the
 main/tray process. Credentials and mutation payloads stay in secure host state

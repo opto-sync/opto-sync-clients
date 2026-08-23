@@ -30,8 +30,12 @@ export * as syncLoop from './sync-loop.js';
 export * as transports from './transport/ws.js';
 export * as crossTab from './cross-tab.js';
 export * as backgroundSync from './register-sw.js';
+export * as connectivity from './connectivity.js';
+export * as connectedClient from './connected-client.js';
 export * as rx from './rx/index.js';
 export * as schema from './schema/ingest.js';
+export * as telemetry from './telemetry.js';
+export * as observability from './observability.js';
 
 /*
  * CURATED TOP-LEVEL NAMES — the everyday API, re-exported once each (never
@@ -105,6 +109,18 @@ export {
   SyncTransportError,
   computeRetryDelay,
 } from './sync-loop.js';
+export {
+  OPTO_SYNC_TELEMETRY_SCHEMA,
+  createProtocolSyncTelemetryRecord,
+  protocolSyncStateTelemetry,
+} from './observability.js';
+export type {
+  OresOpenTelemetryLogRecord,
+  OresTelemetryAttribute,
+  ProtocolSyncTelemetryInput,
+  ProtocolSyncTelemetryKind,
+  ProtocolSyncTelemetryRuntime,
+} from './observability.js';
 export type {
   ProtocolTransport,
   ProtocolQueueAdapter,
@@ -132,3 +148,36 @@ export type {
   BackgroundSyncStrategy,
   RegisterBackgroundSyncOptions,
 } from './register-sw.js';
+export {
+  BrowserConnectivityWatcher,
+  ManualConnectivityWatcher,
+  createDefaultConnectivityWatcher,
+} from './connectivity.js';
+export type {
+  BrowserConnectivityHost,
+  BrowserConnectivityWatcherOptions,
+  ConnectivityListener,
+  ConnectivityMode,
+  ConnectivitySnapshot,
+  ConnectivitySource,
+  ConnectivityState,
+  ConnectivitySubscribeOptions,
+  ConnectivityWatcher,
+  ManualConnectivityWatcherOptions,
+} from './connectivity.js';
+export { ConnectivityAwareOptoSyncClient } from './connected-client.js';
+export type {
+  ConnectivityAwareOptoSyncClientOptions,
+  LocalSaveEvent,
+  LocalSaveListener,
+  LocalSaveOperation,
+  SaveSubscribeOptions,
+} from './connected-client.js';
+export {
+  emitProtocolSyncTelemetry,
+  emitTelemetry,
+} from './telemetry.js';
+export type {
+  ProtocolSyncTelemetrySink,
+  TelemetrySink,
+} from './telemetry.js';

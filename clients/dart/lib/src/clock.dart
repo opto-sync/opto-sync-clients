@@ -48,12 +48,25 @@ class HlcParts {
 }
 
 String formatHlc(HlcParts parts) {
+  if (parts.millis < 0 || parts.millis > 9999999999999) {
+    throw RangeError.range(parts.millis, 0, 9999999999999, 'millis');
+  }
+  if (parts.counter < 0 || parts.counter > _maxCounter) {
+    throw RangeError.range(parts.counter, 0, _maxCounter, 'counter');
+  }
+  if (parts.nodeId.isEmpty || parts.nodeId.contains('-')) {
+    throw ArgumentError.value(
+      parts.nodeId,
+      'nodeId',
+      'must be non-empty and contain no "-"',
+    );
+  }
   final ms = parts.millis.toString().padLeft(_millisDigits, '0');
   final counter = parts.counter.toRadixString(16).padLeft(4, '0');
   return '$ms-$counter-${parts.nodeId}';
 }
 
-final RegExp _hlcPattern = RegExp(r'^(\d{13})-([0-9a-f]{4})-(.+)$');
+final RegExp _hlcPattern = RegExp(r'^(\d{13})-([0-9a-f]{4})-([^-]+)$');
 
 /// Returns null for anything not produced by this format (a bare epoch number
 /// or an ISO-8601 string from a legacy writer).

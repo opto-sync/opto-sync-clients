@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/services.dart';
@@ -6,6 +7,12 @@ import 'package:opto_sync_flutter_background/opto_sync_flutter_background.dart';
 
 @pragma('vm:entry-point')
 Future<bool> _drain() async => true;
+
+@pragma('vm:entry-point')
+Future<bool> _blockingDrain() {
+  _blockingDrainCalls += 1;
+  return _blockingDrainResult!.future;
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -210,11 +217,46 @@ void main() {
       expect(const StandardMethodCodec().decodeEnvelope(response!), isTrue);
     },
   );
+
+  test(
+    'dispatcher coalesces concurrent native drains into one cycle',
+    () async {
+      await optoSyncBackgroundDispatcher();
+      _blockingDrainCalls = 0;
+      _blockingDrainResult = Completer<bool>();
+      addTearDown(() => _blockingDrainResult = null);
+      final rawHandle = PluginUtilities.getCallbackHandle(
+        _blockingDrain,
+      )!.toRawHandle();
+      final first = _invokeFrameworkChannel(
+        backgroundChannel.name,
+        MethodCall('runDrain', {'callbackHandle': rawHandle}),
+      );
+      final second = _invokeFrameworkChannel(
+        backgroundChannel.name,
+        MethodCall('runDrain', {'callbackHandle': rawHandle}),
+      );
+
+      await Future<void>.delayed(Duration.zero);
+      expect(_blockingDrainCalls, 1);
+      _blockingDrainResult!.complete(true);
+      expect(
+        const StandardMethodCodec().decodeEnvelope((await first)!),
+        isTrue,
+      );
+      expect(
+        const StandardMethodCodec().decodeEnvelope((await second)!),
+        isTrue,
+      );
+    },
+  );
 }
 
 bool _failExpedited = false;
 bool _missingExpedited = false;
 bool _failCancel = false;
+int _blockingDrainCalls = 0;
+Completer<bool>? _blockingDrainResult;
 
 class _ErrorChannel extends MethodChannel {
   const _ErrorChannel() : super('dev.optosync.background/error-test');

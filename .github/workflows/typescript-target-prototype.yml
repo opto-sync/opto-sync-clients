@@ -111,6 +111,7 @@ jobs:
             'pkg/clients/ts/smoke/native-reconcile.cjs'
             'pkg/clients/ts/smoke/indexeddb-queue.cjs'
             'pkg/clients/ts/smoke/browser-indexeddb.mjs'
+            'pkg/clients/ts/smoke/helpers/browser.mjs'
             'pkg/clients/ts/smoke/helpers/bundle.mjs'
             'pkg/clients/ts/smoke/helpers/corpus.mjs'
             'pkg/syncer.c/SOURCE_SHA'

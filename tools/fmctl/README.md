@@ -71,7 +71,10 @@ semantics relative to the CLI. HTTP and MCP transports can wrap this core later.
 `fmctl validate` rejects path traversal, unsupported backend names, duplicate or
 invalid property identifiers, unpinned verifier tokens, active adapters without a
 command, output paths that escape through symlinked ancestors, and invalid
-resource limits.
+resource limits. Verification claims are also checked against backend semantics:
+TLC must declare an exhaustive finite model, while Apalache must declare bounded
+verification with an explicit `max_steps` value. A bounded run therefore cannot
+be mislabeled as exhaustive in the manifest or normalized evidence.
 
 ## Adapter protocol
 

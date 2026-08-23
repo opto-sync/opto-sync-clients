@@ -16,7 +16,9 @@ current.
 
 `nix develop` provides the Rust, Node, Java, and native dependencies used by
 the formal workflow. Quint/TLC plus implementation-trace replay prove the
-protocol lifecycle; Kani proves Rust queue arithmetic, while the pinned
+protocol lifecycle. A second finite Quint model exhaustively checks the mobile
+and desktop runner lifecycle, with the transition function executed directly
+by TypeScript, Dart, and Rust; Kani proves Rust queue arithmetic, while the pinned
 `syncer.c` submodule owns CBMC and Rust-FFI proofs for reconciliation.
 
 ## Layout
@@ -29,6 +31,8 @@ opto-sync-clients/
     ts/             package @opto-sync/client — Dexie/IndexedDB mutation queue + native syncer
     rust/           crate opto-sync-client — first-party SQLite protocol store + pluggable seams
     gleam/          package opto_sync_client — protocol queue + BEAM NIF reconciliation
+    php/            package opto-sync/opto-sync-client — transport-neutral PHP protocol queue
+    dotnet/         C# binding + idiomatic F# facade for SAFE Stack and managed apps
     reactive-ts/    package @opto-sync/reactive — RxJS, Service Worker, HTTP/WS/TCP/Supabase hints
     reactive-dart/  package opto_sync_reactive — RxDart + Flutter/iOS/Android background adapters
 ```
@@ -99,7 +103,9 @@ timestamps and ISO-8601 strings are unaffected. The cross-server suites in
 - [Background and reactive sync](docs/BACKGROUND_REACTIVE_SYNC.md)—RxJS/RxDart, optimism, Service Workers, mobile workers, sessions, and transports
 - [Offline queue](docs/OFFLINE_QUEUE.md)—the queue model and durability guarantees
 - [Sync protocol v1](docs/SYNC_PROTOCOL_V1.md)—push dedupe, pull checkpoints, tombstones, rejection, and reset
+- [SDK capability and portable API contract](docs/SDK_API_CONTRACT.md)—six proven JSON Schema-governed Rust/Dart/TypeScript operations, explicit candidate differences, and injected ORE logging
 - [Reconciliation](docs/RECONCILIATION.md)—policy, schema guidance, and timestamp conventions
+- [Observability](docs/OBSERVABILITY.md)—privacy-bounded ORE/OpenTelemetry records shared by Rust, Dart, and TypeScript
 - [Zed package](docs/ZED_PACKAGE.md)—package boundary, reproducibility, and release procedure
 - [Merge semantics](syncer.c/docs/MERGE_SEMANTICS.md)—the underlying native contract
 - [Troubleshooting](syncer.c/docs/TROUBLESHOOTING.md)—real failure modes
@@ -130,16 +136,21 @@ cmake --build syncer.c/core/build --target syncer
 (cd clients/dart && dart pub get && dart analyze && dart test)
 (cd clients/rust && cargo test --locked --all-targets)
 (cd clients/gleam && gleam deps download && gleam test)
+OPTO_SYNC_NATIVE_LIBRARY="$PWD/syncer.c/core/build/libsyncer.so" \
+  dotnet run --project clients/dotnet/tests/OptoSync.Client.Contract --configuration Release
+OPTO_SYNC_NATIVE_LIBRARY="$PWD/syncer.c/core/build/libsyncer.so" \
+  dotnet run --project clients/dotnet/tests/OptoSync.FSharp.Contract --configuration Release
 
 # reactive/background suites
 (cd clients/reactive-ts && npm ci && npm test)
-(cd clients/reactive-dart && dart pub get && dart analyze && dart run tool/self_test.dart)
+(cd clients/reactive-dart && dart pub get && dart analyze && \
+  dart run tool/lifecycle_formal_self_test.dart && dart run tool/self_test.dart)
 python3 clients/reactive-dart/tool/check_native_background_adapters.py
 ```
 
 ## Zed package
 
-The repository root declares `opto-sync/opto-sync-clients@0.2.0` in
+The repository root declares `opto-sync/opto-sync-clients@0.4.0` in
 `.zpkg.toml`, with `.zpkg.lock` committed for frozen source workflows. The first
 release is intentionally one whole-repository package: a language-only target
 would omit the root native submodule required by that client. The package

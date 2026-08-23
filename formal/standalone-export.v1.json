@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "targetRepository": "ORESoftware/formal-methods.rs",
+  "sourceRepository": "opto-sync/opto-sync-clients",
+  "include": [
+    "tools/fmctl",
+    "formal/adapter-stream-protocol.schema.json",
+    "formal/protocol-fixtures/stream",
+    "formal/sdk/go",
+    "formal/ADAPTER_STREAM_PROTOCOL.md",
+    "formal/CAPABILITY_REGISTRY_V1.md",
+    "formal/RESOURCE_LIMITS.md",
+    "formal/REPORT_PUBLICATION_LEASES.md"
+  ],
+  "forbidPrefixes": [
+    "clients/",
+    "adoption/",
+    "formal/model/",
+    "formal/models/",
+    "formal/generated/",
+    "formal/traces/",
+    "syncer.c/"
+  ],
+  "provenanceFile": "SOURCE_EXPORT.json"
+}
