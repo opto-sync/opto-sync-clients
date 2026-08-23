@@ -11,6 +11,13 @@
 **/obj/
 *.py[cod]
 
+# The exported-surface verifier is authored source, not a generated language
+# build directory. Keep this single tool directory visible while retaining the
+# repository-wide build-output exclusion above.
+!contract/bin/
+!contract/bin/*.py
+!contract/bin/*.sh
+
 # Formal-methods runtime output
 .formal-artifacts/
 _apalache-out/

@@ -20,13 +20,13 @@ jobs:
   contract:
     name: contract document
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       languages: ${{ steps.langs.outputs.languages }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          python-version: '3.11'
+          persist-credentials: false
       - name: Validate the contract with the bundled validator
         run: python3 contract/bin/check_surface.py --schema-only
       - name: Validate again with the reference jsonschema implementation
@@ -47,15 +47,15 @@ jobs:
     name: clients/${{ matrix.language }}
     needs: contract
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
         language: ${{ fromJSON(needs.contract.outputs.languages) }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          python-version: '3.11'
+          persist-credentials: false
       - name: Check exported surface
         run: python3 contract/bin/check_surface.py --lang "${{ matrix.language }}" --format github
 
@@ -63,10 +63,10 @@ jobs:
     name: full sweep
     needs: contract
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          python-version: '3.11'
+          persist-credentials: false
       - name: Every client, one report
         run: python3 contract/bin/check_surface.py
