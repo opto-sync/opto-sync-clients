@@ -55,7 +55,10 @@
     "test": "npm run build && node --test",
     "test:node": "node --test test/queue.test.js test/reconcile.test.js",
     "test:browser": "node --test test/browser-e2e.test.mjs",
-    "test:service-worker-browser": "node --test test/core-service-worker-browser.test.mjs"
+    "test:service-worker-browser": "node --test test/core-service-worker-browser.test.mjs",
+    "test:contract": "python3 ../../contract/bin/check_surface.py --lang ts",
+    "pretest": "python3 ../../contract/bin/check_surface.py --lang ts",
+    "prepublishOnly": "python3 ../../contract/bin/check_surface.py --prepublish --lang ts"
   },
   "keywords": [
     "sync",
