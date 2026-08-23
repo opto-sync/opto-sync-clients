@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   opto-sync-protocol:
-    name: fmctl + Quint protocol model and Rust/TypeScript/Dart conformance
+    name: Quint state machines and Rust/TypeScript/Dart refinement
     runs-on: ubuntu-24.04
     timeout-minutes: 50
     env:
@@ -100,6 +100,24 @@ jobs:
           nix develop --command tools/fmctl/target/release/fmctl --manifest "$lifecycle_manifest" simulate
           nix develop --command tools/fmctl/target/release/fmctl --manifest "$lifecycle_manifest" verify
 
+      - name: Generate the deterministic lifecycle refinement corpus
+        run: >-
+          nix develop --command tools/fmctl/target/release/fmctl
+          --manifest formal/mobile_desktop_lifecycle.fm.toml trace
+
+      - name: Exhaustively check connectivity override safety
+        run: |
+          connectivity_manifest='formal/connectivity_override.fm.toml'
+          nix develop --command tools/fmctl/target/release/fmctl --manifest "$connectivity_manifest" validate
+          nix develop --command tools/fmctl/target/release/fmctl --manifest "$connectivity_manifest" check
+          nix develop --command tools/fmctl/target/release/fmctl --manifest "$connectivity_manifest" simulate
+          nix develop --command tools/fmctl/target/release/fmctl --manifest "$connectivity_manifest" verify
+
+      - name: Generate the deterministic connectivity refinement corpus
+        run: >-
+          nix develop --command tools/fmctl/target/release/fmctl
+          --manifest formal/connectivity_override.fm.toml trace
+
       - name: Generate the deterministic model-based testing corpus through fmctl
         run: |
           nix develop --command tools/fmctl/target/release/fmctl trace \
@@ -145,6 +163,18 @@ jobs:
             --locked \
             --manifest-path formal/rust-itf-replay/Cargo.toml \
             --all-targets
+          nix develop --command cargo fmt \
+            --manifest-path clients/desktop-rust/Cargo.toml \
+            -- --check
+          nix develop --command cargo clippy \
+            --locked \
+            --manifest-path clients/desktop-rust/Cargo.toml \
+            --all-targets \
+            -- -D warnings
+          nix develop --command cargo test \
+            --locked \
+            --manifest-path clients/desktop-rust/Cargo.toml \
+            --all-targets
 
       - name: Install and build the TypeScript client
         working-directory: clients/ts
@@ -156,7 +186,26 @@ jobs:
             nix develop ../.. --command npm ci
             nix develop ../.. --command npm run build
             nix develop ../.. --command node --check ../../formal/typescript-itf-replay.mjs
+            nix develop ../.. --command node --experimental-strip-types \
+              --check ../../formal/typescript-lifecycle-itf-replay.mjs
+            nix develop ../.. --command node \
+              --check ../../formal/typescript-connectivity-itf-replay.mjs
           } 2>&1 | tee ../../.formal-artifacts/typescript-build.log
+          status=${PIPESTATUS[0]}
+          set -e
+          exit "$status"
+
+      - name: Validate the Dart lifecycle replay adapter
+        working-directory: clients/reactive-dart
+        shell: bash
+        run: |
+          set +e
+          set -o pipefail
+          {
+            dart pub get
+            dart format --output=none --set-exit-if-changed tool/lifecycle_itf_replay.dart
+            dart analyze
+          } 2>&1 | tee ../../.formal-artifacts/dart-lifecycle-build.log
           status=${PIPESTATUS[0]}
           set -e
           exit "$status"
@@ -169,7 +218,10 @@ jobs:
           set -o pipefail
           {
             dart pub get
-            dart format --output=none --set-exit-if-changed tool/formal_itf_replay.dart tool/formal_itf_replay
+            dart format --output=none --set-exit-if-changed \
+              tool/connectivity_itf_replay.dart \
+              tool/formal_itf_replay.dart \
+              tool/formal_itf_replay
             dart analyze
           } 2>&1 | tee ../../.formal-artifacts/dart-build.log
           status=${PIPESTATUS[0]}
@@ -218,6 +270,81 @@ jobs:
             "${traces[@]}" 2>&1 \
             | tee .formal-artifacts/dart-itf-replay.log
 
+      - name: Refine the lifecycle model through the Rust production machine
+        shell: bash
+        run: |
+          set -euo pipefail
+          traces=()
+          for trace in .formal-artifacts/lifecycle/opto-sync-clients-mobile-desktop-lifecycle-v1-*.itf.json; do
+            test -f "$trace"
+            traces+=(--trace "$trace")
+          done
+          nix develop --command tools/fmctl/target/release/fmctl \
+            --manifest formal/mobile_desktop_lifecycle.fm.toml replay \
+            --adapter rust \
+            "${traces[@]}" 2>&1 \
+            | tee .formal-artifacts/lifecycle/rust-itf-replay.log
+
+      - name: Refine the lifecycle model through the TypeScript production machine
+        shell: bash
+        run: |
+          set -euo pipefail
+          traces=()
+          for trace in .formal-artifacts/lifecycle/opto-sync-clients-mobile-desktop-lifecycle-v1-*.itf.json; do
+            test -f "$trace"
+            traces+=(--trace "$trace")
+          done
+          nix develop --command tools/fmctl/target/release/fmctl \
+            --manifest formal/mobile_desktop_lifecycle.fm.toml replay \
+            --adapter typescript \
+            "${traces[@]}" 2>&1 \
+            | tee .formal-artifacts/lifecycle/typescript-itf-replay.log
+
+      - name: Refine the lifecycle model through the Dart production machine
+        shell: bash
+        run: |
+          set -euo pipefail
+          traces=()
+          for trace in .formal-artifacts/lifecycle/opto-sync-clients-mobile-desktop-lifecycle-v1-*.itf.json; do
+            test -f "$trace"
+            traces+=(--trace "$trace")
+          done
+          tools/fmctl/target/release/fmctl \
+            --manifest formal/mobile_desktop_lifecycle.fm.toml replay \
+            --adapter dart \
+            "${traces[@]}" 2>&1 \
+            | tee .formal-artifacts/lifecycle/dart-itf-replay.log
+
+      - name: Refine the connectivity model through the TypeScript production watcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          traces=()
+          for trace in .formal-artifacts/connectivity/opto-sync-clients-connectivity-override-v1-*.itf.json; do
+            test -f "$trace"
+            traces+=(--trace "$trace")
+          done
+          nix develop --command tools/fmctl/target/release/fmctl \
+            --manifest formal/connectivity_override.fm.toml replay \
+            --adapter typescript \
+            "${traces[@]}" 2>&1 \
+            | tee .formal-artifacts/connectivity/typescript-itf-replay.log
+
+      - name: Refine the connectivity model through the Dart production watcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          traces=()
+          for trace in .formal-artifacts/connectivity/opto-sync-clients-connectivity-override-v1-*.itf.json; do
+            test -f "$trace"
+            traces+=(--trace "$trace")
+          done
+          tools/fmctl/target/release/fmctl \
+            --manifest formal/connectivity_override.fm.toml replay \
+            --adapter dart \
+            "${traces[@]}" 2>&1 \
+            | tee .formal-artifacts/connectivity/dart-itf-replay.log
+
       - name: Upload verifier, trace, lockfile, and normalized fmctl artifacts
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -227,6 +354,7 @@ jobs:
             .formal-artifacts/
             tools/fmctl/Cargo.lock
             formal/rust-itf-replay/Cargo.lock
+            clients/desktop-rust/Cargo.lock
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 14

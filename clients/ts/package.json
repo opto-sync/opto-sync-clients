@@ -50,6 +50,9 @@
     "README.md"
   ],
   "scripts": {
+    "test:contract": "python3 ../../contract/bin/check_surface.py --lang ts",
+    "pretest": "python3 ../../contract/bin/check_surface.py --lang ts",
+    "prepublishOnly": "python3 ../../contract/bin/check_surface.py --prepublish --lang ts",
     "postinstall": "node scripts/bootstrap-native-binding.mjs",
     "build": "tsc && tsc -p tsconfig.esm.json && node scripts/postbuild.mjs",
     "test": "npm run build && node --test",

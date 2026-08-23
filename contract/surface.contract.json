@@ -1,0 +1,304 @@
+{
+  "$schema": "./surface.schema.json",
+  "$comment": "Declared exported interface for every client under clients/. Validated against surface.schema.json; enforced by contract/bin/check_surface.py in tests, in CI, and at pre-publish time. Edit this file to change the contract \u2014 never to paper over a client that drifted.",
+  "contractVersion": "1.0.0",
+  "product": "opto-sync",
+  "provenance": {
+    "source": "clients/api-surface.json",
+    "sourceSha256": "49fe9b15202a8d1ab3e1193df837d922fdcda9c486846cb2debdb7096e0adbf7",
+    "sourceKind": "api-surface",
+    "generatedBy": "contract/bin/derive_contract.py --from-api-surface",
+    "generatedAt": "2026-08-22"
+  },
+  "conventions": {
+    "clientType": "OptoSyncClient",
+    "errorTypes": [
+      "OptoSyncError"
+    ],
+    "naming": {
+      "default": "snake_case",
+      "byLanguage": {
+        "c": "snake_case",
+        "cpp": "snake_case",
+        "dart": "camelCase",
+        "desktop-rust": "snake_case",
+        "dotnet": "PascalCase",
+        "elixir": "snake_case",
+        "erlang": "snake_case",
+        "flutter": "camelCase",
+        "flutter_background": "camelCase",
+        "gleam": "snake_case",
+        "gleamlang": "snake_case",
+        "go": "PascalCase",
+        "golang": "PascalCase",
+        "java": "camelCase",
+        "kotlin": "camelCase",
+        "php": "camelCase",
+        "python3": "snake_case",
+        "reactive-dart": "camelCase",
+        "reactive-ts": "camelCase",
+        "ruby": "snake_case",
+        "rust": "snake_case",
+        "rust-connectivity": "snake_case",
+        "swift": "camelCase",
+        "ts": "camelCase",
+        "typescript": "camelCase",
+        "wasm": "snake_case",
+        "zig": "camelCase"
+      }
+    }
+  },
+  "interfaceSchemas": [],
+  "types": {},
+  "operations": [
+    {
+      "name": "create_opto_sync_client",
+      "params": [
+        {
+          "name": "options",
+          "in": "body",
+          "type": "any",
+          "required": true
+        }
+      ],
+      "returns": {
+        "type": "object"
+      },
+      "doc": "Construct the standard client entry point."
+    },
+    {
+      "name": "health",
+      "params": [],
+      "returns": {
+        "type": "object"
+      }
+    },
+    {
+      "name": "send",
+      "params": [
+        {
+          "name": "path",
+          "in": "body",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "body",
+          "in": "body",
+          "type": "any",
+          "required": false
+        }
+      ],
+      "returns": {
+        "type": "object"
+      }
+    }
+  ],
+  "languages": {
+    "c": {
+      "tier": "warn",
+      "naming": "snake_case",
+      "enforceArity": false,
+      "exclude": [],
+      "minCoverage": 0.0
+    },
+    "cpp": {
+      "tier": "warn",
+      "naming": "snake_case",
+      "enforceArity": false,
+      "exclude": [],
+      "symbolPrefix": "OptoSync",
+      "clientType": "OptoSyncClient",
+      "minCoverage": 0.0
+    },
+    "dart": {
+      "tier": "warn",
+      "naming": "camelCase",
+      "enforceArity": false,
+      "exclude": [],
+      "clientType": "OptoSyncClient",
+      "minCoverage": 0.0
+    },
+    "desktop-rust": {
+      "tier": "warn",
+      "naming": "snake_case",
+      "enforceArity": false,
+      "exclude": [],
+      "minCoverage": 0.0
+    },
+    "dotnet": {
+      "tier": "warn",
+      "naming": "PascalCase",
+      "enforceArity": false,
+      "exclude": [],
+      "minCoverage": 0.0
+    },
+    "elixir": {
+      "tier": "warn",
+      "naming": "snake_case",
+      "enforceArity": false,
+      "exclude": [],
+      "clientType": "OptoSyncClient",
+      "minCoverage": 0.0
+    },
+    "erlang": {
+      "tier": "warn",
+      "naming": "snake_case",
+      "enforceArity": false,
+      "exclude": [],
+      "minCoverage": 0.0
+    },
+    "flutter": {
+      "tier": "warn",
+      "naming": "camelCase",
+      "enforceArity": false,
+      "exclude": [],
+      "minCoverage": 0.0
+    },
+    "flutter_background": {
+      "tier": "warn",
+      "naming": "camelCase",
+      "enforceArity": false,
+      "exclude": [],
+      "minCoverage": 0.0
+    },
+    "gleam": {
+      "tier": "warn",
+      "naming": "snake_case",
+      "enforceArity": false,
+      "exclude": [],
+      "minCoverage": 0.0
+    },
+    "gleamlang": {
+      "tier": "warn",
+      "naming": "snake_case",
+      "enforceArity": false,
+      "exclude": [],
+      "clientType": "Client",
+      "minCoverage": 0.0
+    },
+    "go": {
+      "tier": "warn",
+      "naming": "PascalCase",
+      "enforceArity": false,
+      "exclude": [],
+      "minCoverage": 0.0
+    },
+    "golang": {
+      "tier": "warn",
+      "naming": "PascalCase",
+      "enforceArity": false,
+      "exclude": [],
+      "clientType": "Client",
+      "minCoverage": 0.0
+    },
+    "java": {
+      "tier": "warn",
+      "naming": "camelCase",
+      "enforceArity": false,
+      "exclude": [],
+      "clientType": "OptoSyncClient",
+      "minCoverage": 0.0
+    },
+    "kotlin": {
+      "tier": "warn",
+      "naming": "camelCase",
+      "enforceArity": false,
+      "exclude": [],
+      "clientType": "OptoSyncClient",
+      "minCoverage": 0.0
+    },
+    "php": {
+      "tier": "warn",
+      "naming": "camelCase",
+      "enforceArity": false,
+      "exclude": [],
+      "clientType": "Client",
+      "minCoverage": 0.0
+    },
+    "python3": {
+      "tier": "warn",
+      "naming": "snake_case",
+      "enforceArity": false,
+      "exclude": [],
+      "clientType": "Client",
+      "minCoverage": 0.0
+    },
+    "reactive-dart": {
+      "tier": "warn",
+      "naming": "camelCase",
+      "enforceArity": false,
+      "exclude": [],
+      "minCoverage": 0.0
+    },
+    "reactive-ts": {
+      "tier": "warn",
+      "naming": "camelCase",
+      "enforceArity": false,
+      "exclude": [],
+      "minCoverage": 0.0
+    },
+    "ruby": {
+      "tier": "warn",
+      "naming": "snake_case",
+      "enforceArity": false,
+      "exclude": [],
+      "clientType": "OptoSyncClient",
+      "minCoverage": 0.0
+    },
+    "rust": {
+      "tier": "warn",
+      "naming": "snake_case",
+      "enforceArity": false,
+      "exclude": [],
+      "clientType": "OptoSyncClient",
+      "minCoverage": 0.0
+    },
+    "rust-connectivity": {
+      "tier": "warn",
+      "naming": "snake_case",
+      "enforceArity": false,
+      "exclude": [],
+      "minCoverage": 0.0
+    },
+    "swift": {
+      "tier": "warn",
+      "naming": "camelCase",
+      "enforceArity": false,
+      "exclude": [],
+      "clientType": "Client",
+      "minCoverage": 0.0
+    },
+    "ts": {
+      "tier": "warn",
+      "naming": "camelCase",
+      "enforceArity": false,
+      "exclude": [],
+      "clientType": "OptoSyncClient",
+      "minCoverage": 66.0
+    },
+    "typescript": {
+      "tier": "warn",
+      "naming": "camelCase",
+      "enforceArity": false,
+      "exclude": [],
+      "clientType": "Client",
+      "minCoverage": 0.0
+    },
+    "wasm": {
+      "tier": "warn",
+      "naming": "snake_case",
+      "enforceArity": false,
+      "exclude": [],
+      "minCoverage": 0.0
+    },
+    "zig": {
+      "tier": "warn",
+      "naming": "camelCase",
+      "enforceArity": false,
+      "exclude": [],
+      "minCoverage": 33.0
+    }
+  },
+  "waivers": []
+}
