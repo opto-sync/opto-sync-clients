@@ -1,0 +1,74 @@
+name: surface-contract
+
+# The exported interface of every client under clients/ is declared in
+# contract/surface.contract.json and enforced here. See contract/README.md.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: surface-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    name: contract document
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      languages: ${{ steps.langs.outputs.languages }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Validate the contract with the bundled validator
+        run: python3 contract/bin/check_surface.py --schema-only
+      - name: Validate again with the reference jsonschema implementation
+        run: |
+          python3 -m pip install --quiet jsonschema
+          python3 contract/bin/check_surface.py --schema-only
+      - name: Test the source extractor and contract derivation
+        run: python3 -m unittest discover -s contract/tests -v
+      - id: langs
+        name: Enumerate enforced clients
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          c = json.load(open("contract/surface.contract.json"))
+          langs = sorted(k for k, v in c["languages"].items() if v["tier"] != "off")
+          print("languages=" + json.dumps(langs))
+          PY
+
+  clients:
+    name: clients/${{ matrix.language }}
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        language: ${{ fromJSON(needs.contract.outputs.languages) }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Check exported surface
+        run: python3 contract/bin/check_surface.py --lang "${{ matrix.language }}" --format github
+
+  summary:
+    name: full sweep
+    needs: contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Every client, one report
+        run: python3 contract/bin/check_surface.py

@@ -304,6 +304,26 @@ module opto_sync_protocol {
 
   action idle = s' = s
 
+  // Parameter-free progress actions make the fairness assumptions below name
+  // the same transition families as `step`. Fault actions remain outside these
+  // groups: the network may lose or corrupt arbitrarily many attempts, but a
+  // continuously recurring opportunity to make protocol progress must not be
+  // ignored forever.
+  action send_oldest = {
+    nondet id = IDS.oneOf()
+    send(id)
+  }
+
+  action resolve_in_flight = {
+    nondet id = IDS.oneOf()
+    any { apply_new(id), reject_new(id), reply_duplicate(id) }
+  }
+
+  action accept_valid_response = {
+    nondet id = IDS.oneOf()
+    acknowledge(id)
+  }
+
   action step = {
     nondet id = IDS.oneOf()
     any {
@@ -443,6 +463,33 @@ module opto_sync_protocol {
     in_flight_is_queued,
     response_is_bounded,
   }
+
+  // Liveness is conditional on explicit strong-fairness assumptions. Strong
+  // rather than weak fairness is required because loss/corruption actions can
+  // repeatedly disable an otherwise valid send, response, or reset transition.
+  // The finite identity domain means enqueue eventually becomes disabled; the
+  // property does not assume an infinite workload can be drained.
+  temporal protocol_progress_is_fair = and {
+    enqueue.strongFair(Set(s)),
+    send_oldest.strongFair(Set(s)),
+    resolve_in_flight.strongFair(Set(s)),
+    accept_valid_response.strongFair(Set(s)),
+    discard_malformed_response.strongFair(Set(s)),
+    pull.strongFair(Set(s)),
+    begin_reset.strongFair(Set(s)),
+    finish_reset.strongFair(Set(s)),
+  }
+
+  temporal queued_work_eventually_settles =
+    protocol_progress_is_fair.implies(
+      (s.pending.size() > 0).leadsTo(s.pending == Set())
+    )
+
+  temporal replica_eventually_catches_up =
+    protocol_progress_is_fair.implies(
+      (s.server_checkpoint > s.local_checkpoint)
+        .leadsTo(s.server_checkpoint == s.local_checkpoint)
+    )
 
   // Reachability witnesses used by CI so the interesting failure/recovery paths
   // do not silently become dead code as this model evolves.

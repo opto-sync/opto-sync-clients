@@ -17,6 +17,9 @@
     "README.md"
   ],
   "scripts": {
+    "test:contract": "python3 ../../contract/bin/check_surface.py --lang reactive-ts",
+    "pretest": "python3 ../../contract/bin/check_surface.py --lang reactive-ts",
+    "prepublishOnly": "python3 ../../contract/bin/check_surface.py --prepublish --lang reactive-ts",
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "test:browser": "node test/service-worker-browser.mjs"
   },
