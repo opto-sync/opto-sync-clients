@@ -38,14 +38,19 @@ def git(*args: str, cwd: Path = ROOT) -> str:
         fail(f"git {' '.join(args)} failed: {exc.output.strip()}")
 
 
-def ignore(_directory: str, names: list[str]) -> set[str]:
-    return {name for name in names if name in IGNORED}
-
-
-def copy_tree(source: Path, destination: Path) -> None:
+def copy_tree(
+    source: Path,
+    destination: Path,
+    additional_ignored: frozenset[str] = frozenset(),
+) -> None:
     if not source.is_dir():
         fail(f"required source directory is missing: {source.relative_to(ROOT)}")
-    shutil.copytree(source, destination, ignore=ignore)
+    ignored = IGNORED | additional_ignored
+    shutil.copytree(
+        source,
+        destination,
+        ignore=lambda _directory, names: {name for name in names if name in ignored},
+    )
 
 
 def sha256(path: Path) -> str:
@@ -63,7 +68,7 @@ def main() -> int:
     if output == ROOT or ROOT in output.parents:
         fail("output must be outside the source repository")
     if output.exists():
-        shutil.rmtree(output)
+        fail("output directory already exists; choose a new staging path")
     output.mkdir(parents=True)
 
     client_sha = git("rev-parse", "HEAD")
@@ -75,16 +80,33 @@ def main() -> int:
             f"gitlink={gitlink_sha} nested={nested_sha}"
         )
 
-    copy_tree(ROOT / "clients/rust", output / "clients/rust")
+    copy_tree(
+        ROOT / "clients/rust",
+        output / "clients/rust",
+        frozenset({"examples"}),
+    )
     # Formal/model replay adapters remain repository-source verification assets.
     # Zed source packing intentionally omits conventional examples/ trees, so
     # remove that source-only tree explicitly after copying rather than relying
     # on callback path identity inside shutil.copytree.
-    examples = output / "clients/rust/examples"
-    if examples.exists():
-        if not examples.is_dir() or examples.is_symlink():
-            fail("clients/rust/examples must be a normal directory when present")
-        shutil.rmtree(examples)
+    # The Rust surface-contract integration test must remain meaningful in the
+    # extracted clean-room target. Carry only its declared API source, schema,
+    # and dependency-free checker—not the other client implementations.
+    shutil.copy2(
+        ROOT / "clients/api-surface.json",
+        output / "clients/api-surface.json",
+    )
+    (output / "contract/bin").mkdir(parents=True)
+    for relative in (
+        "bin/check_surface.py",
+        "bin/extract.py",
+        "bin/jsonschema_mini.py",
+        "surface.contract.json",
+        "surface.schema.json",
+    ):
+        destination = output / "contract" / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / "contract" / relative, destination)
 
     # The Rust schema-ingest integration tests deliberately consume the shared
     # cross-language fixture corpus. Package the corpus beside the client so an
@@ -173,9 +195,9 @@ exclude = [".zpkg.lock"]
     (output / "README.md").write_text(
         f"""# opto-sync Rust target prototype
 
-This staged source package contains only the Rust client, its shared schema
-fixture corpus, and the exact C core and Rust FFI binding pinned by
-`opto-sync-clients`.
+This staged source package contains the Rust client, its portable surface
+contract checker, its shared schema fixture corpus, and the exact C core and
+Rust FFI binding pinned by `opto-sync-clients`.
 
 - Client source: `{client_sha}`
 - Core source: `{gitlink_sha}`

@@ -94,10 +94,16 @@ def main() -> int:
         "README.md",
         "release-set.json",
         "scripts/check-rust-target.py",
+        "clients/api-surface.json",
         "clients/rust/Cargo.toml",
         "clients/rust/Cargo.lock",
         "clients/rust/src/lib.rs",
         "clients/rust/src/bin/core_identity.rs",
+        "contract/bin/check_surface.py",
+        "contract/bin/extract.py",
+        "contract/bin/jsonschema_mini.py",
+        "contract/surface.contract.json",
+        "contract/surface.schema.json",
         "schema/fixtures/valid/basic-upsert.json",
         "schema/fixtures/valid/nested-keyed-arrays.json",
         "schema/fixtures/invalid/bad-table-identifier.json",
@@ -220,7 +226,8 @@ def main() -> int:
         fail("Cargo.lock contains a mutable or machine-local path")
 
     clients = ROOT / "clients"
-    leaked = sorted(path.name for path in clients.iterdir() if path.name != "rust")
+    allowed_client_entries = {"rust", "api-surface.json"}
+    leaked = sorted(path.name for path in clients.iterdir() if path.name not in allowed_client_entries)
     if leaked:
         fail(f"Rust target leaked other client roots: {leaked}")
 
