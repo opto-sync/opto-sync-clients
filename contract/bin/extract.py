@@ -358,7 +358,7 @@ def detect_language(client_dir, hint=None):
     return max(census.items(), key=lambda kv: kv[1])[0]
 
 
-def iter_sources(client_dir, lang, exclude=()):
+def iter_sources(client_dir, lang, exclude=(), include=()):
     exts = LANGS[lang]["exts"] if lang else None
     for root, dirs, files in os.walk(client_dir):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".")]
@@ -368,6 +368,8 @@ def iter_sources(client_dir, lang, exclude=()):
             rel = os.path.relpath(os.path.join(root, name), client_dir)
             low = rel.lower()
             if any(h in low for h in TEST_HINTS):
+                continue
+            if include and not any(_glob_match(rel, pat) for pat in include):
                 continue
             if any(_glob_match(rel, pat) for pat in exclude):
                 continue
@@ -441,7 +443,7 @@ def _is_comment(line, prefixes):
     return any(s.startswith(p) for p in prefixes)
 
 
-def extract(client_dir, lang=None, exclude=()):
+def extract(client_dir, lang=None, exclude=(), include=()):
     """Return {"language": lang, "symbols": {name: {...}}, "files": n}."""
     lang = lang or detect_language(client_dir)
     if lang is None or lang not in LANGS:
@@ -451,7 +453,7 @@ def extract(client_dir, lang=None, exclude=()):
     symbols = {}
     nfiles = 0
 
-    for path in iter_sources(client_dir, lang, exclude):
+    for path in iter_sources(client_dir, lang, exclude, include):
         nfiles += 1
         try:
             with open(path, "r", encoding="utf-8", errors="replace") as fh:
@@ -530,7 +532,7 @@ TYPE_DECL = re.compile(
 )
 
 
-def find_client_type(client_dir, lang=None, prefer=None):
+def find_client_type(client_dir, lang=None, prefer=None, exclude=(), include=()):
     """Best guess at the primary exported client type's real spelling.
 
     Languages disagree about how a product slug becomes a type name (3fa ->
@@ -541,7 +543,7 @@ def find_client_type(client_dir, lang=None, prefer=None):
     if lang not in LANGS:
         return None
     found = set()
-    for path in iter_sources(client_dir, lang):
+    for path in iter_sources(client_dir, lang, exclude, include):
         try:
             with open(path, "r", encoding="utf-8", errors="replace") as fh:
                 text = fh.read()

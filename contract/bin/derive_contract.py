@@ -235,7 +235,11 @@ def ops_from_api_surface(path):
 
     def add(name, params, doc_text=None):
         c = canonical(name)
-        if not c or c in NOISE:
+        # A canonical API document has already made the public/private and
+        # operation/type distinction. Do not apply the heuristic noise filter
+        # used for source mining here: names such as `send` are intentional
+        # public interface methods and must remain enforceable.
+        if not c:
             return
         entry = {"name": c, "params": [], "returns": {"type": "object"}}
         for i, prm in enumerate(params or []):
@@ -252,14 +256,14 @@ def ops_from_api_surface(path):
 
     for sym in symbols:
         name = sym.get("name") or ""
-        if name.startswith("_"):
+        if name.startswith("_") or sym.get("visibility") == "private":
             continue
         definition = sym.get("definition") or {}
         kind = definition.get("kind") or sym.get("kind")
         if kind in ("class", "interface"):
             if kind == "class" and name.endswith("Client") and client_type is None:
                 client_type = name
-            for m in (definition.get("methods") or []):
+            for m in (definition.get("methods") or sym.get("methods") or []):
                 mname = m.get("name") or ""
                 if mname.startswith("_") or m.get("visibility") == "private":
                     continue
@@ -556,10 +560,25 @@ def build(repo, product, manifest, reference, gate_threshold, client_type=None,
     stats = {}
     usable, _expired = cs.partition_waivers(contract, datetime.date.today())
     for d in lang_dirs:
-        findings, _ = cs.check_language(contract, d, contract["languages"][d], clients_root, usable)
+        findings, extracted = cs.check_language(
+            contract, d, contract["languages"][d], clients_root, usable
+        )
         errs = sum(1 for f in findings if f.severity == "error")
         total = len(operations)
-        stats[d] = {"errors": errs, "conformance": round(100.0 * (total - min(errs, total)) / total, 1)}
+        if not extracted.get("symbols"):
+            missing = total
+        else:
+            missing = len(
+                {
+                    f.operation
+                    for f in findings
+                    if f.severity == "error" and f.operation is not None
+                }
+            )
+        stats[d] = {
+            "errors": missing,
+            "conformance": round(100.0 * (total - min(missing, total)) / total, 1),
+        }
         # Record today's coverage as the ratchet floor, rounded down so that
         # ordinary refactors never trip it but a deletion does.
         contract["languages"][d]["minCoverage"] = float(int(stats[d]["conformance"]))

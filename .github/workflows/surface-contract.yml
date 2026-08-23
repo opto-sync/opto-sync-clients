@@ -33,6 +33,8 @@ jobs:
         run: |
           python3 -m pip install --quiet jsonschema
           python3 contract/bin/check_surface.py --schema-only
+      - name: Test the source extractor and contract derivation
+        run: python3 -m unittest discover -s contract/tests -v
       - id: langs
         name: Enumerate enforced clients
         run: |

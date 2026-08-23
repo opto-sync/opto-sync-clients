@@ -54,6 +54,12 @@ Tiers were assigned by measurement at adoption, not aspiration: a language was
 promoted to `gate` only if it conformed on the day the contract landed. That is
 what makes the gate meaningful instead of permanently red.
 
+An unreadable or empty source surface is always an error. It fails a `gate`
+target immediately and prevents the derivation tool from promoting a target to
+`gate`; on a `warn` target it remains visible without blocking unrelated SDKs.
+Use `sources` to select nonstandard source locations rather than accepting a
+vacuous pass.
+
 `warn` is not a hole, because every language also carries **`minCoverage`** — the
 percentage it exported at adoption. Dropping below that floor is an error **at
 every tier**. A partial client may stay partial; it may not quietly get worse.

@@ -201,11 +201,13 @@ def check_language(contract, lang_dir, lang_cfg, clients_root, usable_waivers):
         findings.append(Finding("error", lang_dir, None, "declared in the contract but clients/%s/ does not exist" % lang_dir))
         return findings, {}
 
-    result = extract.extract(client_path, exclude=tuple(lang_cfg.get("exclude", [])))
+    include = tuple(lang_cfg.get("sources", []))
+    exclude = tuple(lang_cfg.get("exclude", []))
+    result = extract.extract(client_path, exclude=exclude, include=include)
     if result.get("unsupported") or not result["symbols"]:
         findings.append(
             Finding(
-                "warning",
+                "error",
                 lang_dir,
                 None,
                 "no exported symbols could be read (detected language: %s, files scanned: %d). "
@@ -214,6 +216,20 @@ def check_language(contract, lang_dir, lang_cfg, clients_root, usable_waivers):
                 path="clients/%s" % lang_dir,
             )
         )
+        floor = lang_cfg.get("minCoverage")
+        if floor is not None and floor > 0:
+            findings.append(
+                Finding(
+                    "error",
+                    lang_dir,
+                    None,
+                    "coverage regressed to 0.0%% from the recorded floor of %.1f%% "
+                    "because no exported operations were readable. Restore the source surface "
+                    "or correct languages.%s.sources."
+                    % (floor, lang_dir),
+                    path="clients/%s" % lang_dir,
+                )
+            )
         return findings, result
 
     present = result["symbols"]
@@ -302,7 +318,13 @@ def check_language(contract, lang_dir, lang_cfg, clients_root, usable_waivers):
     #    so accept whatever type the client actually names as its client, and
     #    only insist on an exact match when the contract pins one.
     pinned = lang_cfg.get("clientType")
-    actual_client = extract.find_client_type(client_path, result["language"], prefer=pinned)
+    actual_client = extract.find_client_type(
+        client_path,
+        result["language"],
+        prefer=pinned,
+        exclude=exclude,
+        include=include,
+    )
     if actual_client is None:
         findings.append(
             Finding("warning", lang_dir, None,
@@ -344,7 +366,12 @@ def _concat_sources(client_path, lang, lang_cfg, cap=2_000_000):
     chunks, total = [], 0
     if lang not in extract.LANGS:
         return ""
-    for path in extract.iter_sources(client_path, lang, tuple(lang_cfg.get("exclude", []))):
+    for path in extract.iter_sources(
+        client_path,
+        lang,
+        tuple(lang_cfg.get("exclude", [])),
+        tuple(lang_cfg.get("sources", [])),
+    ):
         try:
             with open(path, "r", encoding="utf-8", errors="replace") as fh:
                 data = fh.read()
@@ -461,7 +488,16 @@ def report(findings, contract, tiers, fmt, out=sys.stdout):
         for f in findings:
             if f.severity == "notice":
                 continue
-            level = "error" if f.severity == "error" else "warning"
+            is_fatal_error = (
+                f.severity == "error"
+                and (
+                    f.language is None
+                    or tiers.get(f.language) == "gate"
+                    or "coverage regressed" in f.message
+                    or "waiver expired" in f.message
+                )
+            )
+            level = "error" if is_fatal_error else "warning"
             props = ("file=%s" % f.path) if f.path else ""
             out.write("::%s %s::%s\n" % (level, props, _line(f).replace("\n", " ")))
         return
