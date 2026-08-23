@@ -81,7 +81,8 @@ def validate_client_contracts() -> None:
     if declared_digest != surface_digest:
         fail(
             "clients/.api-surface.sha256 does not match the exact committed "
-            "clients/api-surface.json bytes"
+            "clients/api-surface.json bytes "
+            f"(declared={declared_digest}, actual={surface_digest})"
         )
 
     coordinate = "opto-sync/opto-sync-clients"
@@ -189,22 +190,12 @@ def main() -> int:
     if repository.get("url") != "https://github.com/opto-sync/opto-sync-clients":
         fail("package.repository.url must be the canonical GitHub repository")
 
-    # The intended Ores coordinates are recorded by the SDK API contract, but
-    # neither 0.1.0 package is currently an immutable public Zed release. A
-    # synthetic file registry is not reproducible release provenance, so the
-    # source package must stay dependency-free until a real frozen install can
-    # populate and verify the lock.
     dependencies = manifest.get("dependencies", {})
     if dependencies:
         fail("unreleased Zed dependencies must not be declared")
-    # The artifact already contains the exact syncer.c gitlink contents used by
-    # every native manifest. Declaring the same source again as a Zed dependency
-    # would produce two potentially different core revisions in one install.
     if any(name.startswith("opto-sync/syncer") for name in dependencies):
         fail("the bundled pinned core must not be duplicated as a Zed dependency")
 
-    # Language slices remain unsafe: each client reaches the shared root core.
-    # Only the complete repository is independently buildable today.
     if manifest.get("targets"):
         fail("language targets are forbidden until each target is clean-room self-contained")
 
