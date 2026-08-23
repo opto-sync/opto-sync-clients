@@ -68,8 +68,10 @@ def canonical(name):
 
 
 def sha256(path):
+    """Hash tracked text portably across LF and Git's Windows CRLF checkout."""
     with open(path, "rb") as fh:
-        return hashlib.sha256(fh.read()).hexdigest()
+        normalized = fh.read().replace(b"\r\n", b"\n")
+    return hashlib.sha256(normalized).hexdigest()
 
 
 def ops_from_manifest(manifest_path):

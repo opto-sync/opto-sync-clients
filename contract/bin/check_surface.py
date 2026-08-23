@@ -20,6 +20,7 @@ Typical wiring
 
 import argparse
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -32,6 +33,13 @@ import extract  # noqa: E402
 
 CONTRACT_DIR = os.path.dirname(HERE)
 REPO_ROOT = os.path.dirname(CONTRACT_DIR)
+
+
+def portable_text_sha256(path):
+    """Hash tracked contract text independently of Git CRLF conversion."""
+    with open(path, "rb") as fh:
+        normalized = fh.read().replace(b"\r\n", b"\n")
+    return hashlib.sha256(normalized).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -398,9 +406,7 @@ def check_provenance(contract, repo_root):
     path = os.path.join(repo_root, src)
     if not os.path.exists(path):
         return [Finding("warning", None, None, "provenance source %s is missing; cannot verify drift" % src)]
-    import hashlib
-
-    got = hashlib.sha256(open(path, "rb").read()).hexdigest()
+    got = portable_text_sha256(path)
     if got != want:
         return [
             Finding(
@@ -449,7 +455,7 @@ def check_interface_schemas(contract, repo_root, schema_meta):
             findings.append(Finding("error", None, None, "%s is not a JSON Schema object" % rel, path=rel))
             continue
 
-        got = hashlib.sha256(raw).hexdigest()
+        got = portable_text_sha256(path)
         if got != entry["sha256"]:
             findings.append(Finding(
                 "error", None, None,
@@ -463,7 +469,7 @@ def check_interface_schemas(contract, repo_root, schema_meta):
         if upstream_repo and upstream_path:
             candidate = os.path.join(siblings, upstream_repo, upstream_path)
             if os.path.exists(candidate):
-                up = hashlib.sha256(open(candidate, "rb").read()).hexdigest()
+                up = portable_text_sha256(candidate)
                 if up != got:
                     findings.append(Finding(
                         "warning", None, None,

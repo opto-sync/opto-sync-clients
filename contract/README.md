@@ -88,7 +88,9 @@ like an API change:
 
 If the repo has a `provenance.source` (usually `operations.json`, or the paired
 `*-interfaces` repo), its sha256 is recorded here and checked on every run, so
-the upstream manifest and this contract cannot drift apart unnoticed. Refresh
+the upstream manifest and this contract cannot drift apart unnoticed. Text
+hashes normalize Git's CRLF checkout conversion to LF, keeping the same semantic
+contract portable across Windows, macOS, and Linux. Refresh
 with:
 
 ```sh

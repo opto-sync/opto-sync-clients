@@ -103,5 +103,44 @@ class SourceExtractionTests(unittest.TestCase):
         self.assertTrue(any(f.severity == "error" and "coverage regressed" in f.message for f in findings))
 
 
+class ProvenanceDigestTests(unittest.TestCase):
+    def test_source_digest_is_stable_across_git_line_ending_conversion(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "api-surface.json"
+            source.write_bytes(b'{\n  "operations": []\n}\n')
+            digest = derive_contract.sha256(source)
+            source.write_bytes(b'{\r\n  "operations": []\r\n}\r\n')
+            contract = {
+                "provenance": {
+                    "source": "api-surface.json",
+                    "sourceSha256": digest,
+                }
+            }
+
+            findings = check_surface.check_provenance(contract, str(root))
+
+        self.assertEqual(findings, [])
+
+    def test_source_digest_still_detects_semantic_text_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "api-surface.json"
+            source.write_bytes(b'{\n  "operations": []\n}\n')
+            digest = derive_contract.sha256(source)
+            source.write_bytes(b'{\r\n  "operations": ["health"]\r\n}\r\n')
+            contract = {
+                "provenance": {
+                    "source": "api-surface.json",
+                    "sourceSha256": digest,
+                }
+            }
+
+            findings = check_surface.check_provenance(contract, str(root))
+
+        self.assertEqual(len(findings), 1)
+        self.assertEqual(findings[0].severity, "error")
+
+
 if __name__ == "__main__":
     unittest.main()
