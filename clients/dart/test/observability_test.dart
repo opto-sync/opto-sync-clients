@@ -32,7 +32,10 @@ void main() {
       ),
     );
     expect(record, expected);
-    expect(jsonEncode(record), isNot(contains('private-high-cardinality-value')));
+    expect(
+      jsonEncode(record),
+      isNot(contains('private-high-cardinality-value')),
+    );
   });
 
   test('state adapter keeps raw local errors out of the record', () {

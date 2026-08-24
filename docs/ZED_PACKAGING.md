@@ -1,9 +1,9 @@
-# Zed language-target packaging plan
+# Zed language-target packaging boundary
 
 The opto-sync engine is packaged first as `opto-sync/syncer`. This repository
-currently publishes one whole-repository source package. A later package layout
-may additionally publish isolated Zed packages for Node/browser, Dart, Rust,
-and Gleam while retaining one coordinated release version.
+currently publishes one whole-repository source package. It also stages
+publication-disabled, self-contained language targets for Node/browser, Rust,
+Dart/Flutter, and Gleam/BEAM while retaining one coordinated release identity.
 
 ## Why the root manifest has no language targets
 
@@ -16,26 +16,37 @@ Every current native manifest reaches a sibling checkout named `syncer.c`:
 | Rust | `../../../syncer.c/bindings/rust` |
 | Gleam | `../../../syncer.c/bindings/gleam` |
 
-A Zed target contains only its declared target directory. Adding a root manifest
-with `[targets.nodejs] dir = "clients/ts"` today would therefore produce a
-package whose own `package.json` points outside the artifact. The same is true
-for Dart, Rust, and Gleam. Passing `zed pack` is not enough; a clean consumer must
-be able to resolve and build the native package after installation.
+A root Zed target contains only its declared target directory. Adding
+`[targets.nodejs] dir = "clients/ts"` without relocating the dependency would
+therefore produce a package whose own `package.json` points outside the
+artifact. The same is true for Dart, Rust, and Gleam. Passing `zed pack` is not
+enough; a clean consumer must be able to resolve and build the native package
+after installation.
 
-`scripts/check-zed-packaging.py` is a CI ratchet for this boundary. It verifies
-the whole-repository source package and rejects language targets or a redundant
-Zed dependency on the native core while required paths still resolve through
-the bundled, pinned gitlink. The SDK API contract records intended external
+The staging scripts solve the artifact boundary without pretending the registry
+contract is ready. Each one assembles only the selected client, the required
+binding surface, the pinned `syncer.c` source, and the shared fixtures in a
+temporary source root. The generated `release-set.json` records exact commits
+and manifest/lock digests and keeps `publicationEnabled` false. See
+`docs/DART_ZED_TARGET.md` and `docs/GLEAM_ZED_TARGET.md` for the native, browser,
+Flutter, and BEAM acceptance matrices.
+
+`scripts/check-zed-packaging.py` is the root-manifest CI ratchet for this
+boundary. It verifies the whole-repository source package and rejects root
+language targets or a redundant Zed dependency on the native core while
+required paths still resolve through the bundled, pinned gitlink. The SDK API
+contract records intended external
 shared-interface and injected-logging coordinates, but the package checker
 rejects them while their public releases remain pending. This prevents a
 well-intentioned manifest-only change from publishing unusable slices,
 resolving two different core revisions, or treating a synthetic registry as
 release provenance.
 
-## Target end state
+## Registry-enabled end state
 
-After the engine dependency is relocatable, the root manifest may use one
-release version and publish at least these additional target packages:
+After the engine dependency is available through immutable registry provenance,
+the root manifest may use one release version and publish at least these
+additional target packages:
 
 ```toml
 [package]
@@ -72,9 +83,12 @@ dir = "clients/gleam"
 name = "opto-sync-client-gleam"
 ```
 
-The eventual pull request must also add a generated `.zpkg.lock`, run `zed r2g`
-for every target, and prove each installed target with its native toolchain. It
-must not rely on the author's sibling checkout or an uncommitted symlink.
+Registry enablement must also use a resolver-generated `.zpkg.lock`, run
+`zed r2g` for every target, and prove each installed target with its native
+toolchain. It must not rely on the author's sibling checkout, an uncommitted
+symlink, or a hand-authored lock. The present clean-room archives are evidence
+for relocatability and runtime behavior, not immutable public-package
+provenance.
 
 ## Compatibility constraints
 

@@ -22,15 +22,18 @@ void main() {
 
   test('invalid metadata is rejected before the sink boundary', () async {
     var calls = 0;
-    await emitProtocolSyncTelemetry((_) {
-      calls++;
-    }, ProtocolSyncTelemetryInput(
-      runtime: ProtocolSyncTelemetryRuntime.dart,
-      kind: ProtocolSyncTelemetryKind.stateChanged,
-      status: ProtocolSyncStatus.idle,
-      timestamp: DateTime.parse('2026-08-11T17:53:28.151Z'),
-      requestId: 'bad/id',
-    ));
+    await emitProtocolSyncTelemetry(
+      (_) {
+        calls++;
+      },
+      ProtocolSyncTelemetryInput(
+        runtime: ProtocolSyncTelemetryRuntime.dart,
+        kind: ProtocolSyncTelemetryKind.stateChanged,
+        status: ProtocolSyncStatus.idle,
+        timestamp: DateTime.parse('2026-08-11T17:53:28.151Z'),
+        requestId: 'bad/id',
+      ),
+    );
     expect(calls, 0);
   });
 

@@ -11,6 +11,7 @@ class ProtocolSyncTelemetryInput {
   final ProtocolSyncTelemetryKind kind;
   final ProtocolSyncStatus status;
   final int consecutiveFailures;
+
   /// Explicit event time; required for deterministic cross-runtime records.
   final DateTime timestamp;
   final DateTime? nextRetryAt;
@@ -76,8 +77,7 @@ String _event(ProtocolSyncTelemetryKind kind) => switch (kind) {
 
 String _body(ProtocolSyncTelemetryKind kind) => switch (kind) {
   ProtocolSyncTelemetryKind.stateChanged => 'opto-sync state changed',
-  ProtocolSyncTelemetryKind.cycleCompleted =>
-    'opto-sync sync cycle completed',
+  ProtocolSyncTelemetryKind.cycleCompleted => 'opto-sync sync cycle completed',
   ProtocolSyncTelemetryKind.cycleFailed => 'opto-sync sync cycle failed',
 };
 
