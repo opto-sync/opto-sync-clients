@@ -106,6 +106,12 @@ def main() -> int:
     )
     for relative in required:
         require_file(relative)
+    for relative in (
+        "syncer.c/bindings/beam/native/syncer_nif/target",
+        "syncer.c/bindings/beam/priv/native",
+    ):
+        if (ROOT / relative).exists():
+            fail(f"generated NIF state leaked into target: {relative}")
 
     manifest = load_toml(ROOT / ".zpkg.toml")
     package = manifest.get("package", {})

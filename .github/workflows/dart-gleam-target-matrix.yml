@@ -367,6 +367,8 @@ jobs:
               "clients/gleam/build",
               "syncer.c/bindings/beam/_build",
               "syncer.c/bindings/beam/deps",
+              "syncer.c/bindings/beam/native/syncer_nif/target",
+              "syncer.c/bindings/beam/priv/native",
           ):
               generated = (root / relative).resolve()
               if root not in generated.parents:
