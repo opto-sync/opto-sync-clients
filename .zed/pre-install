@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+set -eu
+bash scripts/check-env-policy.sh
+python3 scripts/check-zed-packaging.py

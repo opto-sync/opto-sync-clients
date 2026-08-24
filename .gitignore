@@ -22,8 +22,16 @@
 .formal-artifacts/
 _apalache-out/
 
-# Zed deterministic package output
+# Zed deterministic package output plus reviewed source lifecycle hooks.
 .zed/
+!.zed/
+.zed/*
+!.zed/pre-install
+!.zed/post-install
+!.zed/pre-build
+!.zed/post-build
+!.zed/pre-pack
+!.zed/pre-publish
 .zed-pack/
 
 # OS / IDE
@@ -41,3 +49,20 @@ temp/worktrees
 
 # Local cross-repository E2E worktree materialization
 e2e-lock-space/
+
+# Encrypted environment custody. Only the reviewed ciphertext profiles may be
+# tracked; plaintext and private age identities remain local.
+.env
+.env.*
+*.env.*
+!.env.example
+*.env
+**/*.env
+env/dec/
+env/enc/*
+!env/enc/dev.env.enc
+!env/enc/prod.env.enc
+*.agekey
+*.age-key
+keys.txt
+sops-private*.txt

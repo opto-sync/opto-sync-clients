@@ -4,10 +4,12 @@
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   inputs.rust-overlay.url = "github:oxalica/rust-overlay";
   inputs.rust-overlay.inputs.nixpkgs.follows = "nixpkgs";
+  inputs.ores-sops.url = "github:ORESoftware/ores-sops";
 
   outputs =
     {
       nixpkgs,
+      ores-sops,
       rust-overlay,
       ...
     }:
@@ -34,6 +36,8 @@
         {
           default = import ./.nix/devshell.nix {
             inherit pkgs;
+            oresSops = ores-sops.packages.${system}.default;
+            oresSopsShellHook = ores-sops.lib.shellHook;
           };
         }
       );

@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+set -eu
+python3 scripts/check-zed-packaging.py
+(cd schema && npm ci --ignore-scripts --no-audit --no-fund && npm test)

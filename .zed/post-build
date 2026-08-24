@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+set -eu
+python3 scripts/check-zed-packaging.py
+node schema/check-sdk-api-contract.mjs
+node schema/check-telemetry-corpus.mjs

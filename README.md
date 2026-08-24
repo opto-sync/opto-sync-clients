@@ -166,6 +166,19 @@ zed publish --dry-run
 See [docs/ZED_PACKAGE.md](docs/ZED_PACKAGE.md) before adding language-specific
 Zed targets or changing the pinned core.
 
+Reviewed convention-file lifecycle phases cover install, build, pack, and
+publish. Their executable `.zed/<phase>` hooks keep the package
+layout, shared JSON Schema corpus, telemetry fixtures, and encrypted-environment
+policy on the same path used by Zed rather than maintaining a second release
+script. Convention files are used because the current CLI runs them while its
+strict manifest validator still rejects explicit `[lifecycle.*]` overrides. The
+pinned Nix shell includes `just`, `sops`, `age`, and `ores-sops`.
+
+This client repository owns no reusable service credentials. Run `nix develop`
+and `just bootstrap` for the credential-free `env/enc` / ignored `env/dec`
+lifecycle; see [env/README.md](env/README.md). Ciphertext is committed only after
+custody review, never fabricated to make a release check green.
+
 ## CI
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs all four core client
