@@ -102,6 +102,7 @@ jobs:
           dart analyze
           dart run tool/self_test.dart
           dart run tool/background_failure_test.dart
+          dart run tool/session_lifecycle_self_test.dart
           python3 tool/check_native_background_adapters.py
 
   rust-c-abi-differential:

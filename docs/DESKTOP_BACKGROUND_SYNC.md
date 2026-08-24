@@ -159,6 +159,26 @@ immutable mutation identity, exact acknowledgement correlation, checkpoint
 persistence after application, and retry-safe server behavior—not from a claim
 that a desktop scheduler runs continuously or exactly once.
 
+## Authenticated login and logout
+
+Flutter/Dart hosts use `AuthenticatedSessionLifecycle`; native Rust hosts use
+the matching `session_lifecycle` module, including async-host adapters that do
+not require a particular executor. A successful login immediately wakes one
+foreground sync for that exact subject, tenant, and auth epoch. Duplicate
+notifications for the same epoch coalesce. An identity, tenant, or auth-epoch
+switch requires an explicit logout first.
+
+Logout ordering is normative: fence new session-scoped writes, run one bounded
+protocol cycle, force-flush application-owned ORES OTEL providers, and only then
+clear secure credentials. A transport/WebSocket acknowledgement is not delivery
+evidence. The receipt separately accounts for mutations admitted during the
+drain; the logout is drained only when admission was fenced, every row present
+at cycle start has an exact server acknowledgement, the local checkpoint is
+committed, and zero rows remain. Failures never convert pending data into
+acknowledged data, and credential clearing is still attempted so an unavailable
+collector cannot retain an in-memory login. Dart and Rust both refine
+`formal/session_lifecycle_vectors.v1.json`.
+
 ## Current certification
 
 The dedicated workflow runs:
