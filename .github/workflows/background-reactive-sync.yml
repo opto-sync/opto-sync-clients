@@ -70,6 +70,7 @@ jobs:
           npm ci
           node ../ts/node_modules/typescript/bin/tsc -p tsconfig.json --noEmit
           npm test
+          npm run measure:pilot
 
       - name: Install Chromium and run the real two-tab Service Worker test
         run: |
