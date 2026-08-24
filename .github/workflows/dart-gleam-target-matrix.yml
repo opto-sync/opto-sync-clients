@@ -359,4 +359,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          python3 - "$EXTRACTED_TARGET" <<'PY'
+          import pathlib, shutil, sys
+
+          root = pathlib.Path(sys.argv[1]).resolve()
+          for relative in (
+              "clients/gleam/build",
+              "syncer.c/bindings/beam/_build",
+              "syncer.c/bindings/beam/deps",
+          ):
+              generated = (root / relative).resolve()
+              if root not in generated.parents:
+                  raise SystemExit(f"refusing to clean outside target: {generated}")
+              shutil.rmtree(generated, ignore_errors=True)
+          PY
           python3 "$EXTRACTED_TARGET/scripts/check-gleam-target.py" "$EXTRACTED_TARGET"
