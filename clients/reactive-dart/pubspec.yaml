@@ -1,5 +1,5 @@
 name: opto_sync_reactive
-version: 0.2.0
+version: 0.2.1
 publish_to: none
 description: >-
   RxDart orchestration, optimism policies, and bounded Flutter/mobile

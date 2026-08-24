@@ -144,6 +144,177 @@ void main() {
     expect(calls.single.method, 'cancelAll');
   });
 
+  test(
+    'authenticated facade orders login, fenced logout, OTEL flush, and clear',
+    () async {
+      final order = <String>[];
+      final lifecycle = OptoSyncFlutterSessionLifecycle(
+        sync: (reason) async {
+          order.add('${reason.name}-sync');
+          final count = reason == SessionSyncReason.logout ? 2 : 0;
+          return DurableSyncReceipt(
+            pendingBefore: count,
+            acknowledged: count,
+            admittedDuringDrain: 0,
+            pendingAfter: 0,
+            checkpointCommitted: true,
+            admissionFenced: true,
+          );
+        },
+        forceFlushOresTelemetry: () async => order.add('otel-force-flush'),
+        clearCredentials: (_) async => order.add('credentials-clear'),
+        fenceSessionWrites: () async => order.add('fence-writes'),
+        cancelBackgroundWork: () async => order.add('cancel-background'),
+      );
+      final identity = OptoSyncSessionIdentity(
+        subject: 'subject-1',
+        tenant: 'tenant-a',
+        authEpoch: 7,
+      );
+
+      expect((await lifecycle.onLogin(identity)).syncSucceeded, isTrue);
+      final logout = await lifecycle.onLogout();
+
+      expect(logout.complete, isTrue);
+      expect(lifecycle.session, isNull);
+      expect(order, [
+        'login-sync',
+        'fence-writes',
+        'cancel-background',
+        'logout-sync',
+        'otel-force-flush',
+        'credentials-clear',
+      ]);
+    },
+  );
+
+  test(
+    'failed Flutter admission fence cannot produce a drained logout claim',
+    () async {
+      final errors = <String>[];
+      var cleared = false;
+      final lifecycle = OptoSyncFlutterSessionLifecycle(
+        sync: (_) async => DurableSyncReceipt(
+          pendingBefore: 1,
+          acknowledged: 1,
+          admittedDuringDrain: 0,
+          pendingAfter: 0,
+          checkpointCommitted: true,
+          admissionFenced: true,
+        ),
+        forceFlushOresTelemetry: () async {},
+        clearCredentials: (_) async => cleared = true,
+        fenceSessionWrites: () async => throw StateError('writer still active'),
+        cancelBackgroundWork: () async {},
+        onLifecycleError: (_, operation) => errors.add(operation),
+      );
+      await lifecycle.onLogin(
+        OptoSyncSessionIdentity(
+          subject: 'subject-1',
+          tenant: 'tenant-a',
+          authEpoch: 7,
+        ),
+      );
+
+      final logout = await lifecycle.onLogout();
+
+      expect(logout.dataDurablyDrained, isFalse);
+      expect(cleared, isTrue);
+      expect(errors, ['fence-session-writes']);
+    },
+  );
+
+  test(
+    'concurrent login and logout serialize the complete Flutter boundary',
+    () async {
+      final loginGate = Completer<DurableSyncReceipt>();
+      final order = <String>[];
+      final lifecycle = OptoSyncFlutterSessionLifecycle(
+        sync: (reason) {
+          order.add('${reason.name}-sync');
+          if (reason == SessionSyncReason.login) return loginGate.future;
+          return Future.value(
+            DurableSyncReceipt(
+              pendingBefore: 0,
+              acknowledged: 0,
+              admittedDuringDrain: 0,
+              pendingAfter: 0,
+              checkpointCommitted: true,
+              admissionFenced: true,
+            ),
+          );
+        },
+        forceFlushOresTelemetry: () async => order.add('flush'),
+        clearCredentials: (_) async => order.add('clear'),
+        fenceSessionWrites: () async => order.add('fence'),
+        cancelBackgroundWork: () async => order.add('cancel'),
+      );
+      final identity = OptoSyncSessionIdentity(
+        subject: 'subject-1',
+        tenant: 'tenant-a',
+        authEpoch: 7,
+      );
+
+      final login = lifecycle.onLogin(identity);
+      final logout = lifecycle.onLogout();
+      await Future<void>.delayed(Duration.zero);
+      expect(order, ['login-sync']);
+      loginGate.complete(
+        DurableSyncReceipt(
+          pendingBefore: 0,
+          acknowledged: 0,
+          admittedDuringDrain: 0,
+          pendingAfter: 0,
+          checkpointCommitted: true,
+          admissionFenced: true,
+        ),
+      );
+      await login;
+      await logout;
+      expect(order, [
+        'login-sync',
+        'fence',
+        'cancel',
+        'logout-sync',
+        'flush',
+        'clear',
+      ]);
+    },
+  );
+
+  test('concurrent duplicate Flutter logout calls coalesce', () async {
+    var fences = 0;
+    var flushes = 0;
+    final lifecycle = OptoSyncFlutterSessionLifecycle(
+      sync: (_) async => DurableSyncReceipt(
+        pendingBefore: 0,
+        acknowledged: 0,
+        admittedDuringDrain: 0,
+        pendingAfter: 0,
+        checkpointCommitted: true,
+        admissionFenced: true,
+      ),
+      forceFlushOresTelemetry: () async => flushes += 1,
+      clearCredentials: (_) async {},
+      fenceSessionWrites: () async => fences += 1,
+      cancelBackgroundWork: () async {},
+    );
+    await lifecycle.onLogin(
+      OptoSyncSessionIdentity(
+        subject: 'subject-1',
+        tenant: 'tenant-a',
+        authEpoch: 7,
+      ),
+    );
+
+    final first = lifecycle.onLogout();
+    final second = lifecycle.onLogout();
+    expect(identical(first, second), isTrue);
+    await Future.wait([first, second]);
+    expect(fences, 1);
+    expect(flushes, 1);
+  });
+
   test('cancelAll surfaces an explicit cancellation failure', () async {
     _failCancel = true;
     addTearDown(() => _failCancel = false);
@@ -180,27 +351,24 @@ void main() {
     },
   );
 
-  test(
-    'background dispatcher treats signed non-zero handles as structurally valid',
-    () async {
-      await optoSyncBackgroundDispatcher();
-      final response = await _invokeFrameworkChannel(
-        backgroundChannel.name,
-        const MethodCall('runDrain', {'callbackHandle': -1}),
-      );
+  test('background dispatcher treats signed non-zero handles as structurally valid', () async {
+    await optoSyncBackgroundDispatcher();
+    final response = await _invokeFrameworkChannel(
+      backgroundChannel.name,
+      const MethodCall('runDrain', {'callbackHandle': -1}),
+    );
 
-      expect(
-        () => const StandardMethodCodec().decodeEnvelope(response!),
-        throwsA(
-          isA<PlatformException>().having(
-            (error) => error.message,
-            'message',
-            contains('registered callback is not a BackgroundDrain'),
-          ),
+    expect(
+      () => const StandardMethodCodec().decodeEnvelope(response!),
+      throwsA(
+        isA<PlatformException>().having(
+          (error) => error.message,
+          'message',
+          contains('registered callback is not a BackgroundDrain'),
         ),
-      );
-    },
-  );
+      ),
+    );
+  });
 
   test(
     'background dispatcher restores and invokes the registered drain',
@@ -225,9 +393,8 @@ void main() {
       _blockingDrainCalls = 0;
       _blockingDrainResult = Completer<bool>();
       addTearDown(() => _blockingDrainResult = null);
-      final rawHandle = PluginUtilities.getCallbackHandle(
-        _blockingDrain,
-      )!.toRawHandle();
+      final rawHandle = PluginUtilities.getCallbackHandle(_blockingDrain)!
+          .toRawHandle();
       final first = _invokeFrameworkChannel(
         backgroundChannel.name,
         MethodCall('runDrain', {'callbackHandle': rawHandle}),

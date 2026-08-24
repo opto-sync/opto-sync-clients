@@ -4,7 +4,7 @@ description: >-
   opto-sync Flutter apps: Android WorkManager/ConnectivityManager and iOS
   BGTaskScheduler/NWPathMonitor adapters run while the app is backgrounded or
   terminated.
-version: 0.2.0
+version: 0.2.1
 publish_to: 'none'
 
 environment:

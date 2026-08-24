@@ -29,6 +29,14 @@ library;
 
 export 'opto_sync_connectivity.dart';
 
+export 'package:opto_sync_reactive/opto_sync_reactive.dart'
+    show
+        DurableSyncReceipt,
+        OptoSyncSessionIdentity,
+        SessionLoginReport,
+        SessionLogoutReport,
+        SessionSyncReason;
+
 import 'dart:async';
 import 'dart:ui';
 
@@ -122,6 +130,137 @@ class OptoSyncBackground {
 
   /// Cancels all scheduled background drains.
   static Future<void> cancelAll() => channel.invokeMethod<void>('cancelAll');
+}
+
+typedef FlutterSessionLifecycleError = void Function(
+  Object error,
+  String operation,
+);
+
+/// Explicit Flutter composition facade for successful login and logout.
+///
+/// The host application supplies Shared Auth/Supabase session identity, the
+/// ordinary foreground opto-sync loop, ORES OTEL `forceFlush`, secure-storage
+/// clearing, and the mutation-admission fence. The plugin never discovers auth
+/// or telemetry providers implicitly.
+///
+/// ```dart
+/// final lifecycle = OptoSyncFlutterSessionLifecycle(
+///   sync: (_) => foregroundProtocolLoop.syncNow().then(toDurableReceipt),
+///   forceFlushOresTelemetry: () => oresLogger.flush(throwOnError: true),
+///   clearCredentials: (_) => secureSessionStore.clear(),
+///   fenceSessionWrites: appRepository.stopAuthenticatedWrites,
+/// );
+/// await lifecycle.onLogin(sharedAuthIdentity);
+/// // Later, before completing sign-out:
+/// final report = await lifecycle.onLogout();
+/// ```
+final class OptoSyncFlutterSessionLifecycle {
+  OptoSyncFlutterSessionLifecycle({
+    required AuthenticatedSync sync,
+    required TelemetryForceFlush forceFlushOresTelemetry,
+    required ClearSessionCredentials clearCredentials,
+    required Future<void> Function() fenceSessionWrites,
+    Future<void> Function()? cancelBackgroundWork,
+    FlutterSessionLifecycleError? onLifecycleError,
+  }) : _sync = sync,
+       _fenceSessionWrites = fenceSessionWrites,
+       _cancelBackgroundWork =
+           cancelBackgroundWork ?? OptoSyncBackground.cancelAll,
+       _onLifecycleError = onLifecycleError {
+    _lifecycle = AuthenticatedSessionLifecycle(
+      sync: _syncWithFenceEvidence,
+      forceFlushTelemetry: forceFlushOresTelemetry,
+      clearCredentials: clearCredentials,
+    );
+  }
+
+  final AuthenticatedSync _sync;
+  final Future<void> Function() _fenceSessionWrites;
+  final Future<void> Function() _cancelBackgroundWork;
+  final FlutterSessionLifecycleError? _onLifecycleError;
+  late final AuthenticatedSessionLifecycle _lifecycle;
+  bool _logoutAdmissionFenced = false;
+  Future<void> _tail = Future<void>.value();
+  Future<SessionLogoutReport>? _activeLogout;
+
+  OptoSyncSessionIdentity? get session => _lifecycle.session;
+
+  Future<DurableSyncReceipt> _syncWithFenceEvidence(
+    SessionSyncReason reason,
+  ) async {
+    final receipt = await _sync(reason);
+    if (reason != SessionSyncReason.logout || _logoutAdmissionFenced) {
+      return receipt;
+    }
+    return DurableSyncReceipt(
+      pendingBefore: receipt.pendingBefore,
+      acknowledged: receipt.acknowledged,
+      admittedDuringDrain: receipt.admittedDuringDrain,
+      pendingAfter: receipt.pendingAfter,
+      checkpointCommitted: receipt.checkpointCommitted,
+      admissionFenced: false,
+    );
+  }
+
+  void _report(Object error, String operation) {
+    try {
+      _onLifecycleError?.call(error, operation);
+    } catch (_) {
+      // Diagnostic hooks cannot replace logout or retain a login.
+    }
+  }
+
+  Future<T> _serialize<T>(Future<T> Function() operation) async {
+    final predecessor = _tail;
+    final release = Completer<void>();
+    _tail = release.future;
+    await predecessor;
+    try {
+      return await operation();
+    } finally {
+      release.complete();
+    }
+  }
+
+  /// Invoke only after Shared Auth/Supabase has authenticated the user.
+  Future<SessionLoginReport> onLogin(OptoSyncSessionIdentity session) =>
+      _serialize(() => _lifecycle.onLogin(session));
+
+  /// Fence writes and scheduled workers before the shared durable logout flow.
+  Future<SessionLogoutReport> onLogout() {
+    final active = _activeLogout;
+    if (active != null) return active;
+    late final Future<SessionLogoutReport> operation;
+    operation = _serialize(_logoutSerial).whenComplete(() {
+      if (identical(_activeLogout, operation)) _activeLogout = null;
+    });
+    _activeLogout = operation;
+    return operation;
+  }
+
+  Future<SessionLogoutReport> _logoutSerial() async {
+    var fenced = false;
+    try {
+      await _fenceSessionWrites();
+      fenced = true;
+    } catch (error) {
+      _report(error, 'fence-session-writes');
+    }
+    try {
+      await _cancelBackgroundWork();
+    } catch (error) {
+      fenced = false;
+      _report(error, 'cancel-background-work');
+    }
+
+    _logoutAdmissionFenced = fenced;
+    try {
+      return await _lifecycle.onLogout();
+    } finally {
+      _logoutAdmissionFenced = false;
+    }
+  }
 }
 
 /// Entry point invoked by the native side inside the background engine.

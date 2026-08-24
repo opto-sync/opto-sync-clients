@@ -93,10 +93,12 @@ jobs:
             lib/opto_sync_reactive_sqlite.dart \
             tool/desktop_self_test.dart \
             tool/lifecycle_formal_self_test.dart \
+            tool/session_lifecycle_self_test.dart \
             bin/sqlite_desktop_child.dart \
             tool/sqlite_desktop_self_test.dart
           dart analyze
           dart run tool/lifecycle_formal_self_test.dart
+          dart run tool/session_lifecycle_self_test.dart
           dart run tool/desktop_self_test.dart
           dart run tool/sqlite_desktop_self_test.dart
 
