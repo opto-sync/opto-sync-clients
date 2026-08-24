@@ -26,6 +26,17 @@ export interface SyncLifecycleSnapshot {
   readonly permitHeld: boolean;
 }
 
+/** Bounded, payload-free metadata for explicit lifecycle instrumentation. */
+export interface SyncLifecycleTransition {
+  readonly before: SyncLifecycleSnapshot;
+  readonly event: SyncLifecycleEvent;
+  readonly after: SyncLifecycleSnapshot;
+}
+
+export type SyncLifecycleObserver = (
+  transition: SyncLifecycleTransition,
+) => void;
+
 export const initialSyncLifecycle: SyncLifecycleSnapshot = Object.freeze({
   phase: 'idle',
   wakePending: false,
@@ -181,15 +192,26 @@ export class SyncLifecycleTransitionError extends Error {
 /** Production state machine; undefined events fail closed without mutation. */
 export class SyncLifecycleMachine {
   #state = initialSyncLifecycle;
+  readonly #observer?: SyncLifecycleObserver;
+
+  constructor(observer?: SyncLifecycleObserver) {
+    this.#observer = observer;
+  }
 
   get state(): SyncLifecycleSnapshot {
     return this.#state;
   }
 
   apply(event: SyncLifecycleEvent): SyncLifecycleSnapshot {
-    const next = transitionSyncLifecycle(this.#state, event);
-    if (!next) throw new SyncLifecycleTransitionError(this.#state, event);
+    const before = this.#state;
+    const next = transitionSyncLifecycle(before, event);
+    if (!next) throw new SyncLifecycleTransitionError(before, event);
     this.#state = next;
+    try {
+      this.#observer?.(Object.freeze({ before, event, after: next }));
+    } catch {
+      // Diagnostics must never change synchronization ownership or progress.
+    }
     return next;
   }
 }

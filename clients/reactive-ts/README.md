@@ -6,11 +6,14 @@ combines complete local projections and remote events, declares write latency
 semantics explicitly, and wakes the same idempotent HTTP push/pull loop from
 foreground, cross-tab, WebSocket, Supabase, TCP, and Service Worker signals.
 
-## Why RxJS 7.8
+## Why RxJS 7.8, not `rxts` or a prerelease
 
 RxJS already ships first-class TypeScript types; there is no separate canonical
-`rx-typescript` runtime to add. This package pins the current production RxJS 7
-line while RxJS 8 remains a separate migration track.
+`rx-typescript` runtime to add. This package pins RxJS 7.8.2, the production
+`latest` release when the 2026-08 pilot was reviewed. RxJS 9 is still on the
+prerelease `next` channel. The unrelated npm package named `rxts` is a
+single-maintainer 0.x artifact last released in January 2023 and is not part of
+this architecture.
 
 The stream lifecycle follows modern Rx practice:
 
@@ -20,6 +23,29 @@ The stream lifecycle follows modern Rx practice:
 - `shareReplay({bufferSize: 1, refCount: true})` replays UI state without pinning
   sockets and IDB observers after the last subscriber leaves;
 - errors from an individual hint source are diagnostics, not a false logout.
+
+WebSocket reconnect is bounded to eight retries by default. Callers can lower
+that count and inject an RxJS scheduler for deterministic backoff tests. Server
+close reasons are not propagated because they can contain tenant, payload, or
+credential-derived text; diagnostics expose only the bounded close code.
+
+`DesktopSyncRunner` accepts `onLifecycleTransition` for explicit, payload-free
+state telemetry. Observer failures are isolated from the ownership machine.
+
+## Pilot evidence and budget
+
+`npm run measure:pilot` bundles the browser hint boundary with the same minified
+ESM configuration on every run, checks 65,000 raw / 20,000 gzip byte ceilings,
+and measures 20 module-evaluation samples. The initial 2026-08-23 Apple Silicon
+run on Node 22.13.0 produced 29,336 raw bytes, 9,487 gzip bytes, 0.841 ms median
+startup, and 1.189 ms p95. CI runs the same command on the supported Node 22.16
+runtime and is the comparable review boundary; startup values are evidence, not
+a flaky wall-clock gate.
+
+The unit suite uses `VirtualTimeScheduler` to prove coalescing and finite
+exponential reconnect without sleeping. It also proves that final unsubscribe
+closes every socket, removes every listener, leaves no scheduled retry, and
+cannot leak a WebSocket close reason into diagnostics.
 
 ## Explicit optimism levels
 
