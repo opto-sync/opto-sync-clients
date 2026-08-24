@@ -131,6 +131,8 @@ def main() -> int:
     )
     for relative in required:
         require_file(relative)
+    if (ROOT / "clients/dart/pubspec.lock").exists():
+        fail("Dart library target leaked a generated client pubspec.lock")
 
     manifest = load_toml(ROOT / ".zpkg.toml")
     package = manifest.get("package", {})

@@ -39,13 +39,17 @@ def git(*args: str, cwd: Path = ROOT) -> str:
         fail(f"git {' '.join(args)} failed: {exc.output.strip()}")
 
 
-def copy_tree(source: Path, destination: Path) -> None:
+def copy_tree(
+    source: Path, destination: Path, *, ignored_names: frozenset[str] = frozenset()
+) -> None:
     if not source.is_dir():
         fail(f"required source directory is missing: {source.relative_to(ROOT)}")
     shutil.copytree(
         source,
         destination,
-        ignore=lambda _directory, names: {name for name in names if name in IGNORED},
+        ignore=lambda _directory, names: {
+            name for name in names if name in IGNORED or name in ignored_names
+        },
     )
 
 
@@ -84,7 +88,14 @@ def main() -> int:
             f"gitlink={gitlink_sha} nested={nested_sha}"
         )
 
-    copy_tree(ROOT / "clients/dart", output / "clients/dart")
+    # Dart library packages deliberately do not commit their generated client
+    # lock. Exclude a developer-local `dart pub get` result from the staged
+    # source target while preserving the binding's reviewed lock below.
+    copy_tree(
+        ROOT / "clients/dart",
+        output / "clients/dart",
+        ignored_names=frozenset({"pubspec.lock"}),
+    )
     copy_tree(ROOT / "syncer.c/core/include", output / "syncer.c/core/include")
     copy_tree(ROOT / "syncer.c/core/src", output / "syncer.c/core/src")
     copy_tree(ROOT / "syncer.c/core/test", output / "syncer.c/core/test")
