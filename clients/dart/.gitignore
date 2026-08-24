@@ -5,3 +5,9 @@
 # Avoid committing pubspec.lock for library packages; see
 # https://dart.dev/tools/pub/private-files#pubspec-lock.
 pubspec.lock
+
+# This clean-room release target intentionally tracks the exact dependency
+# graph. Keep the reviewed lock visible even when packaging without Git
+# metadata so the fail-closed package-input preflight can distinguish it from
+# generated Dart state.
+!pubspec.lock
