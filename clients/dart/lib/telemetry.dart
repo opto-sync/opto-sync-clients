@@ -11,9 +11,8 @@ import 'src/observability.dart';
 
 export 'src/observability.dart';
 
-typedef ProtocolSyncTelemetrySink = FutureOr<void> Function(
-  Map<String, Object> record,
-);
+typedef ProtocolSyncTelemetrySink =
+    FutureOr<void> Function(Map<String, Object> record);
 
 /// Backwards-compatible name for an application-injected telemetry sink.
 typedef TelemetrySink = ProtocolSyncTelemetrySink;

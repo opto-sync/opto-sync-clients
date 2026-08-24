@@ -163,11 +163,15 @@ zed pack
 zed publish --dry-run
 ```
 
-See [docs/ZED_PACKAGE.md](docs/ZED_PACKAGE.md) before adding language-specific
-Zed targets or changing the pinned core.
+See [docs/ZED_PACKAGE.md](docs/ZED_PACKAGE.md) before changing the pinned core.
+The repository now also stages publication-disabled, clean-room source targets
+for [Dart/Flutter](docs/DART_ZED_TARGET.md) and
+[Gleam/BEAM](docs/GLEAM_ZED_TARGET.md). Each target bundles the one pinned core,
+double-packs deterministically, and is exercised from an extracted archive;
+neither target is a public-registry release claim.
 
-Reviewed convention-file lifecycle phases cover install, build, pack, and
-publish. Their executable `.zed/<phase>` hooks keep the package
+Reviewed convention-file lifecycle phases cover install, test, build, pack,
+publish, and uninstall. Their executable `.zed/<phase>` hooks keep the package
 layout, shared JSON Schema corpus, telemetry fixtures, and encrypted-environment
 policy on the same path used by Zed rather than maintaining a second release
 script. Convention files are used because the current CLI runs them while its

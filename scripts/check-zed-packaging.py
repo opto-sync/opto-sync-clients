@@ -20,8 +20,14 @@ EXPECTED_LIFECYCLE_PHASES = (
     "post-install",
     "pre-build",
     "post-build",
+    "pre-test",
+    "post-test",
     "pre-pack",
+    "post-pack",
     "pre-publish",
+    "post-publish",
+    "pre-uninstall",
+    "post-uninstall",
 )
 
 
@@ -199,7 +205,10 @@ def main() -> int:
         fail("package.repository.url must be the canonical GitHub repository")
 
     if "lifecycle" in manifest:
-        fail("lifecycle hooks must remain convention files until zed validate accepts the manifest field")
+        fail(
+            "lifecycle hooks must remain convention files until the canonical "
+            "zed-interfaces schema accepts the manifest field"
+        )
     if VALIDATING_SOURCE:
         for phase in EXPECTED_LIFECYCLE_PHASES:
             hook = ROOT / ".zed" / phase
