@@ -104,13 +104,11 @@ final class DurableSyncReceipt {
       admissionFenced;
 }
 
-typedef AuthenticatedSync = Future<DurableSyncReceipt> Function(
-  SessionSyncReason reason,
-);
+typedef AuthenticatedSync =
+    Future<DurableSyncReceipt> Function(SessionSyncReason reason);
 typedef TelemetryForceFlush = Future<void> Function();
-typedef ClearSessionCredentials = Future<void> Function(
-  OptoSyncSessionIdentity? session,
-);
+typedef ClearSessionCredentials =
+    Future<void> Function(OptoSyncSessionIdentity? session);
 
 final class SessionLoginReport {
   const SessionLoginReport({

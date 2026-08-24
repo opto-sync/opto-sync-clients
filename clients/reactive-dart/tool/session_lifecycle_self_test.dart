@@ -18,9 +18,13 @@ void _check(bool condition, String message) {
 }
 
 Future<void> main() async {
-  final document = jsonDecode(
-    await File('../../formal/session_lifecycle_vectors.v1.json').readAsString(),
-  ) as Map<String, Object?>;
+  final document =
+      jsonDecode(
+            await File(
+              '../../formal/session_lifecycle_vectors.v1.json',
+            ).readAsString(),
+          )
+          as Map<String, Object?>;
   _check(
     document['schema'] == 'opto-sync/session-lifecycle-vectors/v1',
     'unexpected lifecycle corpus schema',
