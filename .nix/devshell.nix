@@ -30,9 +30,11 @@ pkgs.mkShell {
   LC_ALL = if pkgs.stdenv.hostPlatform.isDarwin then "en_US.UTF-8" else "C.UTF-8";
 
   shellHook = ''
-    ${oresSopsShellHook}
-    mkdir -p env/enc env/dec
-    chmod 700 env/dec
-    echo "opto-sync client environment: just verify"
+    {
+      ${oresSopsShellHook}
+      mkdir -p env/enc env/dec
+      chmod 700 env/dec
+      echo "opto-sync client environment: just verify"
+    } >&2
   '';
 }
