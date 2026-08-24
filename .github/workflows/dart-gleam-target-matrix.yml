@@ -266,11 +266,15 @@ jobs:
               "import 'package:flutter/widgets.dart';\n"
               "import 'package:opto_sync_client/opto_sync_client.dart';\n"
               "void main() {\n"
-              "  const options = MergeOptions();\n"
-              "  runApp(Directionality(textDirection: TextDirection.ltr, child: Text(options.maxDepth.toString())));\n"
+              "  final pending = defaultMaxPendingMutations.toString();\n"
+              "  runApp(Directionality(textDirection: TextDirection.ltr, child: Text(pending)));\n"
               "}\n",
               encoding="utf-8",
           )
+          # The generated template's lint include and widget test describe the
+          # deleted template application, not this clean-room consumer.
+          (app / "analysis_options.yaml").unlink(missing_ok=True)
+          (app / "test/widget_test.dart").unlink(missing_ok=True)
           PY
           cd "$app"
           flutter pub get
@@ -325,7 +329,9 @@ jobs:
           gleam-version: '1.16.0'
 
       - name: Install pinned Rust toolchain for the Rustler NIF
-        uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0 # 1.88.0
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: '1.91.0'
 
       - name: Build the bundled NIF and prove exact core identity
         shell: bash
