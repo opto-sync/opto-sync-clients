@@ -132,10 +132,8 @@ class OptoSyncBackground {
   static Future<void> cancelAll() => channel.invokeMethod<void>('cancelAll');
 }
 
-typedef FlutterSessionLifecycleError = void Function(
-  Object error,
-  String operation,
-);
+typedef FlutterSessionLifecycleError =
+    void Function(Object error, String operation);
 
 /// Explicit Flutter composition facade for successful login and logout.
 ///
