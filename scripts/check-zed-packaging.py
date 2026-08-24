@@ -15,6 +15,14 @@ SOURCE_ROOT = Path(__file__).resolve().parents[1]
 VALIDATING_SOURCE = len(sys.argv) == 1
 ROOT = SOURCE_ROOT if VALIDATING_SOURCE else Path(sys.argv[1]).resolve()
 MAX_CONTRACT_BYTES = 4 * 1024 * 1024
+EXPECTED_LIFECYCLE_PHASES = (
+    "pre-install",
+    "post-install",
+    "pre-build",
+    "post-build",
+    "pre-pack",
+    "pre-publish",
+)
 
 
 def read_toml(path: Path) -> dict:
@@ -189,6 +197,18 @@ def main() -> int:
     repository = package.get("repository", {})
     if repository.get("url") != "https://github.com/opto-sync/opto-sync-clients":
         fail("package.repository.url must be the canonical GitHub repository")
+
+    if "lifecycle" in manifest:
+        fail("lifecycle hooks must remain convention files until zed validate accepts the manifest field")
+    if VALIDATING_SOURCE:
+        for phase in EXPECTED_LIFECYCLE_PHASES:
+            hook = ROOT / ".zed" / phase
+            if hook.is_symlink() or not hook.is_file():
+                fail(f".zed/{phase} must be a regular file")
+            if hook.stat().st_mode & 0o111 == 0:
+                fail(f".zed/{phase} must be executable")
+            if not hook.read_text(encoding="utf-8").startswith("#!/usr/bin/env sh\nset -eu\n"):
+                fail(f".zed/{phase} must use the portable fail-closed shell header")
 
     dependencies = manifest.get("dependencies", {})
     if dependencies:
