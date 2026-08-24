@@ -14,6 +14,15 @@ host adapters live under `native/` for:
 Host applications copy/adapt those files and provide the platform dependencies
 (`BackgroundTasks`, Flutter embedding, WorkManager, AndroidX futures).
 
+## Authenticated lifecycle
+
+`AuthenticatedSessionLifecycle` connects a successful Flutter/Dart login to one
+foreground sync and serializes logout as durable sync, ORES OTEL force-flush,
+then credential clearing. The application supplies all three callbacks and must
+fence new session-scoped mutations before requesting logout. Pending mutations
+remain durable whenever the receipt lacks an exact acknowledgement, committed
+checkpoint, or admission fence.
+
 ## Reactive record projection
 
 `ReactiveRecordController` uses:

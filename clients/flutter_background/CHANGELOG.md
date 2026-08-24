@@ -1,3 +1,8 @@
+## 0.2.1
+
+- Add an explicit Shared Auth/Supabase login and fenced logout facade with
+  durable Opto Sync acknowledgement and app-owned ORES OTEL force-flush hooks.
+
 ## 0.2.0
 
 - Route headless drains through the formally modeled single-flight lifecycle.

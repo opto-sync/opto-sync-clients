@@ -1,0 +1,148 @@
+{
+  "schema": "opto-sync/session-lifecycle-vectors/v1",
+  "ordering": [
+    "logout-sync",
+    "telemetry-force-flush",
+    "credentials-clear"
+  ],
+  "invariants": {
+    "loginTriggersSyncOncePerAuthEpoch": true,
+    "logoutRequiresDurableCheckpoint": true,
+    "transportAckIsNotDurableAck": true,
+    "credentialsClearAfterFlushAttempt": true,
+    "unacknowledgedRowsRemainPending": true
+  },
+  "identityVectors": [
+    {
+      "id": "ordinary",
+      "subject": "subject-1",
+      "subjectRepeat": 1,
+      "tenant": "tenant-a",
+      "tenantRepeat": 1,
+      "authEpoch": 0,
+      "expectedValid": true
+    },
+    {
+      "id": "whitespace-subject",
+      "subject": " ",
+      "subjectRepeat": 3,
+      "tenant": "tenant-a",
+      "tenantRepeat": 1,
+      "authEpoch": 0,
+      "expectedValid": false
+    },
+    {
+      "id": "utf8-byte-boundary",
+      "subject": "é",
+      "subjectRepeat": 256,
+      "tenant": "tenant-a",
+      "tenantRepeat": 1,
+      "authEpoch": 7,
+      "expectedValid": true
+    },
+    {
+      "id": "utf8-byte-overflow",
+      "subject": "é",
+      "subjectRepeat": 257,
+      "tenant": "tenant-a",
+      "tenantRepeat": 1,
+      "authEpoch": 7,
+      "expectedValid": false
+    },
+    {
+      "id": "negative-auth-epoch",
+      "subject": "subject-1",
+      "subjectRepeat": 1,
+      "tenant": "tenant-a",
+      "tenantRepeat": 1,
+      "authEpoch": -1,
+      "expectedValid": false
+    },
+    {
+      "id": "maximum-portable-auth-epoch",
+      "subject": "subject-1",
+      "subjectRepeat": 1,
+      "tenant": "tenant-a",
+      "tenantRepeat": 1,
+      "authEpoch": 9007199254740991,
+      "expectedValid": true
+    },
+    {
+      "id": "nonportable-auth-epoch",
+      "subject": "subject-1",
+      "subjectRepeat": 1,
+      "tenant": "tenant-a",
+      "tenantRepeat": 1,
+      "authEpoch": 9007199254740992,
+      "expectedValid": false
+    }
+  ],
+  "vectors": [
+    {
+      "id": "durably-drained",
+      "pendingBefore": 3,
+      "acknowledged": 3,
+      "admittedDuringDrain": 0,
+      "pendingAfter": 0,
+      "checkpointCommitted": true,
+      "admissionFenced": true,
+      "expectedValid": true,
+      "expectedDrained": true
+    },
+    {
+      "id": "partial-acknowledgement",
+      "pendingBefore": 3,
+      "acknowledged": 2,
+      "admittedDuringDrain": 0,
+      "pendingAfter": 1,
+      "checkpointCommitted": true,
+      "admissionFenced": true,
+      "expectedValid": true,
+      "expectedDrained": false
+    },
+    {
+      "id": "acknowledgement-not-committed",
+      "pendingBefore": 3,
+      "acknowledged": 3,
+      "admittedDuringDrain": 0,
+      "pendingAfter": 0,
+      "checkpointCommitted": false,
+      "admissionFenced": true,
+      "expectedValid": true,
+      "expectedDrained": false
+    },
+    {
+      "id": "empty-queue-checkpointed",
+      "pendingBefore": 0,
+      "acknowledged": 0,
+      "admittedDuringDrain": 0,
+      "pendingAfter": 0,
+      "checkpointCommitted": true,
+      "admissionFenced": true,
+      "expectedValid": true,
+      "expectedDrained": true
+    },
+    {
+      "id": "concurrent-admission-not-fenced",
+      "pendingBefore": 3,
+      "acknowledged": 3,
+      "admittedDuringDrain": 1,
+      "pendingAfter": 1,
+      "checkpointCommitted": true,
+      "admissionFenced": false,
+      "expectedValid": true,
+      "expectedDrained": false
+    },
+    {
+      "id": "portable-domain-overflow",
+      "pendingBefore": 9007199254740991,
+      "acknowledged": 0,
+      "admittedDuringDrain": 1,
+      "pendingAfter": 9007199254740991,
+      "checkpointCommitted": true,
+      "admissionFenced": false,
+      "expectedValid": false,
+      "expectedDrained": false
+    }
+  ]
+}

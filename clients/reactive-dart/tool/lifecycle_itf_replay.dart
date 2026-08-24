@@ -295,7 +295,7 @@ Map<String, Object?> _replayPaths(List<String> inputPaths) {
     'implementation': <String, Object?>{
       'language': 'dart',
       'name': 'opto_sync_reactive SyncLifecycleMachine',
-      'version': '0.2.0',
+      'version': '0.2.1',
     },
   };
 }
