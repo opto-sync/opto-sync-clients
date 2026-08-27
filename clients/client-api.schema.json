@@ -319,6 +319,28 @@
       "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
       "type": "string"
     },
+    "interfaceSource": {
+      "additionalProperties": false,
+      "properties": {
+        "coordinate": {
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+-interfaces$",
+          "type": "string"
+        },
+        "schemaDialect": {
+          "const": "https://json-schema.org/draft/2020-12/schema"
+        },
+        "versionRequirement": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "coordinate",
+        "versionRequirement",
+        "schemaDialect"
+      ],
+      "type": "object"
+    },
     "interfaceSymbol": {
       "additionalProperties": false,
       "properties": {
@@ -371,13 +393,21 @@
         "description": {
           "type": "string"
         },
+        "interfaces": {
+          "items": {
+            "$ref": "#/$defs/interfaceSource"
+          },
+          "minItems": 1,
+          "type": "array"
+        },
         "namespace": {
           "$ref": "#/$defs/identifier"
         }
       },
       "required": [
         "coordinate",
-        "namespace"
+        "namespace",
+        "interfaces"
       ],
       "type": "object"
     },
