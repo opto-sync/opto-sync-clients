@@ -3,6 +3,13 @@
   "package": {
     "coordinate": "opto-sync/opto-sync-clients",
     "description": "Canonical polyglot API contract for opto-sync/opto-sync-clients.",
+    "interfaces": [
+      {
+        "coordinate": "opto-sync/opto-sync-interfaces",
+        "schemaDialect": "https://json-schema.org/draft/2020-12/schema",
+        "versionRequirement": "^0.1.0"
+      }
+    ],
     "namespace": "OptoSync"
   },
   "schemaVersion": 1,

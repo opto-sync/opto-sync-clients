@@ -14,6 +14,11 @@ keywords = ["sync", "local-first", "optimistic", "indexeddb", "sqlite", "polyglo
 vcs = "git"
 url = "https://github.com/opto-sync/opto-sync-clients"
 
+[dependencies]
+# Contract coordinate only: schema-parity (DEN-3593) needs an explicit
+# *-interfaces source. Packaging still must not seed a private registry lock.
+"opto-sync/opto-sync-interfaces" = "^0.1.0"
+
 # Cross-organization interfaces and structured logging remain injected at the
 # native SDK boundary. Their intended Zed coordinates are recorded by the SDK
 # contract, but are deliberately absent here until immutable 0.1.0 packages
