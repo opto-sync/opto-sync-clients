@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:drift/drift.dart';
 
 import 'src/clock.dart';
+import 'src/consistency.dart';
 import 'src/protocol_sync_loop.dart';
 import 'src/syncer_backend_stub.dart'
     if (dart.library.io) 'src/syncer_backend_native.dart'
@@ -429,6 +430,9 @@ class OptoSyncClient implements ProtocolQueueAdapter {
   /// Maximum UTF-8 bytes accepted in one queued JSON payload.
   final int maxQueuedPayloadBytes;
 
+  /// Reviewed client default consistency policy identity.
+  final String defaultConsistencyPolicy;
+
   final int Function()? _now;
   Future<HybridLogicalClock>? _clockFuture;
   void Function()? _backgroundSyncTrigger;
@@ -441,6 +445,7 @@ class OptoSyncClient implements ProtocolQueueAdapter {
     this.maxDriftMs = defaultMaxDriftMs,
     this.maxPendingMutations = defaultMaxPendingMutations,
     this.maxQueuedPayloadBytes = defaultMaxQueuedPayloadBytes,
+    String? defaultConsistencyPolicy,
     String? lwwKeys,
     int Function()? now,
     void Function()? onMutationQueued,
@@ -448,6 +453,9 @@ class OptoSyncClient implements ProtocolQueueAdapter {
            lwwKeys ??
            (syncer is TimestampConfiguredSyncer ? syncer.lwwKeys : null) ??
            'updatedAt,syncedAt',
+       defaultConsistencyPolicy = canonicalizeConsistencyPolicy(
+         defaultConsistencyPolicy ?? consistencyPolicyWriteThroughLocalFirst,
+       ),
        // The field is private and the parameter is public API, so an
        // initializing formal is not possible.
        // ignore: prefer_initializing_formals
@@ -627,12 +635,14 @@ class OptoSyncClient implements ProtocolQueueAdapter {
     Map<String, dynamic> payload, {
     String? baseRevision,
     bool resurrect = false,
+    String? consistencyPolicy,
   }) => _queueMutation(
     tableName,
     recordId,
     payload,
     baseRevision: baseRevision,
     resurrect: resurrect,
+    consistencyPolicy: consistencyPolicy,
   );
 
   /// Apply an optimistic SQLite write and enqueue its mutation atomically.
@@ -649,6 +659,7 @@ class OptoSyncClient implements ProtocolQueueAdapter {
     applyOptimistic, {
     String? baseRevision,
     bool resurrect = false,
+    String? consistencyPolicy,
   }) => _queueMutation(
     tableName,
     recordId,
@@ -656,6 +667,7 @@ class OptoSyncClient implements ProtocolQueueAdapter {
     baseRevision: baseRevision,
     resurrect: resurrect,
     applyOptimistic: applyOptimistic,
+    consistencyPolicy: consistencyPolicy,
   );
 
   Future<int> _queueMutation(
@@ -664,6 +676,7 @@ class OptoSyncClient implements ProtocolQueueAdapter {
     Map<String, dynamic> payload, {
     String? baseRevision,
     bool resurrect = false,
+    String? consistencyPolicy,
     Future<void> Function(Map<String, dynamic> stampedPayload)? applyOptimistic,
   }) async {
     var stamped = payload;
@@ -693,6 +706,16 @@ class OptoSyncClient implements ProtocolQueueAdapter {
           .insertOnConflictUpdate(
             MetaEntry(key: metaMutationSequenceKey, value: '$next'),
           );
+      await db
+          .into(db.meta)
+          .insertOnConflictUpdate(
+            MetaEntry(
+              key: intentPolicyMetaKey('$next'),
+              value: canonicalizeConsistencyPolicy(
+                consistencyPolicy ?? defaultConsistencyPolicy,
+              ),
+            ),
+          );
       return db
           .into(db.localMutations)
           .insert(
@@ -717,7 +740,13 @@ class OptoSyncClient implements ProtocolQueueAdapter {
     String tableName,
     String recordId, {
     String? baseRevision,
-  }) => _queueDelete(tableName, recordId, baseRevision: baseRevision);
+    String? consistencyPolicy,
+  }) => _queueDelete(
+    tableName,
+    recordId,
+    baseRevision: baseRevision,
+    consistencyPolicy: consistencyPolicy,
+  );
 
   /// Apply an optimistic SQLite deletion and queue its tombstone atomically.
   Future<int> queueDeleteAtomic(
@@ -725,17 +754,20 @@ class OptoSyncClient implements ProtocolQueueAdapter {
     String recordId,
     Future<void> Function() applyOptimisticDelete, {
     String? baseRevision,
+    String? consistencyPolicy,
   }) => _queueDelete(
     tableName,
     recordId,
     baseRevision: baseRevision,
     applyOptimisticDelete: applyOptimisticDelete,
+    consistencyPolicy: consistencyPolicy,
   );
 
   Future<int> _queueDelete(
     String tableName,
     String recordId, {
     String? baseRevision,
+    String? consistencyPolicy,
     Future<void> Function()? applyOptimisticDelete,
   }) async {
     _assertPayloadQuota('{}');
@@ -752,6 +784,16 @@ class OptoSyncClient implements ProtocolQueueAdapter {
           .into(db.meta)
           .insertOnConflictUpdate(
             MetaEntry(key: metaMutationSequenceKey, value: '$next'),
+          );
+      await db
+          .into(db.meta)
+          .insertOnConflictUpdate(
+            MetaEntry(
+              key: intentPolicyMetaKey('$next'),
+              value: canonicalizeConsistencyPolicy(
+                consistencyPolicy ?? defaultConsistencyPolicy,
+              ),
+            ),
           );
       return db
           .into(db.localMutations)
@@ -805,6 +847,16 @@ class OptoSyncClient implements ProtocolQueueAdapter {
           ..orderBy([(t) => OrderingTerm.asc(t.id)])
           ..limit(limit))
         .get();
+  }
+
+  Future<String> queuedConsistencyPolicy(String mutationId) async {
+    final row =
+        await (db.select(db.meta)
+              ..where((t) => t.key.equals(intentPolicyMetaKey(mutationId))))
+            .getSingleOrNull();
+    return canonicalizeConsistencyPolicy(
+      row?.value ?? defaultConsistencyPolicy,
+    );
   }
 
   Map<String, dynamic> _encodeProtocolRows(

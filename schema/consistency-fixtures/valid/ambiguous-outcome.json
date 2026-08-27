@@ -1,0 +1,6 @@
+{
+  "kind": "outcome",
+  "status": "ambiguous",
+  "consistencyPolicy": "opto.consistency.remote-acknowledged.v1",
+  "message": "committed-but-response-lost"
+}

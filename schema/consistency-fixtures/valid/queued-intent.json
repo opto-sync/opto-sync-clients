@@ -1,0 +1,13 @@
+{
+  "kind": "mutation-intent",
+  "intent": {
+    "clientId": "client-a",
+    "mutationId": "1",
+    "table": "docs",
+    "recordId": "r1",
+    "operation": "upsert",
+    "payload": { "title": "draft" },
+    "baseRevision": "4",
+    "consistencyPolicy": "opto.consistency.queued-local-first.v1"
+  }
+}

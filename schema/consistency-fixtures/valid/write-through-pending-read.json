@@ -1,0 +1,35 @@
+{
+  "kind": "read-model",
+  "localBase": [
+    {
+      "table": "docs",
+      "recordId": "r1",
+      "revision": "4",
+      "operation": "upsert",
+      "payload": { "title": "server" }
+    }
+  ],
+  "overlay": [
+    {
+      "mutationId": "7",
+      "clientId": "client-a",
+      "table": "docs",
+      "recordId": "r1",
+      "operation": "upsert",
+      "payload": { "title": "local" },
+      "revision": "5",
+      "consistencyPolicy": "opto.consistency.write-through-local-first.v1",
+      "status": "pending"
+    }
+  ],
+  "records": [
+    {
+      "table": "docs",
+      "recordId": "r1",
+      "revision": "5",
+      "operation": "upsert",
+      "payload": { "title": "local" },
+      "provenance": "pending"
+    }
+  ]
+}

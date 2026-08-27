@@ -1,0 +1,6 @@
+{
+  "kind": "outcome",
+  "status": "confirmed",
+  "consistencyPolicy": "opto.consistency.remote-acknowledged.v1",
+  "coveredMutationIds": ["1"]
+}

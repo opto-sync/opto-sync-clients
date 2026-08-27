@@ -23,6 +23,10 @@ letting Rust own the operational tooling and protocol schemas.
 The machine-by-machine proof boundary, current evidence, and prioritized gaps
 are maintained in [`STATE_MACHINE_ASSURANCE.md`](STATE_MACHINE_ASSURANCE.md).
 
+Shared consistency-policy, frozen-intent, and local-plus-remote read
+reconciliation vectors live in [`consistency_vectors.v1.json`](consistency_vectors.v1.json)
+and are replayed by the TypeScript, Dart, and Rust clients.
+
 ## Protocol model
 
 `opto_sync_protocol.qnt` models the protocol-v1 client/server lifecycle with a
