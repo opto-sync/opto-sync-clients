@@ -2,8 +2,9 @@
 
 `scripts/stage-dart-target.py` assembles a source-only target outside the Git
 checkout. The target contains only `clients/dart`, the exact `syncer.c` gitlink
-source, the Dart FFI binding, the WASM binding, the shared schema fixtures, and
-the extracted-artifact validator. It contains no other SDK, Git metadata,
+source, the Dart FFI binding, the WASM binding, the shared schema fixtures, the
+consistency vectors, and the extracted-artifact validator. It contains no other
+SDK, Git metadata,
 plaintext environment, generated dependency directory, or second core.
 
 The target records the client and core commits plus SHA-256 identities for the
