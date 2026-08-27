@@ -36,6 +36,7 @@ export * as rx from './rx/index.js';
 export * as schema from './schema/ingest.js';
 export * as telemetry from './telemetry.js';
 export * as observability from './observability.js';
+export * as consistency from './consistency.js';
 
 /*
  * CURATED TOP-LEVEL NAMES — the everyday API, re-exported once each (never
@@ -181,3 +182,24 @@ export type {
   ProtocolSyncTelemetrySink,
   TelemetrySink,
 } from './telemetry.js';
+export {
+  CONSISTENCY_POLICY,
+  UnknownConsistencyPolicyError,
+  FrozenMutationIntentError,
+  canonicalizeConsistencyPolicy,
+  isConsistencyPolicyId,
+  assertQueuedIntentFrozen,
+  reconcileReadModel,
+  outcomeForNetwork,
+} from './consistency.js';
+export type {
+  ConsistencyPolicyId,
+  OutcomeStatus,
+  MutationIntent,
+  ConsistencyOutcome,
+  BaseRow,
+  OverlayEntry,
+  ProjectedRow,
+  ReadReconciliationInput,
+  Provenance,
+} from './consistency.js';

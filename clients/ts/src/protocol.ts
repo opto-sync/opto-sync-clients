@@ -4,6 +4,8 @@ import type { JsonRecord } from './reconcile-core.js';
 export interface ProtocolMutationOptions {
   baseRevision?: string;
   resurrect?: boolean;
+  /** Canonical or aliased consistency policy stored on the durable intent. */
+  consistencyPolicy?: string;
 }
 
 export interface PushMutation {

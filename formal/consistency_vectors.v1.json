@@ -1,0 +1,626 @@
+{
+  "contract": "opto.sync.consistency.vectors.v1",
+  "policies": [
+    "opto.consistency.remote-acknowledged.v1",
+    "opto.consistency.write-through-local-first.v1",
+    "opto.consistency.queued-local-first.v1"
+  ],
+  "aliases": {
+    "remote-acknowledged": "opto.consistency.remote-acknowledged.v1",
+    "strict": "opto.consistency.remote-acknowledged.v1",
+    "remote-confirmed": "opto.consistency.remote-acknowledged.v1",
+    "await-server": "opto.consistency.remote-acknowledged.v1",
+    "write-through-local-first": "opto.consistency.write-through-local-first.v1",
+    "local-then-remote": "opto.consistency.write-through-local-first.v1",
+    "local-first": "opto.consistency.write-through-local-first.v1",
+    "queued-local-first": "opto.consistency.queued-local-first.v1",
+    "local-durable": "opto.consistency.queued-local-first.v1",
+    "background": "opto.consistency.queued-local-first.v1"
+  },
+  "unknownPolicies": ["eventual", "best-effort", "opto.consistency.v0", ""],
+  "freeze": [
+    {
+      "id": "policy-change-refused",
+      "existing": {
+        "clientId": "c1",
+        "mutationId": "3",
+        "table": "docs",
+        "recordId": "r1",
+        "operation": "upsert",
+        "payload": { "title": "a" },
+        "consistencyPolicy": "opto.consistency.queued-local-first.v1"
+      },
+      "proposed": {
+        "clientId": "c1",
+        "mutationId": "3",
+        "table": "docs",
+        "recordId": "r1",
+        "operation": "upsert",
+        "payload": { "title": "a" },
+        "consistencyPolicy": "opto.consistency.remote-acknowledged.v1"
+      },
+      "allowed": false
+    },
+    {
+      "id": "payload-change-refused",
+      "existing": {
+        "clientId": "c1",
+        "mutationId": "3",
+        "table": "docs",
+        "recordId": "r1",
+        "operation": "upsert",
+        "payload": { "title": "a" },
+        "consistencyPolicy": "opto.consistency.write-through-local-first.v1"
+      },
+      "proposed": {
+        "clientId": "c1",
+        "mutationId": "3",
+        "table": "docs",
+        "recordId": "r1",
+        "operation": "upsert",
+        "payload": { "title": "b" },
+        "consistencyPolicy": "opto.consistency.write-through-local-first.v1"
+      },
+      "allowed": false
+    },
+    {
+      "id": "identical-rebind-allowed",
+      "existing": {
+        "clientId": "c1",
+        "mutationId": "3",
+        "table": "docs",
+        "recordId": "r1",
+        "operation": "upsert",
+        "payload": { "title": "a" },
+        "consistencyPolicy": "opto.consistency.queued-local-first.v1"
+      },
+      "proposed": {
+        "clientId": "c1",
+        "mutationId": "3",
+        "table": "docs",
+        "recordId": "r1",
+        "operation": "upsert",
+        "payload": { "title": "a" },
+        "consistencyPolicy": "queued-local-first"
+      },
+      "allowed": true
+    }
+  ],
+  "readModels": [
+    {
+      "id": "local-base-available-before-remote",
+      "input": {
+        "localBase": [
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "4",
+            "operation": "upsert",
+            "payload": { "title": "base" }
+          }
+        ],
+        "overlay": [
+          {
+            "mutationId": "8",
+            "clientId": "c1",
+            "table": "docs",
+            "recordId": "r1",
+            "operation": "upsert",
+            "payload": { "title": "pending" },
+            "revision": "5",
+            "consistencyPolicy": "opto.consistency.queued-local-first.v1",
+            "status": "pending"
+          }
+        ]
+      },
+      "expect": {
+        "records": [
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "5",
+            "operation": "upsert",
+            "payload": { "title": "pending" },
+            "provenance": "pending"
+          }
+        ]
+      }
+    },
+    {
+      "id": "stale-remote-cannot-overwrite-newer-local",
+      "input": {
+        "localBase": [
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "9",
+            "operation": "upsert",
+            "payload": { "title": "local-new" }
+          }
+        ],
+        "overlay": [],
+        "remote": [
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "3",
+            "operation": "upsert",
+            "payload": { "title": "stale-http" },
+            "arrivalSeq": 99
+          }
+        ]
+      },
+      "expect": {
+        "records": [
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "9",
+            "operation": "upsert",
+            "payload": { "title": "local-new" },
+            "provenance": "authoritative"
+          }
+        ]
+      }
+    },
+    {
+      "id": "revision-wins-over-arrival-order",
+      "input": {
+        "localBase": [],
+        "overlay": [],
+        "remote": [
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "3",
+            "operation": "upsert",
+            "payload": { "title": "first-arrival" },
+            "arrivalSeq": 2
+          },
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "7",
+            "operation": "upsert",
+            "payload": { "title": "later-revision" },
+            "arrivalSeq": 1
+          }
+        ]
+      },
+      "expect": {
+        "records": [
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "7",
+            "operation": "upsert",
+            "payload": { "title": "later-revision" },
+            "provenance": "authoritative"
+          }
+        ]
+      }
+    },
+    {
+      "id": "absence-is-not-deletion",
+      "input": {
+        "localBase": [
+          {
+            "table": "docs",
+            "recordId": "keep",
+            "revision": "2",
+            "operation": "upsert",
+            "payload": { "title": "still-here" }
+          }
+        ],
+        "overlay": [],
+        "remote": [
+          {
+            "table": "docs",
+            "recordId": "other",
+            "revision": "8",
+            "operation": "upsert",
+            "payload": { "title": "new-row" }
+          }
+        ]
+      },
+      "expect": {
+        "records": [
+          {
+            "table": "docs",
+            "recordId": "keep",
+            "revision": "2",
+            "operation": "upsert",
+            "payload": { "title": "still-here" },
+            "provenance": "authoritative"
+          },
+          {
+            "table": "docs",
+            "recordId": "other",
+            "revision": "8",
+            "operation": "upsert",
+            "payload": { "title": "new-row" },
+            "provenance": "authoritative"
+          }
+        ]
+      }
+    },
+    {
+      "id": "explicit-tombstone-deletes",
+      "input": {
+        "localBase": [
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "2",
+            "operation": "upsert",
+            "payload": { "title": "gone" }
+          }
+        ],
+        "overlay": [],
+        "remote": [
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "6",
+            "operation": "delete"
+          }
+        ]
+      },
+      "expect": {
+        "records": [
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "6",
+            "operation": "delete",
+            "provenance": "authoritative"
+          }
+        ]
+      }
+    },
+    {
+      "id": "remote-acknowledged-pending-does-not-project",
+      "input": {
+        "localBase": [
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "4",
+            "operation": "upsert",
+            "payload": { "title": "base" }
+          }
+        ],
+        "overlay": [
+          {
+            "mutationId": "11",
+            "clientId": "c1",
+            "table": "docs",
+            "recordId": "r1",
+            "operation": "upsert",
+            "payload": { "title": "unacked" },
+            "revision": "5",
+            "consistencyPolicy": "opto.consistency.remote-acknowledged.v1",
+            "status": "pending"
+          }
+        ]
+      },
+      "expect": {
+        "records": [
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "4",
+            "operation": "upsert",
+            "payload": { "title": "base" },
+            "provenance": "authoritative"
+          }
+        ]
+      }
+    },
+    {
+      "id": "write-through-pending-overlays-base",
+      "input": {
+        "localBase": [
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "4",
+            "operation": "upsert",
+            "payload": { "title": "base" }
+          }
+        ],
+        "overlay": [
+          {
+            "mutationId": "12",
+            "clientId": "c1",
+            "table": "docs",
+            "recordId": "r1",
+            "operation": "upsert",
+            "payload": { "title": "optimistic" },
+            "revision": "5",
+            "consistencyPolicy": "opto.consistency.write-through-local-first.v1",
+            "status": "pending"
+          }
+        ]
+      },
+      "expect": {
+        "records": [
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "5",
+            "operation": "upsert",
+            "payload": { "title": "optimistic" },
+            "provenance": "pending"
+          }
+        ]
+      }
+    },
+    {
+      "id": "queued-local-first-overlays-base",
+      "input": {
+        "localBase": [
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "4",
+            "operation": "upsert",
+            "payload": { "title": "base" }
+          }
+        ],
+        "overlay": [
+          {
+            "mutationId": "13",
+            "clientId": "c1",
+            "table": "docs",
+            "recordId": "r1",
+            "operation": "upsert",
+            "payload": { "title": "queued" },
+            "revision": "5",
+            "consistencyPolicy": "opto.consistency.queued-local-first.v1",
+            "status": "pending"
+          }
+        ]
+      },
+      "expect": {
+        "records": [
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "5",
+            "operation": "upsert",
+            "payload": { "title": "queued" },
+            "provenance": "pending"
+          }
+        ]
+      }
+    },
+    {
+      "id": "exact-batch-ack-removes-only-covered-mutations",
+      "input": {
+        "localBase": [
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "4",
+            "operation": "upsert",
+            "payload": { "title": "base" }
+          },
+          {
+            "table": "docs",
+            "recordId": "r2",
+            "revision": "4",
+            "operation": "upsert",
+            "payload": { "title": "other-base" }
+          }
+        ],
+        "overlay": [
+          {
+            "mutationId": "20",
+            "clientId": "c1",
+            "table": "docs",
+            "recordId": "r1",
+            "operation": "upsert",
+            "payload": { "title": "acked" },
+            "revision": "5",
+            "consistencyPolicy": "opto.consistency.write-through-local-first.v1",
+            "status": "pending"
+          },
+          {
+            "mutationId": "21",
+            "clientId": "c1",
+            "table": "docs",
+            "recordId": "r2",
+            "operation": "upsert",
+            "payload": { "title": "still-pending" },
+            "revision": "5",
+            "consistencyPolicy": "opto.consistency.write-through-local-first.v1",
+            "status": "pending"
+          }
+        ],
+        "acknowledgedMutationIds": ["20"]
+      },
+      "expect": {
+        "records": [
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "4",
+            "operation": "upsert",
+            "payload": { "title": "base" },
+            "provenance": "authoritative"
+          },
+          {
+            "table": "docs",
+            "recordId": "r2",
+            "revision": "5",
+            "operation": "upsert",
+            "payload": { "title": "still-pending" },
+            "provenance": "pending"
+          }
+        ]
+      }
+    },
+    {
+      "id": "rejected-and-transformed-remain-visible",
+      "input": {
+        "localBase": [
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "4",
+            "operation": "upsert",
+            "payload": { "title": "base" }
+          },
+          {
+            "table": "docs",
+            "recordId": "r2",
+            "revision": "4",
+            "operation": "upsert",
+            "payload": { "title": "base-2" }
+          }
+        ],
+        "overlay": [
+          {
+            "mutationId": "30",
+            "clientId": "c1",
+            "table": "docs",
+            "recordId": "r1",
+            "operation": "upsert",
+            "payload": { "title": "rejected-write" },
+            "revision": "5",
+            "consistencyPolicy": "opto.consistency.write-through-local-first.v1",
+            "status": "rejected"
+          },
+          {
+            "mutationId": "31",
+            "clientId": "c1",
+            "table": "docs",
+            "recordId": "r2",
+            "operation": "upsert",
+            "payload": { "title": "original" },
+            "revision": "5",
+            "consistencyPolicy": "opto.consistency.write-through-local-first.v1",
+            "status": "transformed",
+            "transformedPayload": { "title": "server-shaped" }
+          }
+        ]
+      },
+      "expect": {
+        "records": [
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "5",
+            "operation": "upsert",
+            "payload": { "title": "rejected-write" },
+            "provenance": "rejected"
+          },
+          {
+            "table": "docs",
+            "recordId": "r2",
+            "revision": "5",
+            "operation": "upsert",
+            "payload": { "title": "server-shaped" },
+            "provenance": "transformed"
+          }
+        ]
+      }
+    },
+    {
+      "id": "pending-overlay-survives-stale-remote",
+      "input": {
+        "localBase": [
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "4",
+            "operation": "upsert",
+            "payload": { "title": "base" }
+          }
+        ],
+        "overlay": [
+          {
+            "mutationId": "40",
+            "clientId": "c1",
+            "table": "docs",
+            "recordId": "r1",
+            "operation": "upsert",
+            "payload": { "title": "queued" },
+            "revision": "5",
+            "consistencyPolicy": "opto.consistency.queued-local-first.v1",
+            "status": "pending"
+          }
+        ],
+        "remote": [
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "4",
+            "operation": "upsert",
+            "payload": { "title": "stale-echo" },
+            "arrivalSeq": 50
+          }
+        ]
+      },
+      "expect": {
+        "records": [
+          {
+            "table": "docs",
+            "recordId": "r1",
+            "revision": "5",
+            "operation": "upsert",
+            "payload": { "title": "queued" },
+            "provenance": "pending"
+          }
+        ]
+      }
+    }
+  ],
+  "modeOutcomes": [
+    {
+      "id": "remote-acknowledged-success",
+      "policy": "opto.consistency.remote-acknowledged.v1",
+      "network": "acked",
+      "coveredMutationIds": ["1"],
+      "expectStatus": "confirmed"
+    },
+    {
+      "id": "remote-acknowledged-response-lost",
+      "policy": "opto.consistency.remote-acknowledged.v1",
+      "network": "response-lost",
+      "expectStatus": "ambiguous"
+    },
+    {
+      "id": "remote-acknowledged-rejected",
+      "policy": "opto.consistency.remote-acknowledged.v1",
+      "network": "rejected",
+      "expectStatus": "rejected"
+    },
+    {
+      "id": "remote-acknowledged-cancelled",
+      "policy": "opto.consistency.remote-acknowledged.v1",
+      "network": "cancelled",
+      "expectStatus": "cancelled"
+    },
+    {
+      "id": "write-through-pending-without-cycle",
+      "policy": "opto.consistency.write-through-local-first.v1",
+      "network": "not-attempted",
+      "expectStatus": "pending"
+    },
+    {
+      "id": "write-through-confirmed",
+      "policy": "opto.consistency.write-through-local-first.v1",
+      "network": "acked",
+      "coveredMutationIds": ["2"],
+      "expectStatus": "confirmed"
+    },
+    {
+      "id": "queued-local-first-returns-pending",
+      "policy": "opto.consistency.queued-local-first.v1",
+      "network": "not-attempted",
+      "expectStatus": "pending"
+    }
+  ]
+}

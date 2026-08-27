@@ -5,6 +5,8 @@ The Rust target is a source-only package staged from a recursive
 
 - `clients/rust` with its committed `Cargo.lock`;
 - `schema/fixtures` for the cross-language ingest contract tests;
+- `formal/consistency_vectors.v1.json` and `schema/opto-sync-consistency.v1.schema.json`
+  for the explicit consistency-mode tests;
 - `syncer.c/core/include` and `syncer.c/core/src`;
 - `syncer.c/bindings/rust`;
 - license, release-set metadata, and the extracted-artifact validator.

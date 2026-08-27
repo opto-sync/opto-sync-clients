@@ -1,7 +1,8 @@
-import type { SyncOptimism, SyncSession } from './contracts.ts';
+import type { ConsistencyPolicyId, SyncOptimism, SyncSession } from './contracts.ts';
 import {
   SYNC_OPTIMISM,
   requireAuthenticated,
+  resolveSyncOptimism,
   storagePartitionKey,
 } from './contracts.ts';
 
@@ -22,7 +23,7 @@ export interface ForegroundSyncCycle<R = unknown> {
 }
 
 export interface OptimisticWriteOptions<T, L = unknown, S = unknown> {
-  strategy: SyncOptimism;
+  strategy: SyncOptimism | ConsistencyPolicyId | string;
   session: SyncSession;
   value: T;
   local: LocalDurableWrite<T, L>;
@@ -63,8 +64,9 @@ export async function writeWithOptimism<T, L = unknown, S = unknown>(
   const identity = requireAuthenticated(options.session);
   const partition = storagePartitionKey(identity);
   const signal = options.signal ?? new AbortController().signal;
+  const strategy = resolveSyncOptimism(options.strategy);
 
-  switch (options.strategy) {
+  switch (strategy) {
     case SYNC_OPTIMISM.remoteConfirmed: {
       // Pessimistic/online-only: do not mutate local state until the server has
       // durably accepted and returned the authoritative representation.

@@ -111,6 +111,14 @@ def main() -> int:
         ROOT / "schema/opto-sync-telemetry.schema.json",
         output / "schema/opto-sync-telemetry.schema.json",
     )
+    copy_file(
+        ROOT / "schema/opto-sync-consistency.v1.schema.json",
+        output / "schema/opto-sync-consistency.v1.schema.json",
+    )
+    copy_file(
+        ROOT / "formal/consistency_vectors.v1.json",
+        output / "formal/consistency_vectors.v1.json",
+    )
     copy_file(ROOT / "LICENSE", output / "LICENSE")
     copy_file(
         ROOT / "scripts/check-dart-target.py",

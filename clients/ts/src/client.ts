@@ -22,6 +22,15 @@ import {
   composeNodeId,
 } from './clock.js';
 import {
+  CONSISTENCY_POLICY,
+  FrozenMutationIntentError,
+  assertQueuedIntentFrozen,
+  canonicalizeConsistencyPolicy,
+  intentPolicyMetaKey,
+  type ConsistencyPolicyId,
+  type MutationIntent,
+} from './consistency.js';
+import {
   buildPushRequest,
   ProtocolMutationOptions,
   PushRequest,
@@ -61,6 +70,11 @@ export interface LocalMutation {
   attempts?: number;
   /** Last push error, for diagnosis. Never contains the payload. */
   lastError?: string;
+  /**
+   * Canonical consistency policy identity serialized into this durable intent.
+   * Frozen after queue commit; aliases are not stored.
+   */
+  consistencyPolicy?: ConsistencyPolicyId | string;
 }
 
 export const SYNC_STATUS = Object.freeze({
@@ -138,6 +152,11 @@ export type OptoSyncClientOptions = ReconcileOptions & {
   maxQueuedPayloadBytes?: number;
   /** Optional wake-up hook invoked after a durable queue commit. */
   onMutationQueued?: () => void;
+  /**
+   * Reviewed client default consistency policy. Stored on every queued
+   * mutation unless the caller overrides per operation.
+   */
+  defaultConsistencyPolicy?: string;
 };
 
 /**
@@ -191,6 +210,7 @@ export class OptoSyncClient {
   private readonly stampUpdatedAt: boolean;
   private readonly maxPendingMutations: number;
   private readonly maxQueuedPayloadBytes: number;
+  private readonly defaultConsistencyPolicy: ConsistencyPolicyId;
   private backgroundSyncTrigger?: () => void;
 
   constructor(options?: OptoSyncClientOptions) {
@@ -200,6 +220,7 @@ export class OptoSyncClient {
       maxPendingMutations = DEFAULT_MAX_PENDING_MUTATIONS,
       maxQueuedPayloadBytes = DEFAULT_MAX_QUEUED_PAYLOAD_BYTES,
       onMutationQueued,
+      defaultConsistencyPolicy,
       ...reconcileOptions
     } = options ?? {};
     if (!Number.isSafeInteger(maxPendingMutations) || maxPendingMutations < 1) {
@@ -218,7 +239,16 @@ export class OptoSyncClient {
     this.stampUpdatedAt = stampUpdatedAt !== false;
     this.maxPendingMutations = maxPendingMutations;
     this.maxQueuedPayloadBytes = maxQueuedPayloadBytes;
+    this.defaultConsistencyPolicy = canonicalizeConsistencyPolicy(
+      defaultConsistencyPolicy ?? CONSISTENCY_POLICY.writeThroughLocalFirst,
+    );
     this.backgroundSyncTrigger = onMutationQueued;
+  }
+
+  resolveConsistencyPolicy(identifier?: string): ConsistencyPolicyId {
+    return canonicalizeConsistencyPolicy(
+      identifier ?? this.defaultConsistencyPolicy,
+    );
   }
 
   private assertPayloadQuota(jsonPayload: string): void {
@@ -404,6 +434,9 @@ export class OptoSyncClient {
           (await this.db.meta.get(META_MUTATION_SEQ))?.value ?? '0',
         );
         const nextMutationId = (previous + 1n).toString();
+        const consistencyPolicy = this.resolveConsistencyPolicy(
+          protocol.consistencyPolicy,
+        );
         // Use a JSON round trip so callback mutation cannot alter the exact
         // immutable payload already selected for the queue/wire envelope.
         await applyOptimistic?.(
@@ -412,6 +445,10 @@ export class OptoSyncClient {
         await this.db.meta.put({
           key: META_MUTATION_SEQ,
           value: nextMutationId,
+        });
+        await this.db.meta.put({
+          key: intentPolicyMetaKey(nextMutationId),
+          value: consistencyPolicy,
         });
         const rowId = await this.db.localMutations.add({
           tableName,
@@ -425,6 +462,7 @@ export class OptoSyncClient {
           baseRevision: protocol.baseRevision,
           resurrect: protocol.resurrect,
           attempts: 0,
+          consistencyPolicy,
         });
         return { id: rowId, mutationId: nextMutationId };
       },
@@ -437,7 +475,7 @@ export class OptoSyncClient {
   async queueDelete(
     tableName: string,
     recordId: string,
-    options: Pick<ProtocolMutationOptions, 'baseRevision'> = {},
+    options: Pick<ProtocolMutationOptions, 'baseRevision' | 'consistencyPolicy'> = {},
   ): Promise<number> {
     const row = await this.insertDelete(tableName, recordId, options);
     this.triggerBackgroundSync();
@@ -452,7 +490,7 @@ export class OptoSyncClient {
     recordId: string,
     authoritativeTables: readonly Table[],
     applyOptimisticDelete: () => void | Promise<void>,
-    options: Pick<ProtocolMutationOptions, 'baseRevision'> = {},
+    options: Pick<ProtocolMutationOptions, 'baseRevision' | 'consistencyPolicy'> = {},
   ): Promise<number> {
     const row = await this.insertDelete(
       tableName,
@@ -468,7 +506,7 @@ export class OptoSyncClient {
   private async insertDelete(
     tableName: string,
     recordId: string,
-    options: Pick<ProtocolMutationOptions, 'baseRevision'>,
+    options: Pick<ProtocolMutationOptions, 'baseRevision' | 'consistencyPolicy'>,
     authoritativeTables: readonly Table[] = [],
     applyOptimisticDelete?: () => void | Promise<void>,
   ): Promise<number> {
@@ -483,8 +521,15 @@ export class OptoSyncClient {
           (await this.db.meta.get(META_MUTATION_SEQ))?.value ?? '0',
         );
         const mutationId = (previous + 1n).toString();
+        const consistencyPolicy = this.resolveConsistencyPolicy(
+          options.consistencyPolicy,
+        );
         await applyOptimisticDelete?.();
         await this.db.meta.put({ key: META_MUTATION_SEQ, value: mutationId });
+        await this.db.meta.put({
+          key: intentPolicyMetaKey(mutationId),
+          value: consistencyPolicy,
+        });
         return this.db.localMutations.add({
           tableName,
           recordId,
@@ -497,11 +542,48 @@ export class OptoSyncClient {
           mutationId,
           operation: 'delete',
           baseRevision: options.baseRevision,
+          consistencyPolicy,
           attempts: 0,
         });
       },
     );
     return row;
+  }
+
+  queuedIntentFromRow(row: LocalMutation, clientId: string): MutationIntent {
+    const payload =
+      row.operation === 'delete'
+        ? undefined
+        : (JSON.parse(row.jsonPayload) as Record<string, unknown>);
+    return {
+      clientId: row.clientId ?? clientId,
+      mutationId: row.mutationId ?? String(row.id ?? 0),
+      table: row.tableName,
+      recordId: row.recordId,
+      operation: row.operation === 'delete' ? 'delete' : 'upsert',
+      payload,
+      baseRevision: row.baseRevision,
+      resurrect: row.resurrect,
+      consistencyPolicy: this.resolveConsistencyPolicy(row.consistencyPolicy),
+    };
+  }
+
+  /**
+   * Refuse any attempt to rewrite identity, payload, or policy of a queued
+   * mutation. Status transitions (ack/fail) remain allowed.
+   */
+  async assertQueuedIntentUnchanged(
+    rowId: number,
+    proposed: MutationIntent,
+  ): Promise<void> {
+    const row = await this.db.localMutations.get(rowId);
+    if (!row) {
+      throw new FrozenMutationIntentError(
+        `queued mutation ${rowId} is missing`,
+      );
+    }
+    const clientId = await this.clientId();
+    assertQueuedIntentFrozen(this.queuedIntentFromRow(row, clientId), proposed);
   }
 
   /**

@@ -7,6 +7,12 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
+
+use crate::consistency::{
+    assert_queued_intent_frozen, canonicalize_consistency_policy, ConsistencyError,
+    ConsistencyPolicy, MutationIntent, WRITE_THROUGH_LOCAL_FIRST,
+};
 
 const MAX_I64: u64 = i64::MAX as u64;
 pub const DEFAULT_MAX_PENDING_MUTATIONS: usize = 10_000;
@@ -235,6 +241,9 @@ pub struct ProtocolQueue {
     max_pending_mutations: usize,
     #[serde(default = "default_max_queued_payload_bytes")]
     max_queued_payload_bytes: usize,
+    /// Canonical consistency policy per mutation id. Local durable intent only.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    consistency_policies: BTreeMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -248,6 +257,8 @@ struct ProtocolQueueWire {
     max_pending_mutations: usize,
     #[serde(default = "default_max_queued_payload_bytes")]
     max_queued_payload_bytes: usize,
+    #[serde(default)]
+    consistency_policies: BTreeMap<String, String>,
 }
 
 impl<'de> Deserialize<'de> for ProtocolQueue {
@@ -263,6 +274,7 @@ impl<'de> Deserialize<'de> for ProtocolQueue {
             mutations: wire.mutations,
             max_pending_mutations: wire.max_pending_mutations,
             max_queued_payload_bytes: wire.max_queued_payload_bytes,
+            consistency_policies: wire.consistency_policies,
         };
         queue
             .validate()
@@ -302,6 +314,7 @@ impl ProtocolQueue {
             mutations: Vec::new(),
             max_pending_mutations,
             max_queued_payload_bytes,
+            consistency_policies: BTreeMap::new(),
         })
     }
 
@@ -436,7 +449,78 @@ impl ProtocolQueue {
             .ok_or(ProtocolError::MutationIdExhausted)?;
         mutation.mutation_id = id.clone();
         self.mutations.push(mutation);
+        self.consistency_policies
+            .entry(id.clone())
+            .or_insert_with(|| WRITE_THROUGH_LOCAL_FIRST.to_string());
         Ok(id)
+    }
+
+    pub fn queue_upsert_with_consistency(
+        &mut self,
+        table: impl Into<String>,
+        record_id: impl Into<String>,
+        payload: Value,
+        base_revision: Option<String>,
+        resurrect: bool,
+        policy: ConsistencyPolicy,
+    ) -> Result<String, ProtocolError> {
+        let id = self.queue_upsert(table, record_id, payload, base_revision, resurrect)?;
+        self.consistency_policies
+            .insert(id.clone(), policy.as_str().to_string());
+        Ok(id)
+    }
+
+    pub fn queue_delete_with_consistency(
+        &mut self,
+        table: impl Into<String>,
+        record_id: impl Into<String>,
+        base_revision: Option<String>,
+        policy: ConsistencyPolicy,
+    ) -> Result<String, ProtocolError> {
+        let id = self.queue_delete(table, record_id, base_revision)?;
+        self.consistency_policies
+            .insert(id.clone(), policy.as_str().to_string());
+        Ok(id)
+    }
+
+    #[must_use]
+    pub fn consistency_policy(&self, mutation_id: &str) -> Option<&str> {
+        self.consistency_policies
+            .get(mutation_id)
+            .map(String::as_str)
+    }
+
+    pub fn rebind_consistency(
+        &self,
+        mutation_id: &str,
+        proposed: &MutationIntent,
+    ) -> Result<(), ConsistencyError> {
+        let existing_row = self
+            .mutations
+            .iter()
+            .find(|mutation| mutation.mutation_id == mutation_id)
+            .ok_or_else(|| {
+                ConsistencyError::FrozenIntent(format!("queued mutation {mutation_id} is missing"))
+            })?;
+        let existing = MutationIntent {
+            client_id: self.client_id.clone(),
+            mutation_id: existing_row.mutation_id.clone(),
+            table: existing_row.table.clone(),
+            record_id: existing_row.record_id.clone(),
+            operation: match existing_row.operation {
+                Operation::Upsert => "upsert".to_string(),
+                Operation::Delete => "delete".to_string(),
+            },
+            payload: existing_row.payload.clone(),
+            base_revision: existing_row.base_revision.clone(),
+            resurrect: existing_row.resurrect,
+            consistency_policy: self
+                .consistency_policy(mutation_id)
+                .unwrap_or(WRITE_THROUGH_LOCAL_FIRST)
+                .to_string(),
+        };
+        let _ = canonicalize_consistency_policy(&existing.consistency_policy)?;
+        assert_queued_intent_frozen(&existing, proposed)
     }
 
     /// Remove the oldest confirmed entries while preserving pending work.

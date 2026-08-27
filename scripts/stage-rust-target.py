@@ -108,9 +108,10 @@ def main() -> int:
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / "contract" / relative, destination)
 
-    # The Rust schema-ingest integration tests deliberately consume the shared
-    # cross-language fixture corpus. Package the corpus beside the client so an
-    # extracted target remains testable without a Git checkout or sibling repo.
+    # The Rust schema-ingest and consistency integration tests deliberately
+    # consume the shared cross-language corpora. Package those files beside
+    # the client so an extracted target remains testable without a Git
+    # checkout or sibling repo.
     copy_tree(ROOT / "schema/fixtures", output / "schema/fixtures")
     copy_tree(
         ROOT / "schema/telemetry-fixtures",
@@ -119,6 +120,15 @@ def main() -> int:
     shutil.copy2(
         ROOT / "schema/opto-sync-telemetry.schema.json",
         output / "schema/opto-sync-telemetry.schema.json",
+    )
+    shutil.copy2(
+        ROOT / "schema/opto-sync-consistency.v1.schema.json",
+        output / "schema/opto-sync-consistency.v1.schema.json",
+    )
+    (output / "formal").mkdir()
+    shutil.copy2(
+        ROOT / "formal/consistency_vectors.v1.json",
+        output / "formal/consistency_vectors.v1.json",
     )
 
     copy_tree(ROOT / "syncer.c/core/include", output / "syncer.c/core/include")
@@ -196,8 +206,9 @@ exclude = [".zpkg.lock"]
         f"""# opto-sync Rust target prototype
 
 This staged source package contains the Rust client, its portable surface
-contract checker, its shared schema fixture corpus, and the exact C core and
-Rust FFI binding pinned by `opto-sync-clients`.
+contract checker, its shared schema fixture corpus, its consistency
+vectors, and the exact C core and Rust FFI binding pinned by
+`opto-sync-clients`.
 
 - Client source: `{client_sha}`
 - Core source: `{gitlink_sha}`

@@ -1,0 +1,5 @@
+{
+  "kind": "outcome",
+  "status": "success",
+  "consistencyPolicy": "opto.consistency.write-through-local-first.v1"
+}
