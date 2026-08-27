@@ -387,22 +387,21 @@ fn matching_trace_paths(pattern: &Path) -> Result<Vec<PathBuf>, FmError> {
     let (prefix, suffix) = file_name.split_once("{seq}").ok_or_else(|| {
         FmError::Validation("trace output pattern has no '{seq}' placeholder".to_owned())
     })?;
-    let mut paths = Vec::new();
-    for entry in fs::read_dir(parent).map_err(|source| FmError::io(parent, source))? {
-        let entry = entry.map_err(|source| FmError::io(parent, source))?;
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else {
-            continue;
-        };
-        let sequence = name
-            .strip_prefix(prefix)
-            .and_then(|name| name.strip_suffix(suffix));
-        if sequence.is_some_and(|sequence| {
-            !sequence.is_empty() && sequence.chars().all(|character| character.is_ascii_digit())
-        }) {
-            paths.push(entry.path());
-        }
-    }
+    let mut paths: Vec<PathBuf> = fs::read_dir(parent)
+        .map_err(|source| FmError::io(parent, source))?
+        .map(|entry| entry.map_err(|source| FmError::io(parent, source)))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .filter_map(|entry| {
+            let name = entry.file_name();
+            let name = name.to_str()?;
+            let sequence = name
+                .strip_prefix(prefix)
+                .and_then(|name| name.strip_suffix(suffix))?;
+            (!sequence.is_empty() && sequence.chars().all(|character| character.is_ascii_digit()))
+                .then_some(entry.path())
+        })
+        .collect();
     paths.sort();
     Ok(paths)
 }
