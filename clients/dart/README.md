@@ -143,6 +143,12 @@ Platform connectivity and lifecycle events should call `loop.hint()`.
 Default callbacks must apply pull pages idempotently and replace snapshots
 atomically when their store cannot transact with queue metadata.
 
+Every start/offline/stop intent advances the scheduler generation. A cancelled
+timer or late cycle settlement from an older generation is ignored, so it
+cannot overwrite a newer phase or retry counter. The optional `timerFactory`
+constructor argument supplies cancellable deterministic timers for formal
+replay; production applications normally use the default Dart timer.
+
 When authoritative rows share the Drift connection, implement
 `AtomicProtocolSyncCallbacks` and use `commitPullPageAtomic()` /
 `installSnapshotAtomic()`. The loop verifies that each callback persisted the

@@ -298,6 +298,31 @@ int _integerOption(
   return resolved;
 }
 
+/// Cancellable timer handle owned by the protocol scheduler.
+abstract interface class ProtocolSyncTimer {
+  void cancel();
+}
+
+/// Injectable timer boundary for deterministic hosts and formal replay.
+typedef ProtocolSyncTimerFactory =
+    ProtocolSyncTimer Function(Duration delay, void Function() callback);
+
+final class _SystemProtocolSyncTimer implements ProtocolSyncTimer {
+  late final Timer _timer;
+
+  _SystemProtocolSyncTimer(Duration delay, void Function() callback) {
+    _timer = Timer(delay, callback);
+  }
+
+  @override
+  void cancel() => _timer.cancel();
+}
+
+ProtocolSyncTimer _systemProtocolSyncTimer(
+  Duration delay,
+  void Function() callback,
+) => _SystemProtocolSyncTimer(delay, callback);
+
 /// Single-flight, transport-neutral protocol v1 synchronization.
 ///
 /// A cycle catches up first, uploads immutable queue batches, then catches up
@@ -316,16 +341,18 @@ class ProtocolSyncLoop {
   final double Function()? random;
   final DateTime Function() now;
   final bool Function() isOnline;
+  final ProtocolSyncTimerFactory timerFactory;
   final void Function(ProtocolSyncState state)? onStateChange;
 
   ProtocolSyncState _state = const ProtocolSyncState(
     status: ProtocolSyncStatus.stopped,
   );
-  Timer? _timer;
+  ProtocolSyncTimer? _timer;
   Future<ProtocolSyncCycleResult>? _inFlight;
   ProtocolCancellationToken? _cancellation;
   bool _started = false;
   bool _rerunRequested = false;
+  int _generation = 0;
 
   ProtocolSyncLoop(
     this.queue,
@@ -340,6 +367,7 @@ class ProtocolSyncLoop {
     this.random,
     DateTime Function()? now,
     bool Function()? isOnline,
+    ProtocolSyncTimerFactory? timerFactory,
     this.onStateChange,
   }) : pushLimit = _integerOption(pushLimit, 100, 1, 100, 'pushLimit'),
        pullLimit = _integerOption(pullLimit, 100, 1, 1000, 'pullLimit'),
@@ -358,7 +386,8 @@ class ProtocolSyncLoop {
          'maxPullPagesPerPhase',
        ),
        now = now ?? DateTime.now,
-       isOnline = isOnline ?? (() => true) {
+       isOnline = isOnline ?? (() => true),
+       timerFactory = timerFactory ?? _systemProtocolSyncTimer {
     computeProtocolRetryDelay(
       1,
       base: retryBase,
@@ -371,20 +400,35 @@ class ProtocolSyncLoop {
 
   void start() {
     if (_started) return;
+    _generation++;
     _started = true;
+    if (!isOnline()) {
+      _transition(
+        _state.copyWith(
+          status: ProtocolSyncStatus.offline,
+          consecutiveFailures: 0,
+          clearNextRetryAt: true,
+        ),
+      );
+      return;
+    }
     _transition(
-      _state.copyWith(status: ProtocolSyncStatus.idle, clearNextRetryAt: true),
+      _state.copyWith(
+        status: ProtocolSyncStatus.idle,
+        consecutiveFailures: 0,
+        clearNextRetryAt: true,
+      ),
     );
     _schedule(Duration.zero);
   }
 
   void stop() {
+    _generation++;
     _started = false;
     _rerunRequested = false;
     _timer?.cancel();
     _timer = null;
     _cancellation?._cancel();
-    _cancellation = null;
     _transition(
       _state.copyWith(
         status: ProtocolSyncStatus.stopped,
@@ -396,7 +440,20 @@ class ProtocolSyncLoop {
   /// Wake after a durable local write, connectivity event, or live hint.
   void hint() {
     if (!_started) return;
+    if (!isOnline()) {
+      _enterOffline();
+      return;
+    }
+    if (_state.status == ProtocolSyncStatus.offline) {
+      _transition(
+        _state.copyWith(
+          status: ProtocolSyncStatus.idle,
+          clearNextRetryAt: true,
+        ),
+      );
+    }
     _rerunRequested = true;
+    if (_inFlight != null) return;
     _timer?.cancel();
     _timer = null;
     _schedule(Duration.zero);
@@ -410,6 +467,7 @@ class ProtocolSyncLoop {
       return existing;
     }
     final cancellation = ProtocolCancellationToken();
+    final generation = _generation;
     _cancellation = cancellation;
     _transition(
       _state.copyWith(
@@ -418,8 +476,10 @@ class ProtocolSyncLoop {
         clearLastError: true,
       ),
     );
-    final running = _performCycle(cancellation)
+    late final Future<ProtocolSyncCycleResult> running;
+    running = _performCycle(cancellation)
         .then((result) {
+          if (generation != _generation) return result;
           _transition(
             ProtocolSyncState(
               status: _started
@@ -430,20 +490,28 @@ class ProtocolSyncLoop {
           return result;
         })
         .catchError((Object error, StackTrace stack) {
-          _transition(
-            _state.copyWith(
-              status: _started
-                  ? ProtocolSyncStatus.error
-                  : ProtocolSyncStatus.stopped,
-              lastError: _safeError(error),
-              clearNextRetryAt: true,
-            ),
-          );
+          if (generation == _generation) {
+            _transition(
+              _state.copyWith(
+                status: _started
+                    ? ProtocolSyncStatus.error
+                    : ProtocolSyncStatus.stopped,
+                lastError: _safeError(error),
+                clearNextRetryAt: true,
+              ),
+            );
+          }
           Error.throwWithStackTrace(error, stack);
         })
         .whenComplete(() {
-          _inFlight = null;
+          if (identical(_inFlight, running)) _inFlight = null;
           if (identical(_cancellation, cancellation)) _cancellation = null;
+          if (generation != _generation &&
+              _started &&
+              isOnline() &&
+              _rerunRequested) {
+            _schedule(Duration.zero);
+          }
         });
     _inFlight = running;
     return running;
@@ -572,35 +640,40 @@ class ProtocolSyncLoop {
 
   void _schedule(Duration delay) {
     if (!_started || _timer != null) return;
-    _timer = Timer(delay, () {
-      _timer = null;
-      unawaited(_drive());
+    final generation = _generation;
+    late final ProtocolSyncTimer scheduled;
+    scheduled = timerFactory(delay, () {
+      final isCurrent = identical(_timer, scheduled);
+      if (isCurrent) _timer = null;
+      if (!isCurrent || generation != _generation || !_started) return;
+      unawaited(_drive(generation));
     });
+    _timer = scheduled;
   }
 
-  Future<void> _drive() async {
-    if (!_started) return;
-    if (!isOnline()) {
-      _transition(
-        _state.copyWith(
-          status: ProtocolSyncStatus.offline,
-          clearNextRetryAt: true,
-        ),
-      );
-      return;
-    }
+  Future<void> _drive(int generation) async {
+    if (!_started || generation != _generation) return;
     if (_inFlight != null) {
       _rerunRequested = true;
+      return;
+    }
+    if (!isOnline()) {
+      _enterOffline();
       return;
     }
     _rerunRequested = false;
     try {
       final result = await syncNow();
+      if (generation != _generation) return;
       if (_started && (_rerunRequested || result.hasMorePending)) {
         _schedule(Duration.zero);
       }
     } catch (error) {
-      if (!_started || error is ProtocolSyncCancelled) return;
+      if (!_started ||
+          generation != _generation ||
+          error is ProtocolSyncCancelled) {
+        return;
+      }
       if (error is SyncTransportException && !error.retryable) {
         _transition(
           _state.copyWith(
@@ -610,7 +683,7 @@ class ProtocolSyncLoop {
         );
         return;
       }
-      final failures = _state.consecutiveFailures + 1;
+      final failures = min(_state.consecutiveFailures + 1, 31);
       final delay = computeProtocolRetryDelay(
         failures,
         base: retryBase,
@@ -630,6 +703,21 @@ class ProtocolSyncLoop {
       );
       _schedule(delay);
     }
+  }
+
+  void _enterOffline() {
+    if (!_started || _state.status == ProtocolSyncStatus.offline) return;
+    _generation++;
+    _rerunRequested = false;
+    _timer?.cancel();
+    _timer = null;
+    _cancellation?._cancel();
+    _transition(
+      _state.copyWith(
+        status: ProtocolSyncStatus.offline,
+        clearNextRetryAt: true,
+      ),
+    );
   }
 
   void _transition(ProtocolSyncState next) {
