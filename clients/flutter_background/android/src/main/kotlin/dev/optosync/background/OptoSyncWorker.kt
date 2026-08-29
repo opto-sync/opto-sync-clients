@@ -28,6 +28,10 @@ class OptoSyncWorker(
 ) : CoroutineWorker(context, parameters) {
 
     override suspend fun doWork(): Result {
+        if (OptoSyncBackgroundPlugin.isTotalOffline(applicationContext)) {
+            Log.i(LOG_TAG, "worker skipped: total-offline mode is enabled")
+            return Result.success()
+        }
         val callbackHandle =
             OptoSyncBackgroundPlugin.storedCallbackHandle(applicationContext)
         val dispatcherHandle =
@@ -83,8 +87,6 @@ class OptoSyncWorker(
                                     message: String?,
                                     details: Any?,
                                 ) {
-                                    // Do not retain platform error strings: an
-                                    // application callback may include secrets.
                                     Log.w(LOG_TAG, "background Dart drain reported failure")
                                     drained.completeExceptionally(
                                         RuntimeException("background drain failed"),
@@ -133,14 +135,9 @@ class OptoSyncWorker(
             Log.w(LOG_TAG, "background Dart drain timed out")
             retryOrFail()
         } catch (cancelled: CancellationException) {
-            // WorkManager cancellation is ownership loss, not another failed
-            // attempt. Propagating it prevents an unwanted retry after stop.
             Log.i(LOG_TAG, "background work ownership was cancelled")
             throw cancelled
         } catch (_: Exception) {
-            // Never log application exception messages: a callback may include
-            // credentials or record data. The fixed event is enough for CI and
-            // host diagnostics to distinguish a crash from a scheduler delay.
             Log.w(LOG_TAG, "background worker failed before completion")
             retryOrFail()
         }
