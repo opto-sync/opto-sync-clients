@@ -400,9 +400,9 @@ fn state_is_safe(state: &ProtocolSchedulerState) -> bool {
             && state.online
             && state.cycle_pending
             && state.cycle_generation == state.generation);
-    let inactive_boundaries = (state.phase != ProtocolSchedulerPhase::Stopped
-        || !state.network_active)
-        && (state.phase != ProtocolSchedulerPhase::Offline || !state.network_active);
+    let inactive_boundaries = !state.network_active
+        || (state.phase != ProtocolSchedulerPhase::Stopped
+            && state.phase != ProtocolSchedulerPhase::Offline);
     let reset_ordered =
         state.reset_phase == ProtocolSchedulerResetPhase::None || current_cycle_enabled(state);
     let timer_owned = !state.timer_pending || current_timer_enabled(state);
