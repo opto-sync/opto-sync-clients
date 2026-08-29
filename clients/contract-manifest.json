@@ -361,7 +361,7 @@
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/reactive-ts",
       "implementationFileCount": 16,
-      "implementationSha256": "8977f9a402fa8ade727c5e8e51dafbe00e203f0b83362c62108e7cfdaf8fb706",
+      "implementationSha256": "637afb38feef4dcae385c6f0d0d2a8139f1d90c233dbdacffd5e2fe2e247c190",
       "runtime": "reactive-ts",
       "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
       "schemaVersion": 1,

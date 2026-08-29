@@ -146,7 +146,7 @@ def main() -> int:
         "schemaVersion": 1,
         "target": "dart",
         "package": "opto-sync/opto-sync-client-dart",
-        "clientVersion": "1.1.0",
+        "clientVersion": "1.2.0",
         "syncerVersion": "0.2.1",
         "clientSourceSha": client_sha,
         "syncerSourceSha": nested_sha,
@@ -176,7 +176,7 @@ def main() -> int:
         '''[package]
 org = "opto-sync"
 name = "opto-sync-client-dart"
-version = "1.1.0"
+version = "1.2.0"
 description = "Clean-room Dart and Flutter sync client with bundled native and WASM cores"
 license = "MIT"
 

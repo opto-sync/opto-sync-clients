@@ -6,7 +6,7 @@ The whole-repository `opto-sync/opto-sync-clients` package remains the authorita
 
 `scripts/stage-typescript-target.py` creates a clean source tree outside the Git checkout containing only:
 
-- `clients/ts` (`@opto-sync/client` 0.3.0);
+- `clients/ts` (`@opto-sync/client` 0.4.0);
 - `syncer.c/core` source and headers;
 - `syncer.c/bindings/typescript` (`@opto-sync/syncer` 0.2.1);
 - `syncer.c/bindings/wasm` (`@opto-sync/syncer-wasm` 0.2.1);
