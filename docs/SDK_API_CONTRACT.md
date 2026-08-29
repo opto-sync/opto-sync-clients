@@ -46,6 +46,12 @@ durability, transaction ordering, or fail-open behavior.
 
 ## Interfaces and logging
 
+The API surface records `opto-sync/opto-sync-interfaces@^0.1.0` as its protocol
+schema source. That source repository currently has no immutable public tag or
+release and disables publication, so the coordinate is deliberately absent
+from `.zpkg.toml` install dependencies. A clean registry roundtrip must not be
+made to depend on a privately seeded substitute.
+
 The manifest records the intended Zed coordinates
 `ores-otel/ores-interfaces@^0.1.0` and
 `oresoftware/next-loggers@^0.1.0`. Both integrations are application-injected:

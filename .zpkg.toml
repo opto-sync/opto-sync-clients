@@ -1,10 +1,10 @@
 [package]
 org = "opto-sync"
 name = "opto-sync-clients"
-# The lifecycle state-machine API and explicit cancelled desktop outcome are an
-# additive but switch-exhaustiveness-sensitive SDK change. Keep this minor bump
-# distinct from earlier immutable release evidence; publishing requires fresh
-# approval and a reviewed tag.
+# The lifecycle and protocol-scheduler state-machine APIs are additive but
+# switch-exhaustiveness-sensitive SDK changes. Keep this minor bump distinct
+# from earlier immutable release evidence; publishing requires fresh approval
+# and a reviewed tag.
 version = "0.4.0"
 description = "Pinned polyglot local-first sync clients for TypeScript, Dart, Rust, Gleam, PHP, C#, and F#"
 license = "MIT"
@@ -15,9 +15,11 @@ vcs = "git"
 url = "https://github.com/opto-sync/opto-sync-clients"
 
 [dependencies]
-# Contract coordinate only: schema-parity (DEN-3593) needs an explicit
-# *-interfaces source. Packaging still must not seed a private registry lock.
-"opto-sync/opto-sync-interfaces" = "^0.1.0"
+# The API contract records opto-sync/opto-sync-interfaces@^0.1.0 as its schema
+# source, but that repository has no immutable public release and explicitly
+# disables publication. Keep it out of install resolution until a clean public
+# registry can satisfy the coordinate; a locally seeded registry is not release
+# evidence.
 
 # Cross-organization interfaces and structured logging remain injected at the
 # native SDK boundary. Their intended Zed coordinates are recorded by the SDK
@@ -66,81 +68,13 @@ exclude = [
 [scripts]
 test = "python3 scripts/check-package-layout.py"
 
-# Per-language capabilities remain declared in clients/sdk-matrix.toml. Keep
-# installable [targets.*] absent until DEN-311 proves every extracted target is
-# clean-room self-contained and cannot escape into sibling paths or a second
-# native-core revision.
+# Per-language capabilities remain canonical in clients/sdk-matrix.toml. They
+# are API/conformance targets, not independently publishable Zed slices: the
+# native manifests still reach the one root syncer.c gitlink. Publish only the
+# complete repository until each extracted target is self-contained.
 
 [install]
 dir = ".vendor/.zed"
 
 [targets.repository]
 dir = "."
-
-[targets.c]
-dir = "clients/c"
-adapter = "none"
-
-[targets.cpp]
-dir = "clients/cpp"
-adapter = "none"
-
-[targets.zig]
-dir = "clients/zig"
-adapter = "none"
-
-[targets.rust-wasm]
-dir = "clients/wasm"
-adapter = "node"
-
-[targets.gleam]
-dir = "clients/gleamlang"
-adapter = "none"
-
-[targets.erlang]
-dir = "clients/erlang"
-adapter = "none"
-
-[targets.elixir]
-dir = "clients/elixir"
-adapter = "none"
-
-[targets.dart]
-dir = "clients/dart"
-adapter = "none"
-
-[targets.rust]
-dir = "clients/rust"
-adapter = "none"
-
-[targets.java]
-dir = "clients/java"
-adapter = "java"
-
-[targets.golang]
-dir = "clients/golang"
-adapter = "none"
-
-[targets.python]
-dir = "clients/python3"
-adapter = "none"
-
-[targets.ruby]
-dir = "clients/ruby"
-adapter = "none"
-
-[targets.php]
-dir = "clients/php"
-adapter = "none"
-
-[targets.kotlin]
-dir = "clients/kotlin"
-adapter = "java"
-
-[targets.swift]
-dir = "clients/swift"
-adapter = "none"
-
-[targets.nodejs]
-dir = "clients/typescript/nodejs"
-adapter = "node"

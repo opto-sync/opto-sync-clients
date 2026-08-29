@@ -97,10 +97,16 @@ jobs:
 
           (cd package && "$zed" pack --out "$one")
           (cd package && "$zed" pack --out "$two")
-          test "$(find "$one" -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 1
-          test "$(find "$two" -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 1
-          sha256sum "$one/$archive" "$two/$archive"
-          cmp "$one/$archive" "$two/$archive"
+          mapfile -t one_archives < <(cd "$one" && printf '%s\n' *.tar.gz | LC_ALL=C sort)
+          mapfile -t two_archives < <(cd "$two" && printf '%s\n' *.tar.gz | LC_ALL=C sort)
+          test "${#one_archives[@]}" -gt 0
+          test "${one_archives[*]}" = "${two_archives[*]}"
+          test -f "$one/$archive"
+          echo "ZPKG_ARCHIVE_COUNT=${#one_archives[@]}" >> "$GITHUB_ENV"
+          for packed in "${one_archives[@]}"; do
+            sha256sum "$one/$packed" "$two/$packed"
+            cmp "$one/$packed" "$two/$packed"
+          done
 
       - name: Audit and execute the extracted source artifact
         shell: bash
@@ -171,7 +177,7 @@ jobs:
             --allow-dirty \
             --skip-vcs-checks | tee ../zed-dry-run.txt
           grep -F 'opto-sync/opto-sync-clients@0.4.0' ../zed-dry-run.txt
-          test "$(grep -c '^dry run: would publish opto-sync/' ../zed-dry-run.txt)" -eq 1
+          test "$(grep -c '^dry run: would publish opto-sync/' ../zed-dry-run.txt)" -eq "$ZPKG_ARCHIVE_COUNT"
 
       - name: Run a clean local registry/install roundtrip
         working-directory: package
@@ -184,6 +190,6 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: opto-sync-clients-zed-package
-          path: ${{ runner.temp }}/zpkg-one/${{ env.ZPKG_ARCHIVE }}
+          path: ${{ runner.temp }}/zpkg-one/*.tar.gz
           if-no-files-found: error
           retention-days: 7
