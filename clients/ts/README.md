@@ -91,6 +91,13 @@ then pulls the server echo. Concurrent calls are single-flight. Retention
 resets install a snapshot before advancing the checkpoint; browser online and
 visibility events wake the loop; transient failures use bounded exponential
 full-jitter backoff and honor a `SyncTransportError` retry-after floor.
+
+The scheduler assigns every start/offline/stop intent a monotonic generation.
+Cancelled timer handles and late transport or callback settlements from an
+older generation are observable stutters: they cannot replace the current
+phase, retry counter, or timer. `timerFactory` is an optional cancellable timer
+boundary for deterministic runtimes and formal replay; normal applications use
+the platform timer without configuration.
 Supabase Realtime or WebSocket events should call `loop.hint()` only—the
 checkpointed pull log remains the source of truth.
 

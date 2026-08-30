@@ -1,6 +1,6 @@
 {
   "name": "@opto-sync/client",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Offline-first sync client: Dexie mutation queue + CRDT reconciliation via the syncer.c merge engine (native addon in Node, WebAssembly in the browser)",
   "main": "dist/index.js",
   "module": "dist/esm/index.js",

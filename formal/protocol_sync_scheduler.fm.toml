@@ -1,0 +1,153 @@
+schema_version = 1
+project = "opto-sync-clients"
+model = "protocol-sync-scheduler-v1"
+language = "quint"
+spec = "formal/protocol_sync_scheduler.qnt"
+main = "protocol_sync_scheduler"
+init = "init"
+step = "step"
+invariants = ["scheduler_safety"]
+temporal_properties = [
+  "scheduled_work_eventually_runs",
+  "active_cycle_eventually_settles",
+  "retry_timer_eventually_fires",
+]
+witnesses = [
+  "stop_during_cycle_reached",
+  "trailing_wake_reached",
+  "offline_during_cycle_reached",
+  "online_recovery_reached",
+  "retryable_failure_reached",
+  "permanent_failure_reached",
+  "reset_reached",
+  "malformed_response_reached",
+  "paging_rerun_reached",
+  "stale_cycle_reached",
+  "stale_timer_reached",
+]
+
+[toolchain]
+quint = "0.32.0"
+java = ">=17"
+node = "22"
+rust = "1.88.0"
+npx = "npx"
+
+[execution]
+timeout_seconds = 1200
+max_output_bytes = 8388608
+artifacts_dir = ".formal-artifacts/scheduler"
+
+[simulation]
+backend = "rust"
+max_samples = 20000
+max_steps = 40
+
+[verification]
+backend = "tlc"
+exhaustive_finite_model = true
+
+[traces]
+format = "itf"
+model_based_testing_metadata = true
+backend = "rust"
+seed = "0x9e3779b97f4a7c15"
+count = 256
+max_steps = 40
+max_samples = 256
+required_actions = [
+  "init",
+  "idle",
+  "start",
+  "stop",
+  "hint",
+  "go_offline",
+  "go_online",
+  "timer_fire",
+  "timer_join",
+  "stale_timer_fire",
+  "page_more",
+  "begin_reset",
+  "finish_reset",
+  "cycle_success",
+  "cycle_success_more",
+  "cycle_retryable_failure",
+  "cycle_permanent_failure",
+  "malformed_response",
+  "stale_cycle_success",
+  "stale_cycle_failure",
+]
+
+[adapters.rust]
+strategy = "itf-json-driver"
+target = "clients/rust/examples/scheduler_itf_replay.rs"
+working_directory = "."
+command = [
+  "cargo",
+  "run",
+  "--quiet",
+  "--locked",
+  "--manifest-path",
+  "clients/rust/Cargo.toml",
+  "--example",
+  "scheduler_itf_replay",
+  "--",
+]
+implementation = "clients/rust production ProtocolSyncDriver scheduler projection"
+observable_state = [
+  "phase",
+  "online",
+  "timerPending",
+  "cyclePending",
+  "networkActive",
+  "wakePending",
+  "consecutiveFailures",
+  "resetPhase",
+  "pagesSeen",
+]
+status = "active"
+issue = "DEN-4177"
+
+[adapters.typescript]
+strategy = "itf-json-driver"
+target = "formal/typescript-scheduler-itf-replay.mjs"
+working_directory = "."
+command = [
+  "node",
+  "--experimental-strip-types",
+  "formal/typescript-scheduler-itf-replay.mjs",
+]
+implementation = "clients/ts production ProtocolSyncLoop with deterministic timer and transport seams"
+observable_state = [
+  "phase",
+  "online",
+  "timerPending",
+  "cyclePending",
+  "networkActive",
+  "wakePending",
+  "consecutiveFailures",
+  "resetPhase",
+  "pagesSeen",
+]
+status = "active"
+issue = "DEN-4177"
+
+[adapters.dart]
+strategy = "itf-json-driver"
+target = "clients/dart/tool/scheduler_itf_replay.dart"
+working_directory = "clients/dart"
+command = ["dart", "run", "tool/scheduler_itf_replay.dart"]
+implementation = "clients/dart production ProtocolSyncLoop with deterministic timer and transport seams"
+observable_state = [
+  "phase",
+  "online",
+  "timerPending",
+  "cyclePending",
+  "networkActive",
+  "wakePending",
+  "consecutiveFailures",
+  "resetPhase",
+  "pagesSeen",
+]
+status = "active"
+issue = "DEN-4177"

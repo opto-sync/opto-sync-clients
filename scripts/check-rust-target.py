@@ -133,7 +133,7 @@ def main() -> int:
     expected = {
         "org": "opto-sync",
         "name": "opto-sync-client-rust",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "license": "MIT",
     }
     for key, value in expected.items():
@@ -155,7 +155,7 @@ def main() -> int:
         "schemaVersion": 1,
         "target": "rust",
         "clientPackage": "opto-sync-client",
-        "clientVersion": "0.2.0",
+        "clientVersion": "0.3.0",
         "syncerPackage": "syncer-rs",
         "syncerVersion": "0.2.1",
         "coreResolution": "bundled-source",
@@ -186,7 +186,7 @@ def main() -> int:
     client_package = client_manifest.get("package", {})
     if (client_package.get("name"), client_package.get("version")) != (
         "opto-sync-client",
-        "0.2.0",
+        "0.3.0",
     ):
         fail("unexpected Rust client package identity")
     dependency = client_manifest.get("dependencies", {}).get("syncer-rs")
@@ -220,7 +220,7 @@ def main() -> int:
         for item in packages
         if isinstance(item, dict)
     }
-    for identity in (("opto-sync-client", "0.2.0"), ("syncer-rs", "0.2.1")):
+    for identity in (("opto-sync-client", "0.3.0"), ("syncer-rs", "0.2.1")):
         if identity not in identities:
             fail(f"Cargo.lock is missing package identity {identity}")
     lock_text = cargo_lock.read_text(encoding="utf-8")

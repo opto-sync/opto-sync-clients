@@ -130,6 +130,8 @@ export type {
   ProtocolSyncStatus,
   ProtocolSyncCycleResult,
   ProtocolSyncLoopOptions,
+  ProtocolSyncTimer,
+  ProtocolSyncTimerFactory,
   ResetRequired,
 } from './sync-loop.js';
 export { WebSocketTransport } from './transport/ws.js';

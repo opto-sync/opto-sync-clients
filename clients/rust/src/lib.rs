@@ -34,6 +34,7 @@ pub mod clock;
 pub mod consistency;
 pub mod observability;
 pub mod protocol;
+pub mod protocol_scheduler;
 pub mod protocol_sync;
 pub mod schema;
 #[cfg(feature = "sqlite")]

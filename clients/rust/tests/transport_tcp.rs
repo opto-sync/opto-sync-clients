@@ -18,6 +18,12 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+// A released ephemeral port can be rebound by another concurrent test,
+// especially on Windows, turning an intended dial failure into a request
+// timeout against an unrelated listener. A non-numeric port is rejected by
+// ToSocketAddrs before network I/O on every supported platform.
+const INVALID_TCP_ADDRESS: &str = "127.0.0.1:not-a-port";
+
 /// Accept `connections` clients in sequence; the handler owns each socket.
 fn spawn_tcp_server<F>(connections: usize, handler: F) -> SocketAddr
 where
@@ -404,11 +410,7 @@ fn socket_close_fails_the_in_flight_request_as_retryable() {
 
 #[test]
 fn dial_failure_reports_backoff_via_retry_after() {
-    let dead = TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap();
-    let mut options = TcpTransportOptions::new(dead.to_string());
+    let mut options = TcpTransportOptions::new(INVALID_TCP_ADDRESS);
     options.random = Some(Arc::new(|| 1.0)); // deterministic full-jitter sample
     options.reconnect_base = Duration::from_millis(500);
     options.reconnect_max = Duration::from_secs(30);
@@ -429,14 +431,12 @@ fn dial_failure_reports_backoff_via_retry_after() {
 
 #[test]
 fn dial_failure_falls_back_to_the_http_transport() {
-    let dead = TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap();
     let fallback = FakeHttpTransport::default();
     let calls = fallback.calls.clone();
-    let mut transport =
-        TcpProtocolTransport::with_fallback(TcpTransportOptions::new(dead.to_string()), fallback);
+    let mut transport = TcpProtocolTransport::with_fallback(
+        TcpTransportOptions::new(INVALID_TCP_ADDRESS),
+        fallback,
+    );
 
     let request = sample_push_request();
     let response = transport.push(&request).expect("fallback must serve push");

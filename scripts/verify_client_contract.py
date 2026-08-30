@@ -197,8 +197,15 @@ def main() -> None:
         for item in interface_sources
         if isinstance(item, dict)
     }
-    if not interface_dependencies or declared_interfaces != interface_dependencies:
-        fail("api-surface interface sources must exactly match .zpkg.toml *-interfaces dependencies")
+    pending_protocol_source = {"opto-sync/opto-sync-interfaces": "^0.1.0"}
+    if interface_dependencies:
+        if declared_interfaces != interface_dependencies:
+            fail("installable *-interfaces dependencies differ from API-surface sources")
+    elif declared_interfaces != pending_protocol_source:
+        fail(
+            "the unpublished protocol schema source must remain explicit while "
+            "Zed install dependencies stay empty"
+        )
     if any(
         item.get("schemaDialect") != "https://json-schema.org/draft/2020-12/schema"
         for item in interface_sources

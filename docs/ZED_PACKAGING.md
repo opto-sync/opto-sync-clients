@@ -16,12 +16,12 @@ Every current native manifest reaches a sibling checkout named `syncer.c`:
 | Rust | `../../../syncer.c/bindings/rust` |
 | Gleam | `../../../syncer.c/bindings/gleam` |
 
-A root Zed target contains only its declared target directory. Adding
-`[targets.nodejs] dir = "clients/ts"` without relocating the dependency would
-therefore produce a package whose own `package.json` points outside the
-artifact. The same is true for Dart, Rust, and Gleam. Passing `zed pack` is not
-enough; a clean consumer must be able to resolve and build the native package
-after installation.
+Copying one target directory by itself would produce a package whose native
+manifest points outside that copy. The same is true for Dart, Rust, and Gleam.
+The root manifest therefore exposes only `[targets.repository]`: the 30
+runtime entries in `clients/contract-manifest.json` are API/conformance targets,
+not independently publishable archives. Passing `zed pack` is not enough; a
+clean local registry and install must retain the one bundled core.
 
 The staging scripts solve the artifact boundary without pretending the registry
 contract is ready. Each one assembles only the selected client, the required
@@ -32,12 +32,12 @@ and manifest/lock digests and keeps `publicationEnabled` false. See
 Flutter, and BEAM acceptance matrices.
 
 `scripts/check-zed-packaging.py` is the root-manifest CI ratchet for this
-boundary. It verifies the whole-repository source package and rejects root
-language targets or a redundant Zed dependency on the native core while
-required paths still resolve through the bundled, pinned gitlink. The SDK API
-contract records intended external
-shared-interface and injected-logging coordinates, but the package checker
-rejects them while their public releases remain pending. This prevents a
+boundary. It verifies the whole-repository source package, requires the exact
+repository-only target boundary, records
+`opto-sync/opto-sync-interfaces@^0.1.0` only as a schema source until that
+publication-disabled repository has an immutable public release, and rejects a
+redundant Zed dependency on the native core. Observability interfaces remain
+application-injected while their public releases are pending. This prevents a
 well-intentioned manifest-only change from publishing unusable slices,
 resolving two different core revisions, or treating a synthetic registry as
 release provenance.

@@ -141,7 +141,7 @@ def main() -> int:
     expected = {
         "org": "opto-sync",
         "name": "opto-sync-client-dart",
-        "version": "1.1.0",
+        "version": "1.2.0",
         "license": "MIT",
     }
     for key, value in expected.items():
@@ -160,7 +160,7 @@ def main() -> int:
         "schemaVersion": 1,
         "target": "dart",
         "package": "opto-sync/opto-sync-client-dart",
-        "clientVersion": "1.1.0",
+        "clientVersion": "1.2.0",
         "syncerVersion": "0.2.1",
         "coreResolution": "bundled-source",
         "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.4.0",
@@ -196,7 +196,7 @@ def main() -> int:
             fail(f"release-set {key} is stale")
 
     client = load_pubspec(ROOT / "clients/dart/pubspec.yaml")
-    if (client.get("name"), client.get("version")) != ("opto_sync_client", "1.1.0"):
+    if (client.get("name"), client.get("version")) != ("opto_sync_client", "1.2.0"):
         fail("unexpected Dart client package identity")
     syncer_path = client.get("syncer.path")
     if syncer_path != "../../syncer.c/bindings/dart":
