@@ -1,6 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- WorkManager drains need network; constraints gate execution and these
-         permissions expose transport plus connectivity-state observation. -->
+    <!-- WorkManager drains need network; the constraint in the work request
+         is the gate, this permission is the capability. -->
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 </manifest>
