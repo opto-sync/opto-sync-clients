@@ -1,0 +1,26 @@
+[package]
+org = "opto-sync"
+name = "opto-sync-validation-consumer"
+version = "0.1.0"
+description = "Client adapters for opto-sync-lib-core public validation SDKs"
+license = "MIT"
+
+[dependencies]
+"opto-sync/opto-sync-lib-core" = "^0.1.0"
+"opto-sync/opto-sync-interfaces" = "^0.1.0"
+
+[targets.typescript]
+dir = "typescript"
+adapter = "node"
+
+[targets.rust]
+dir = "rust"
+adapter = "rust"
+
+[targets.golang]
+dir = "golang"
+adapter = "none"
+
+[targets.gleam]
+dir = "gleam"
+adapter = "none"
