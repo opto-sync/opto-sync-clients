@@ -75,9 +75,9 @@ class EnvelopeValidationProvider {
 
   List<String> validate(Object? value) {
     try {
-      return _validate(
-        value,
-      ).map((message) => 'provider[$name]: $message').toList(growable: false);
+      return _validate(value)
+          .map((message) => 'provider[$name]: $message')
+          .toList(growable: false);
     } catch (error) {
       return ['provider[$name]: provider threw: $error'];
     }
@@ -196,9 +196,7 @@ IngestEnvelope parseEnvelope(
       }
 
       for (final key in raw.keys) {
-        if (!allowed.contains(key)) {
-          recordIssues.add('$path.$key: unknown property');
-        }
+        if (!allowed.contains(key)) recordIssues.add('$path.$key: unknown property');
       }
 
       final table = raw['table'];
@@ -210,9 +208,7 @@ IngestEnvelope parseEnvelope(
       if (recordId is! String ||
           _codePointLength(recordId) < 1 ||
           _codePointLength(recordId) > 512) {
-        recordIssues.add(
-          '$path.recordId: must be a string of 1..512 characters',
-        );
+        recordIssues.add('$path.recordId: must be a string of 1..512 characters');
       }
 
       Object? operation = 'upsert';
@@ -243,9 +239,7 @@ IngestEnvelope parseEnvelope(
       } else {
         if (!payload.containsKey('updatedAt') ||
             !_isTimestamp(payload['updatedAt'])) {
-          recordIssues.add(
-            '$path.payload.updatedAt: invalid or missing timestamp',
-          );
+          recordIssues.add('$path.payload.updatedAt: invalid or missing timestamp');
         }
         for (final key in const ['createdAt', 'syncedAt']) {
           if (payload.containsKey(key) && !_isTimestamp(payload[key])) {
