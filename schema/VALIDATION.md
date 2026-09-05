@@ -23,6 +23,14 @@
 
 Additional providers are veto gates: the canonical validator still runs and remains responsible for returning the normalized `IngestEnvelope`. This prevents a third-party library's coercion or defaulting behavior from silently changing sync semantics.
 
+## SDK API cross-check
+
+`check-sdk-api-contract.mjs` validates more than the manifest's JSON Schema
+shape. It independently pins every normalized operation to its request/result
+`$defs` entry (or type contract), checks capability requirements, and rejects a
+manifest that swaps two wire schemas while its language bindings still compile.
+Run it with the rest of the schema corpus via `npm test`.
+
 ## Adding a provider
 
 1. Adapt the library to the runtime's `ValidationProvider` interface.

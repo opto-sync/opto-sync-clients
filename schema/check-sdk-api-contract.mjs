@@ -200,6 +200,54 @@ for (const operation of contract.operations) {
   }
 }
 
+// Keep the normalized operation surface independently checked from the
+// manifest's binding details.  A swapped request/result schema can still
+// compile and pass language binding checks, but it changes the wire contract.
+const expectedNormalizedSchemas = {
+  queueUpsert: { kind: 'call', request: 'QueueUpsertRequest', result: 'MutationId' },
+  queueDelete: { kind: 'call', request: 'QueueDeleteRequest', result: 'MutationId' },
+  pendingMutations: { kind: 'call', request: 'PendingMutationsRequest', result: 'PendingMutationsResult' },
+  buildPushRequest: { kind: 'call', request: 'BuildPushRequestRequest', result: 'PushRequest' },
+  acknowledgePush: { kind: 'call', request: 'AcknowledgePushRequest', result: 'Count' },
+  pullCheckpoint: { kind: 'call', request: 'EmptyRequest', result: 'CanonicalDecimal' },
+  installSnapshot: { kind: 'call', request: 'SnapshotInstallRequest', result: 'VoidResult', capabilities: ['authoritativeStore'] },
+  reconcileIncoming: { kind: 'call', request: 'ReconcileRequest', result: 'JsonObject' },
+  rebasePending: { kind: 'call', request: 'RebaseRequest', result: 'JsonObject' },
+  formatHlc: { kind: 'call', request: 'FormatHlcRequest', result: 'HlcString' },
+  parseHlc: { kind: 'call', request: 'ParseHlcRequest', result: 'ParsedHlcResult' },
+  compareHlc: { kind: 'call', request: 'CompareHlcRequest', result: 'OrderingSign' },
+  parseEnvelope: { kind: 'call', request: 'ParseEnvelopeRequest', result: 'EnvelopeResult' },
+  auditEnvelopeProvider: { kind: 'call', request: 'AuditEnvelopeProviderRequest', result: 'AuditEnvelopeProviderResult', capabilities: ['envelopeValidator'] },
+  protocolSyncCycle: { kind: 'call', request: 'ProtocolSyncCycleRequest', result: 'ProtocolSyncCycleResult', capabilities: ['protocolCallbacks', 'protocolPersistence'] },
+  webSocketTransport: { kind: 'type', contract: 'WebSocketTransportSurface' },
+  createProtocolSyncTelemetryRecord: { kind: 'call', request: 'TelemetryInput', result: 'TelemetryRecord' },
+  emitProtocolSyncTelemetry: { kind: 'call', request: 'EmitTelemetryRequest', result: 'VoidResult', capabilities: ['telemetrySink'] },
+};
+for (const [operationId, expected] of Object.entries(expectedNormalizedSchemas)) {
+  const operation = contract.operations.find((candidate) => candidate.id === operationId);
+  if (!operation) continue;
+  const normalized = operation.normalized;
+  if (normalized.kind !== expected.kind) {
+    failures.push(`${operationId}: normalized kind drifted to ${normalized.kind}`);
+    continue;
+  }
+  const expectedRef = (definition) => `${valuesSchema.$id}#/$defs/${definition}`;
+  if (expected.request && normalized.requestSchemaRef !== expectedRef(expected.request)) {
+    failures.push(`${operationId}: request schema reference drifted`);
+  }
+  if (expected.result && normalized.resultSchemaRef !== expectedRef(expected.result)) {
+    failures.push(`${operationId}: result schema reference drifted`);
+  }
+  if (expected.contract && normalized.contractSchemaRef !== expectedRef(expected.contract)) {
+    failures.push(`${operationId}: contract schema reference drifted`);
+  }
+  const actualCapabilities = [...(normalized.capabilities ?? [])].sort();
+  const expectedCapabilities = [...(expected.capabilities ?? [])].sort();
+  if (JSON.stringify(actualCapabilities) !== JSON.stringify(expectedCapabilities)) {
+    failures.push(`${operationId}: capability requirements drifted`);
+  }
+}
+
 const normalizedCases = [
   [
     'formatHlc request',
