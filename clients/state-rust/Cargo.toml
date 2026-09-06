@@ -1,0 +1,19 @@
+[package]
+name = "opto-sync-state"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+description = "Synchronous reducers, selectors and scoped effects for opto-sync native and WASM clients"
+license = "MIT"
+
+[features]
+default = []
+leptos = ["dep:leptos"]
+dioxus = ["dep:dioxus"]
+
+[dependencies]
+leptos = { version = "=0.8.20", default-features = false, optional = true }
+dioxus = { version = "=0.7.9", default-features = false, features = ["hooks", "signals"], optional = true }
+
+[dev-dependencies]
+serde_json = "1"

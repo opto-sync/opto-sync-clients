@@ -1,0 +1,15 @@
+name: opto_sync_state_flutter
+version: 0.1.0
+publish_to: none
+description: Read-only ValueListenable selectors for opto-sync state stores.
+environment:
+  sdk: ^3.12.1
+  flutter: '>=3.44.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  opto_sync_reactive:
+    path: ../reactive-dart
+dev_dependencies:
+  flutter_test:
+    sdk: flutter

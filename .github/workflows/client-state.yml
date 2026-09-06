@@ -1,0 +1,84 @@
+name: Client state and off-main compute
+
+on:
+  pull_request:
+    paths:
+      - 'clients/reactive-ts/**'
+      - 'clients/reactive-dart/**'
+      - 'clients/state-rust/**'
+      - 'clients/state-flutter/**'
+      - 'conformance/state-store/**'
+      - 'examples/state-workspace/**'
+      - 'scripts/check-state-boundaries.py'
+      - '.github/workflows/client-state.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'clients/reactive-ts/**'
+      - 'clients/reactive-dart/**'
+      - 'clients/state-rust/**'
+      - 'clients/state-flutter/**'
+      - 'conformance/state-store/**'
+      - 'examples/state-workspace/**'
+      - 'scripts/check-state-boundaries.py'
+      - '.github/workflows/client-state.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  typescript:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.16.0'
+      - run: npm ci
+        working-directory: syncer.c/bindings/typescript
+      - run: npm ci && npm run build
+        working-directory: clients/ts
+      - run: npm ci && node ../ts/node_modules/typescript/bin/tsc -p tsconfig.json --noEmit && npm test
+        working-directory: clients/reactive-ts
+      - run: npx playwright install --with-deps chromium
+        working-directory: clients/ts
+      - run: npm run test:compute-browser
+        working-directory: clients/reactive-ts
+  flutter:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: '3.44.2'
+          channel: stable
+          cache: true
+      - run: dart pub get && dart analyze && dart run tool/state_store_test.dart && dart run tool/native_compute_test.dart
+        working-directory: clients/reactive-dart
+      - run: flutter pub get && flutter analyze && flutter test
+        working-directory: clients/state-flutter
+  rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0
+        with:
+          toolchain: '1.97.0'
+          targets: wasm32-unknown-unknown
+      - run: python3 scripts/check-state-boundaries.py
+      - run: cargo test --locked --manifest-path clients/state-rust/Cargo.toml --all-features
+      - run: cargo check --locked --manifest-path clients/state-rust/Cargo.toml --all-features --target wasm32-unknown-unknown
+      - run: cargo test --locked --manifest-path examples/state-workspace/Cargo.toml
+      - run: cargo check --locked --manifest-path examples/state-workspace/Cargo.toml -p app-client --all-features --target wasm32-unknown-unknown

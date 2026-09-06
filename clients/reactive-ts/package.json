@@ -1,12 +1,14 @@
 {
   "name": "@opto-sync/reactive",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "RxJS orchestration for opto-sync optimism policies, session-scoped source fusion, background sync, and live transport hints",
   "type": "module",
   "sideEffects": false,
   "exports": {
     ".": "./src/index.ts",
+    "./state": "./src/state-store.ts",
+    "./compute-worker": "./src/compute-worker.ts",
     "./desktop": "./src/desktop.ts",
     "./service-worker": "./src/service-worker.ts",
     "./sqlite-desktop": "./src/sqlite-desktop.ts",
@@ -22,6 +24,7 @@
     "prepublishOnly": "python3 ../../contract/bin/check_surface.py --prepublish --lang reactive-ts",
     "test": "node --experimental-strip-types --test test/*.test.ts",
     "test:browser": "node test/service-worker-browser.mjs",
+    "test:compute-browser": "node test/compute-worker-browser.mjs",
     "measure:pilot": "node tool/measure-pilot.mjs"
   },
   "keywords": [

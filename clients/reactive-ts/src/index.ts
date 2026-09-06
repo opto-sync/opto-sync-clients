@@ -8,3 +8,4 @@ export * from './reactive-record.ts';
 export * from './service-worker.ts';
 export * from './sync-lifecycle.ts';
 export * from './sqlite-desktop.ts';
+export * from './state-store.ts';

@@ -1,0 +1,12 @@
+[package]
+name = "app-server"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+app-shared = { path = "../app-shared" }
+axum = "0.8"
+maud = { version = "0.27", features = ["axum"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }

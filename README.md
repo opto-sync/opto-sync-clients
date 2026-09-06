@@ -35,6 +35,8 @@ opto-sync-clients/
     dotnet/         C# binding + idiomatic F# facade for SAFE Stack and managed apps
     reactive-ts/    package @opto-sync/reactive — RxJS, Service Worker, HTTP/WS/TCP/Supabase hints
     reactive-dart/  package opto_sync_reactive — RxDart + Flutter/iOS/Android background adapters
+    state-flutter/  read-only ValueListenable selectors for Flutter widgets
+    state-rust/     optional native/WASM state contract + Leptos/Dioxus selectors
 ```
 
 ## Optimistic writes
@@ -103,6 +105,7 @@ timestamps and ISO-8601 strings are unaffected. The cross-server suites in
 
 ## Documentation
 
+- [Client state and off-main execution](docs/CLIENT_STATE.md)—native Leptos/Dioxus signals, TS/Dart stores, Flutter selectors, Web Workers, and native isolates
 - [Getting started](docs/GETTING_STARTED.md)—install and a minimal example per client
 - [Browser](docs/BROWSER.md)—the WebAssembly engine, bundlers, and workers
 - [Background and reactive sync](docs/BACKGROUND_REACTIVE_SYNC.md)—RxJS/RxDart, optimism, Service Workers, mobile workers, sessions, and transports
@@ -155,7 +158,7 @@ python3 clients/reactive-dart/tool/check_native_background_adapters.py
 
 ## Zed package
 
-The repository root declares `opto-sync/opto-sync-clients@0.4.0` in
+The repository root declares `opto-sync/opto-sync-clients@0.4.1` in
 `.zpkg.toml`, with `.zpkg.lock` committed for frozen source workflows. The first
 release is intentionally one whole-repository package: a language-only target
 would omit the root native submodule required by that client. The package

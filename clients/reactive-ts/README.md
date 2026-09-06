@@ -6,6 +6,18 @@ combines complete local projections and remote events, declares write latency
 semantics explicitly, and wakes the same idempotent HTTP push/pull loop from
 foreground, cross-tab, WebSocket, Supabase, TCP, and Service Worker signals.
 
+## Client state and compute workers
+
+`@opto-sync/reactive/state` exports a UI-independent `StateStore`: synchronous
+reducers, distinct selectors, scoped async-result fences, and rebased local-view
+hydration. `@opto-sync/reactive/compute-worker` provides a bounded module-worker
+pool for pure CPU work. Both entry points work without React or a UI framework.
+Keep durable queue writes in the existing sync owner.
+
+See [the client state guide](../../docs/CLIENT_STATE.md) for queue integration,
+native Leptos/Dioxus signals, Flutter parity, worker ownership, and cancellation.
+`npm run test:compute-browser` verifies real Chromium module workers.
+
 ## Why RxJS 7.8, not `rxts` or a prerelease
 
 RxJS already ships first-class TypeScript types; there is no separate canonical

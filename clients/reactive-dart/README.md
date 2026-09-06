@@ -14,6 +14,20 @@ host adapters live under `native/` for:
 Host applications copy/adapt those files and provide the platform dependencies
 (`BackgroundTasks`, Flutter embedding, WorkManager, AndroidX futures).
 
+## Client state and native compute
+
+`package:opto_sync_reactive/state_store.dart` exposes synchronous reducers,
+distinct selectors, scoped async-result fences, and local-view hydration without
+Flutter or I/O imports. The sibling `opto_sync_state_flutter` package adapts
+selectors to read-only `ValueListenable`s.
+
+Native Android/iOS/desktop apps can import `native_compute.dart` for a bounded
+executor using up to two short-lived isolates by default. Keep that entry point
+out of Flutter web builds, and keep durable writes in the existing sync owner.
+Run `dart run tool/state_store_test.dart` and
+`dart run tool/native_compute_test.dart` for the portable contract and real
+isolate tests. See [the state/worker guide](../../docs/CLIENT_STATE.md).
+
 ## Authenticated lifecycle
 
 `AuthenticatedSessionLifecycle` connects a successful Flutter/Dart login to one

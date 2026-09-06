@@ -7,3 +7,4 @@ export 'src/optimism.dart';
 export 'src/reactive_record.dart';
 export 'src/session_lifecycle.dart';
 export 'src/sync_lifecycle.dart';
+export 'state_store.dart';

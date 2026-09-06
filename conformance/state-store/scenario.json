@@ -1,0 +1,26 @@
+{
+  "contract": "opto.state-store.v1",
+  "initial": {"count": 0, "status": "idle"},
+  "steps": [
+    {"op": "dispatch", "action": {"type": "add", "value": 2}, "count": 2, "status": "idle", "revision": 1, "selections": [0, 2]},
+    {"op": "dispatch", "action": {"type": "status", "value": "loading"}, "count": 2, "status": "loading", "revision": 2, "selections": [0, 2]},
+    {"op": "dispatch", "action": {"type": "add", "value": 0}, "count": 2, "status": "loading", "revision": 3, "selections": [0, 2]},
+    {"op": "begin", "id": "old", "key": "users", "revision": 3},
+    {"op": "begin", "id": "new", "key": "users", "revision": 3},
+    {"op": "effect", "id": "old", "action": {"type": "hydrate", "value": 99}, "accepted": false, "count": 2, "revision": 3},
+    {"op": "close", "id": "old", "revision": 3},
+    {"op": "effect", "id": "new", "action": {"type": "hydrate", "value": 5}, "accepted": true, "count": 5, "revision": 4, "selections": [0, 2, 5]},
+    {"op": "begin", "id": "profile", "key": "profile", "revision": 4},
+    {"op": "effect", "id": "new", "action": {"type": "add", "value": 1}, "accepted": true, "count": 6, "revision": 5},
+    {"op": "close", "id": "new", "revision": 5},
+    {"op": "effect", "id": "new", "action": {"type": "hydrate", "value": 90}, "accepted": false, "count": 6, "revision": 5},
+    {"op": "reset", "revision": 6, "count": 0, "status": "idle", "selections": [0, 2, 5, 6, 0]},
+    {"op": "effect", "id": "profile", "action": {"type": "hydrate", "value": 88}, "accepted": false, "count": 0, "revision": 6},
+    {"op": "begin", "id": "fresh", "key": "users", "revision": 6},
+    {"op": "unsubscribe", "revision": 6},
+    {"op": "effect", "id": "fresh", "action": {"type": "add", "value": 4}, "accepted": true, "count": 4, "revision": 7, "selections": [0, 2, 5, 6, 0]},
+    {"op": "dispose", "revision": 7},
+    {"op": "effect", "id": "fresh", "action": {"type": "hydrate", "value": 77}, "accepted": false, "count": 4, "revision": 7},
+    {"op": "dispose", "revision": 7}
+  ]
+}

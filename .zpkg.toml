@@ -5,7 +5,7 @@ name = "opto-sync-clients"
 # additive but switch-exhaustiveness-sensitive SDK change. Keep this minor bump
 # distinct from earlier immutable release evidence; publishing requires fresh
 # approval and a reviewed tag.
-version = "0.4.0"
+version = "0.4.1"
 description = "Pinned polyglot local-first sync clients for TypeScript, Dart, Rust, Gleam, PHP, C#, and F#"
 license = "MIT"
 keywords = ["sync", "local-first", "optimistic", "indexeddb", "sqlite", "polyglot"]

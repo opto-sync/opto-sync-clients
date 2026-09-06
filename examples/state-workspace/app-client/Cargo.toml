@@ -1,0 +1,15 @@
+[package]
+name = "app-client"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+default = []
+leptos-ui = ["dep:leptos"]
+dioxus-ui = ["dep:dioxus"]
+
+[dependencies]
+app-shared = { path = "../app-shared" }
+leptos = { version = "=0.8.20", default-features = false, features = ["csr"], optional = true }
+dioxus = { version = "=0.7.9", default-features = false, features = ["web", "hooks", "signals", "macro", "html"], optional = true }
