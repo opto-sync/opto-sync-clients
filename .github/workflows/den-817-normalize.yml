@@ -1,0 +1,55 @@
+name: DEN-817 normalize reactive clients
+
+on:
+  push:
+    branches:
+      - fix/den-817-supabase-reactive-auth-reconnect
+    paths:
+      - '.github/workflows/den-817-normalize.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  normalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install Dart
+        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+        with:
+          sdk: '3.13.3'
+
+      - name: Install contract generator dependencies
+        run: >-
+          python3 -m pip install --disable-pip-version-check
+          jsonschema==4.25.1 tomlkit==0.13.3
+
+      - name: Normalize Dart and canonical client evidence
+        run: |
+          set -euo pipefail
+          (cd clients/reactive-dart && dart pub get && dart format lib tool)
+          python3 scripts/harden_client_contract.py \
+            --root . \
+            --schema clients/client-api.schema.json \
+            --org opto-sync \
+            --repo opto-sync-clients \
+            --prefix opto-sync \
+            --write
+          tar -czf /tmp/den-817-normalized.tgz \
+            clients/reactive-dart/lib/src/live_hints.dart \
+            clients/reactive-dart/tool/supabase_auth_reconnect_self_test.dart \
+            clients/contract-manifest.json
+
+      - name: Upload normalized files
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: den-817-normalized
+          path: /tmp/den-817-normalized.tgz
+          if-no-files-found: error
+          retention-days: 1
