@@ -3,6 +3,7 @@ library;
 export 'src/background_sync.dart';
 export 'src/contracts.dart';
 export 'src/desktop_sync.dart';
+export 'src/live_hints.dart';
 export 'src/optimism.dart';
 export 'src/reactive_record.dart';
 export 'src/session_lifecycle.dart';
