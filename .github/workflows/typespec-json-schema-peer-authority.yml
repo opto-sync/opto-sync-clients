@@ -4,11 +4,13 @@ on:
   pull_request:
     paths:
       - "test/fixtures/schema-authority-canary/**"
+      - "contract-admission/**"
       - ".github/workflows/typespec-json-schema-peer-authority.yml"
   push:
     branches: [main, dev]
     paths:
       - "test/fixtures/schema-authority-canary/**"
+      - "contract-admission/**"
       - ".github/workflows/typespec-json-schema-peer-authority.yml"
   schedule:
     - cron: "37 5 * * 1"
@@ -31,7 +33,6 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-
       - name: Verify checked-out revision
         shell: bash
         env:
@@ -39,22 +40,37 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
-
+      - name: Test client envelope integrity and literal digest regressions
+        run: node --test contract-admission/*.test.mjs
       - name: Generate Schema B and compare both peer authorities
-        uses: ORESoftware/typespec-json-schema-validator@1048f31781606934b3716aad334e57e815c869dc
+        uses: ORESoftware/typespec-json-schema-validator@c745036456dd80408b83217118b8563edb8f6abd
         with:
           typespec: test/fixtures/schema-authority-canary/main.tsp
           schema: test/fixtures/schema-authority-canary/authored.schema.json
           report: .typespec-json-schema-validator/report.json
+          contract_ir: .typespec-json-schema-validator/contract-ir.json
           output_dir: .typespec-json-schema-validator/generated
           max_probes: "64"
-
-      - name: Retain receipt and generated comparison witness
+      # The local envelope guard is not a replacement for current-source verification.
+      # This canary does not certify unrelated generated client contracts.
+      - name: Verify current inputs, retained receipt, IR identity and complete scope
+        uses: ORESoftware/typespec-json-schema-validator/actions/verify-contract-ir@c745036456dd80408b83217118b8563edb8f6abd
+        with:
+          contract_ir: .typespec-json-schema-validator/contract-ir.json
+          report: .typespec-json-schema-validator/report.json
+          typespec: test/fixtures/schema-authority-canary/main.tsp
+          schema: test/fixtures/schema-authority-canary/authored.schema.json
+          generated_schema: .typespec-json-schema-validator/generated/typespec.generated.schema.json
+          expected_declarations: '["OreSchemaAuthority.AuthorityKind","OreSchemaAuthority.PeerAuthorityRegistration"]'
+      - name: Verify authored authorities were not modified
+        shell: bash
+        run: git diff --exit-code -- test/fixtures/schema-authority-canary/
+      - name: Retain diagnostic receipt, IR and comparison witness
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: schema-peer-authority-${{ github.event.repository.name }}-${{ github.run_id }}
           path: .typespec-json-schema-validator/
           include-hidden-files: true
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
