@@ -8,7 +8,7 @@ on:
       - '.github/workflows/den-817-normalize.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   normalize:
@@ -18,7 +18,7 @@ jobs:
       - name: Checkout branch
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          persist-credentials: false
+          persist-credentials: true
 
       - name: Install Dart
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
@@ -30,7 +30,7 @@ jobs:
           python3 -m pip install --disable-pip-version-check
           jsonschema==4.25.1 tomlkit==0.13.3
 
-      - name: Normalize Dart and canonical client evidence
+      - name: Normalize and commit exact generated outputs
         run: |
           set -euo pipefail
           (cd clients/reactive-dart && dart pub get && dart format lib tool)
@@ -41,15 +41,15 @@ jobs:
             --repo opto-sync-clients \
             --prefix opto-sync \
             --write
-          tar -czf /tmp/den-817-normalized.tgz \
+          git add -- \
             clients/reactive-dart/lib/src/live_hints.dart \
             clients/reactive-dart/tool/supabase_auth_reconnect_self_test.dart \
             clients/contract-manifest.json
-
-      - name: Upload normalized files
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: den-817-normalized
-          path: /tmp/den-817-normalized.tgz
-          if-no-files-found: error
-          retention-days: 1
+          if git diff --cached --quiet; then
+            echo 'No normalization changes remain.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'normalize-supabase-reactive-contracts'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
