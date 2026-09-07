@@ -31,6 +31,8 @@ export interface FormMutationQueue {
   ): Promise<number>;
   pendingMutations?(tableName?: string): Promise<FormLocalMutation[]>;
   markMutation?(id: number, syncStatus: number): Promise<void>;
+  /** Permanently remove a form intent after canonical server persistence. */
+  deleteMutation?(id: number): Promise<void>;
 }
 
 export const FORM_SYNC_STATUS = Object.freeze({

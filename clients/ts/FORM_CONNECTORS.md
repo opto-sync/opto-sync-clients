@@ -13,11 +13,16 @@ its configured Supabase mirror. Turnstile, CSRF, access, refresh, password, and
 other token-like values are recursively removed before IndexedDB persistence.
 File bytes are never queued; file metadata is opt-in.
 
+Residency, identity, medical/accommodation, or other sensitive form payloads
+should be removed from browser storage after the API returns its canonical
+receipt. `BrowserFormQueue.deleteMutation(id)` provides that explicit retention
+boundary. Keep only retryable/ambiguous submissions pending; delete successful
+and terminally rejected copies.
+
 ## Static page / no framework
 
 ```js
 import {
-  FORM_SYNC_STATUS,
   createBrowserFormQueue,
   queueFormPayload,
 } from '@opto-sync/client/forms/standalone';
@@ -42,7 +47,7 @@ const response = await fetch('/v1/pre-interests', {
 });
 
 if (response.ok) {
-  await queue.markMutation(queued.queueId, FORM_SYNC_STATUS.SYNCED);
+  await queue.deleteMutation(queued.queueId);
 }
 ```
 

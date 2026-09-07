@@ -168,6 +168,23 @@ export class BrowserFormQueue {
             throw error;
         }
     }
+    /** Delete sensitive form payloads after the server returns a canonical receipt. */
+    async deleteMutation(id) {
+        if (!Number.isSafeInteger(id) || id < 1)
+            throw new RangeError('invalid mutation id');
+        const database = await this.open();
+        const transaction = database.transaction(DEFAULT_FORM_STORE, 'readwrite');
+        const done = transactionDone(transaction);
+        try {
+            await requestResult(transaction.objectStore(DEFAULT_FORM_STORE).delete(id));
+            await done;
+        }
+        catch (error) {
+            abort(transaction);
+            await done.catch(() => undefined);
+            throw error;
+        }
+    }
     async close() {
         if (!this.database)
             return;
