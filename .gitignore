@@ -72,3 +72,8 @@ env/enc/*
 *.age-key
 keys.txt
 sops-private*.txt
+
+# Canonical scratch directories and disposable contract evidence.
+tmp/
+temp/
+.typespec-json-schema-validator/
