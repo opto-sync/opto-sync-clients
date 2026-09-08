@@ -122,9 +122,15 @@ def main() -> int:
 
     # The staged artifact owns its smoke path, so its public npm commands must
     # remain runnable after extraction rather than pointing at repository-only
-    # test paths.
+    # test paths. The source package is the release-version authority for every
+    # derived target artifact; no target may carry a separately hardcoded copy.
     package_path = output / "clients/ts/package.json"
     package = json.loads(package_path.read_text(encoding="utf-8"))
+    if not isinstance(package, dict) or package.get("name") != "@opto-sync/client":
+        fail("clients/ts/package.json has an unexpected package identity")
+    client_version = package.get("version")
+    if not isinstance(client_version, str) or not client_version:
+        fail("clients/ts/package.json must declare a package version")
     scripts = package.setdefault("scripts", {})
     scripts["test"] = "npm run build && npm run test:node && npm run test:browser"
     scripts["test:node"] = (
@@ -167,13 +173,13 @@ def main() -> int:
         "releaseSetId": "opto-sync-typescript-target-candidate",
         "target": "typescript",
         "package": "opto-sync/opto-sync-client-typescript",
-        "clientVersion": "0.4.0",
+        "clientVersion": client_version,
         "syncerVersion": "0.2.1",
         "clientSourceSha": client_sha,
         "syncerSourceSha": nested_sha,
         "coreResolution": "bundled-source",
         "publicationEnabled": False,
-        "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.4.0",
+        "wholeRepositoryPackage": f"opto-sync/opto-sync-clients@{client_version}",
         "coexistenceRule": "all installed opto-sync targets must resolve the same syncerSourceSha",
     }
     write(
@@ -183,10 +189,10 @@ def main() -> int:
 
     write(
         output / ".zpkg.toml",
-        '''[package]
+        f'''[package]
 org = "opto-sync"
 name = "opto-sync-client-typescript"
-version = "0.4.0"
+version = "{client_version}"
 description = "Self-contained TypeScript opto-sync client prototype with one pinned native/WASM core"
 license = "MIT"
 keywords = ["sync", "offline-first", "typescript", "indexeddb", "wasm"]
@@ -197,7 +203,7 @@ url = "https://github.com/opto-sync/opto-sync-clients"
 
 [publish]
 include_readme = true
-tag_format = "typescript-v{version}"
+tag_format = "typescript-v{{version}}"
 smoke_test = 'python3 "$ZED_PKG_TEST_TARGET/scripts/check-typescript-target.py" "$ZED_PKG_TEST_TARGET"'
 exclude = [
   ".zed/**",
@@ -220,7 +226,7 @@ test = "python3 scripts/check-typescript-target.py ."
 
 This clean-room source target contains only:
 
-- `clients/ts` (`@opto-sync/client` 0.4.0);
+- `clients/ts` (`@opto-sync/client` {client_version});
 - `clients/ts/smoke` (credential-free extracted-artifact consumers);
 - `syncer.c/core`;
 - `syncer.c/bindings/typescript` (`@opto-sync/syncer` 0.2.1); and
@@ -256,7 +262,7 @@ browser/WASM tests before it can be wired into the coordinated release set.
     )
     print(
         f"staged TypeScript target at {output}: "
-        f"client={client_sha[:12]} core={nested_sha[:12]}"
+        f"client={client_sha[:12]} core={nested_sha[:12]} version={client_version}"
     )
     return 0
 
