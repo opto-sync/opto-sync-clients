@@ -140,6 +140,21 @@ def main() -> int:
     scripts.pop("test:service-worker-browser", None)
     write(package_path, json.dumps(package, indent=2) + "\n")
 
+    # npm's dependency graph is unchanged by a package-only minor bump, but its
+    # root identity must still describe the staged package exactly. Normalize
+    # only those two identity records; all resolved dependency evidence remains
+    # byte-for-byte copied from the reviewed source lock.
+    package_lock_path = output / "clients/ts/package-lock.json"
+    package_lock = json.loads(package_lock_path.read_text(encoding="utf-8"))
+    if not isinstance(package_lock, dict):
+        fail("clients/ts/package-lock.json must contain an object")
+    package_lock["name"] = package["name"]
+    package_lock["version"] = client_version
+    locked_root = package_lock.setdefault("packages", {}).setdefault("", {})
+    locked_root["name"] = package["name"]
+    locked_root["version"] = client_version
+    write(package_lock_path, json.dumps(package_lock, indent=2) + "\n")
+
     copy_tree(ROOT / "syncer.c/core/include", output / "syncer.c/core/include")
     copy_tree(ROOT / "syncer.c/core/src", output / "syncer.c/core/src")
     copy_tree(
