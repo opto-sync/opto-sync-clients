@@ -67,6 +67,7 @@ test('concurrent protocol requests share exactly one dial generation', async () 
   await waitUntil(() => sockets[0].sent.length === 2);
 
   assert.equal(sockets.length, 1);
+  assert.notEqual(sockets[0].sent[0].requestId, sockets[0].sent[1].requestId);
   for (const request of sockets[0].sent) {
     sockets[0].reply({
       v: 1,
