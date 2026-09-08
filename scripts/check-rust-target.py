@@ -159,7 +159,7 @@ def main() -> int:
         "syncerPackage": "syncer-rs",
         "syncerVersion": "0.2.1",
         "coreResolution": "bundled-source",
-        "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.4.0",
+        "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.5.0",
         "coexistenceRule": (
             "all installed opto-sync targets must resolve the same syncerSourceSha"
         ),

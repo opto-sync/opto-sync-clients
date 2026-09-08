@@ -154,7 +154,7 @@ def main() -> int:
         "bindingPubspecSha256": sha256(binding_pubspec),
         "bindingPubLockSha256": sha256(binding_lock),
         "coreResolution": "bundled-source",
-        "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.4.0",
+        "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.5.0",
         "coexistenceRule": (
             "all installed opto-sync targets must resolve the same syncerSourceSha"
         ),
