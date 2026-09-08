@@ -472,10 +472,6 @@ export class WebSocketTransport implements ProtocolTransport {
         this.closeSocket(socket, 1001, 'dial timeout');
         reject(this.dialFailure('websocket dial timed out', 'WS_DIAL_TIMEOUT'));
       }, this.timeoutMs());
-      (
-        timeout as ReturnType<typeof setTimeout> & { unref?: () => void }
-      ).unref?.();
-
       const clearDialTimeout = () => clearTimeoutFn(timeout);
       const onOpen = () => {
         if (dialSettled) return;
@@ -499,8 +495,8 @@ export class WebSocketTransport implements ProtocolTransport {
       };
       const onClose = () => {
         const generationCurrent = generation === this.socketGeneration;
-        const active = this.isActiveSocket(socket, generation);
-        if (active) {
+        const owning = this.isOwningSocket(socket, generation);
+        if (owning) {
           this.socket = undefined;
           this.failPending(
             new SyncTransportError(
@@ -600,14 +596,17 @@ export class WebSocketTransport implements ProtocolTransport {
     );
   }
 
-  private isActiveSocket(socket: WebSocketLike, generation: number): boolean {
+  private isOwningSocket(socket: WebSocketLike, generation: number): boolean {
     return (
       !this.disposed &&
       generation === this.socketGeneration &&
       this.socket?.generation === generation &&
-      this.socket.socket === socket &&
-      socket.readyState === OPEN
+      this.socket.socket === socket
     );
+  }
+
+  private isActiveSocket(socket: WebSocketLike, generation: number): boolean {
+    return this.isOwningSocket(socket, generation) && socket.readyState === OPEN;
   }
 
   private failConnection(
