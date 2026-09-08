@@ -101,7 +101,7 @@
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/dart",
       "implementationFileCount": 31,
-      "implementationSha256": "94b386dc3533b49681b71737b65b468e39a6c0927a90d8c1fa440d071eacf044",
+      "implementationSha256": "28dc0cb29392f97dd6398020987c60a0c6970c5e0343b44c9a580a6241d089f2",
       "runtime": "dart",
       "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
       "schemaVersion": 1,
