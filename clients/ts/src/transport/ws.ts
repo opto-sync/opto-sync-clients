@@ -165,7 +165,7 @@ interface ConnectingAttempt {
 
 const OPEN = 1;
 const CLOSED = 3;
-const MAX_INBOUND_FRAME_BYTES = 1024 * 1024;
+const MAX_INBOUND_FRAME_BYTES = 32 * 1024 * 1024;
 
 function textByteLength(value: string): number {
   return typeof TextEncoder === 'function'

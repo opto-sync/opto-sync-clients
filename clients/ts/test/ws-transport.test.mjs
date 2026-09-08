@@ -300,7 +300,7 @@ test('oversized and binary inbound frames close the owning generation', async ()
   const socket1 = await firstSocket();
   socket1.open();
   await tick();
-  socket1.emit('message', { data: 'x'.repeat(1024 * 1024 + 1) });
+  socket1.emit('message', { data: 'x'.repeat(32 * 1024 * 1024 + 1) });
   await assert.rejects(first, (error) => {
     assert.equal(error.code, 'WS_FRAME_TOO_LARGE');
     assert.equal(error.retryable, false);
