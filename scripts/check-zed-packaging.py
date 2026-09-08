@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import tomllib
@@ -15,6 +16,10 @@ SOURCE_ROOT = Path(__file__).resolve().parents[1]
 VALIDATING_SOURCE = len(sys.argv) == 1
 ROOT = SOURCE_ROOT if VALIDATING_SOURCE else Path(sys.argv[1]).resolve()
 MAX_CONTRACT_BYTES = 4 * 1024 * 1024
+SEMVER = re.compile(
+    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+    r"(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
+)
 EXPECTED_LIFECYCLE_PHASES = (
     "pre-install",
     "post-install",
@@ -213,12 +218,31 @@ def main() -> int:
     expected = {
         "org": "opto-sync",
         "name": "opto-sync-clients",
-        "version": "0.4.0",
         "license": "MIT",
     }
     for key, value in expected.items():
         if package.get(key) != value:
             fail(f"package.{key} must be {value!r}, got {package.get(key)!r}")
+
+    package_version = package.get("version")
+    if not isinstance(package_version, str) or not SEMVER.fullmatch(package_version):
+        fail(f"package.version must be valid SemVer, got {package_version!r}")
+
+    # The TypeScript package is currently the only independently extracted
+    # target and therefore provides a second, non-TOML check on the coordinated
+    # release version. Keep the whole-repository and target identity aligned
+    # without copying a release number into executable policy.
+    typescript_package = read_json(ROOT / "clients/ts/package.json")
+    if not isinstance(typescript_package, dict):
+        fail("clients/ts/package.json must contain an object")
+    if typescript_package.get("name") != "@opto-sync/client":
+        fail("clients/ts/package.json has an unexpected package name")
+    if typescript_package.get("version") != package_version:
+        fail(
+            "whole-repository and TypeScript package versions differ: "
+            f"root={package_version!r}, typescript={typescript_package.get('version')!r}"
+        )
+
     repository = package.get("repository", {})
     if repository.get("url") != "https://github.com/opto-sync/opto-sync-clients":
         fail("package.repository.url must be the canonical GitHub repository")
@@ -289,7 +313,7 @@ def main() -> int:
     kind = "source repository" if VALIDATING_SOURCE else "installed artifact"
     print(
         f"Zed package contract passed for {kind}: "
-        "one coordinated release contract, one pinned root native core"
+        f"version={package_version}, one coordinated release contract, one pinned root native core"
     )
     return 0
 
