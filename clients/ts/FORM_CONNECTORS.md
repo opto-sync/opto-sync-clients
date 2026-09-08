@@ -19,6 +19,19 @@ receipt. `BrowserFormQueue.deleteMutation(id)` provides that explicit retention
 boundary. Keep only retryable/ambiguous submissions pending; delete successful
 and terminally rejected copies.
 
+## Compatibility and release parity
+
+The typed and standalone connectors intentionally share the same sanitization
+semantics. Both use the baseline `FormData.forEach()` API rather than requiring
+`FormData.entries()`/`DOM.Iterable`, so projects with conservative DOM library
+targets compile without weakening their TypeScript configuration. CI fingerprints
+the complete `clients/ts` implementation tree and builds the checked-in
+standalone modules alongside the CommonJS and ESM outputs.
+
+The root `.zpkg.toml` and `clients/ts/package.json` form one coordinated release
+identity. Isolated TypeScript target metadata and one-core checks derive that
+version instead of carrying a second hardcoded release number.
+
 ## Static page / no framework
 
 ```js
