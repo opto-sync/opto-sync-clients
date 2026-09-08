@@ -1,6 +1,6 @@
 {
   "name": "@opto-sync/client",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Offline-first sync client: Dexie mutation queue + CRDT reconciliation via the syncer.c merge engine (native addon in Node, WebAssembly in the browser)",
   "main": "dist/index.js",
   "module": "dist/esm/index.js",
@@ -25,6 +25,19 @@
       "require": "./dist/browser.js",
       "default": "./dist/esm/browser.js"
     },
+    "./forms": {
+      "types": "./dist/forms/index.d.ts",
+      "browser": {
+        "types": "./dist/esm/forms/index.d.ts",
+        "import": "./dist/esm/forms/index.js",
+        "require": "./dist/forms/index.js",
+        "default": "./dist/esm/forms/index.js"
+      },
+      "import": "./dist/esm/forms/index.js",
+      "require": "./dist/forms/index.js",
+      "default": "./dist/esm/forms/index.js"
+    },
+    "./forms/standalone": "./browser/forms/index.js",
     "./reconcile": {
       "types": "./dist/reconcile.d.ts",
       "browser": {
@@ -45,6 +58,7 @@
     "./package.json": "./package.json"
   },
   "files": [
+    "browser/",
     "dist/",
     "src/",
     "README.md"
@@ -56,7 +70,7 @@
     "postinstall": "node scripts/bootstrap-native-binding.mjs",
     "build": "tsc && tsc -p tsconfig.esm.json && node scripts/postbuild.mjs",
     "test": "npm run build && node --test",
-    "test:node": "node --test test/queue.test.js test/reconcile.test.js",
+    "test:node": "node --test test/queue.test.js test/reconcile.test.js test/forms.test.mjs test/forms-privacy.test.mjs test/forms-htmx-lifecycle.test.mjs",
     "test:browser": "node --test test/browser-e2e.test.mjs",
     "test:service-worker-browser": "node --test test/core-service-worker-browser.test.mjs"
   },
@@ -65,6 +79,8 @@
     "crdt",
     "offline-first",
     "indexeddb",
+    "forms",
+    "htmx",
     "dexie",
     "wasm"
   ],

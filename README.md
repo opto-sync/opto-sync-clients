@@ -155,7 +155,7 @@ python3 clients/reactive-dart/tool/check_native_background_adapters.py
 
 ## Zed package
 
-The repository root declares `opto-sync/opto-sync-clients@0.4.0` in
+The repository root declares `opto-sync/opto-sync-clients@0.5.0` in
 `.zpkg.toml`, with `.zpkg.lock` committed for frozen source workflows. The first
 release is intentionally one whole-repository package: a language-only target
 would omit the root native submodule required by that client. The package
