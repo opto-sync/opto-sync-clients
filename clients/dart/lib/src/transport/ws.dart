@@ -330,9 +330,11 @@ class WebSocketProtocolTransport implements ProtocolTransport {
         code: 'WS_INVALID_URL',
       );
     }
-    if (parsed.userInfo.isNotEmpty || parsed.fragment.isNotEmpty) {
+    if (parsed.host.isEmpty ||
+        parsed.userInfo.isNotEmpty ||
+        parsed.fragment.isNotEmpty) {
       throw const SyncTransportException(
-        'websocket URL must not embed credentials or fragments',
+        'websocket URL must contain a host and no credentials or fragments',
         retryable: false,
         code: 'WS_INVALID_URL',
       );
@@ -367,28 +369,31 @@ class WebSocketProtocolTransport implements ProtocolTransport {
 
   bool _internalHostAllowed(String host) {
     final normalized = host.toLowerCase();
-    if (normalized.isEmpty ||
-        normalized == 'localhost' ||
+    if (normalized == 'localhost' ||
         normalized.endsWith('.localhost') ||
-        normalized == '::1' ||
-        normalized.startsWith('fc') ||
-        normalized.startsWith('fd') ||
-        RegExp(r'^fe[89ab]').hasMatch(normalized)) {
+        normalized.endsWith('.svc.cluster.local') ||
+        normalized.endsWith('.internal')) {
       return true;
     }
-    final octets = normalized.split('.').map(int.tryParse).toList();
-    if (octets.length == 4 && octets.every((value) => value != null)) {
-      final a = octets[0]!;
-      final b = octets[1]!;
+
+    final address = InternetAddress.tryParse(normalized);
+    if (address == null) return false;
+    final bytes = address.rawAddress;
+    if (address.type == InternetAddressType.IPv4 && bytes.length == 4) {
+      final a = bytes[0];
+      final b = bytes[1];
       return a == 127 ||
           a == 10 ||
           (a == 172 && b >= 16 && b <= 31) ||
           (a == 192 && b == 168) ||
           (a == 169 && b == 254);
     }
-    return !normalized.contains('.') ||
-        normalized.endsWith('.svc.cluster.local') ||
-        normalized.endsWith('.internal');
+    if (address.type == InternetAddressType.IPv6 && bytes.length == 16) {
+      return address.isLoopback ||
+          (bytes[0] & 0xfe) == 0xfc ||
+          (bytes[0] == 0xfe && (bytes[1] & 0xc0) == 0x80);
+    }
+    return false;
   }
 
   SyncTransportException _dialFailure(String message, String code) {
