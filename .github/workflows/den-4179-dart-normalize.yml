@@ -34,6 +34,16 @@ jobs:
       - name: Format, validate, regenerate, and commit
         run: |
           set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('clients/dart/test/ws_generation_hardening_test.dart')
+          source = path.read_text(encoding='utf-8')
+          old = 'Matcher transportError(String code, {bool? retryable}) {'
+          new = 'TypeMatcher<SyncTransportException> transportError(String code, {bool? retryable}) {'
+          if source.count(old) != 1:
+              raise SystemExit('expected one transportError return type')
+          path.write_text(source.replace(old, new), encoding='utf-8')
+          PY
           (cd clients/dart && dart pub get)
           dart format clients/dart/lib/src/transport/ws.dart \
             clients/dart/test/ws_generation_hardening_test.dart
