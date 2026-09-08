@@ -129,13 +129,13 @@ export function serializeFormData(
 ): Pick<FormEnvelope, 'fields' | 'files'> {
   const fields: Record<string, string | string[]> = {};
   const files: Record<string, FormFileDescriptor[]> = {};
-  for (const [name, value] of data.entries()) {
-    if (isTransientFormField(name, options.transientFieldNames)) continue;
+  data.forEach((value, name) => {
+    if (isTransientFormField(name, options.transientFieldNames)) return;
     if (typeof value === 'string') append(fields, name, value);
     else if (options.includeFileMetadata && fileLike(value) && value.size > 0) {
       (files[name] ??= []).push(fileDescriptor(value));
     }
-  }
+  });
   return { fields, ...(Object.keys(files).length ? { files } : {}) };
 }
 
