@@ -239,11 +239,17 @@ def main() -> None:
         implementation_file_count, implementation_digest = implementation_evidence(directory)
         if not target.startswith("extension-") and implementation_file_count == 0:
             fail(f"target {target} has no implementation source under {relative}")
+        expected_file_count = entry.get("implementationFileCount")
+        expected_digest = entry.get("implementationSha256")
         if (
-            entry.get("implementationFileCount") != implementation_file_count
-            or entry.get("implementationSha256") != implementation_digest
+            expected_file_count != implementation_file_count
+            or expected_digest != implementation_digest
         ):
-            fail(f"target {target} implementation source or export metadata drifted")
+            fail(
+                f"target {target} implementation source or export metadata drifted: "
+                f"expected count={expected_file_count!r} sha256={expected_digest!r}; "
+                f"actual count={implementation_file_count} sha256={implementation_digest}"
+            )
         declared_dirs.append(directory)
 
         marker = marker_root(directory, runtime)
