@@ -6,11 +6,7 @@ import 'package:opto_sync_client/transport_ws.dart';
 import 'package:test/test.dart';
 
 TypeMatcher<SyncTransportException> transportError(String code) =>
-    isA<SyncTransportException>().having(
-      (error) => error.code,
-      'code',
-      code,
-    );
+    isA<SyncTransportException>().having((error) => error.code, 'code', code);
 
 void main() {
   test(
