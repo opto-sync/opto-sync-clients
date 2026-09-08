@@ -116,15 +116,15 @@ function append(fields, name, value) {
 export function serializeFormData(data, options = {}) {
     const fields = {};
     const files = {};
-    for (const [name, value] of data.entries()) {
+    data.forEach((value, name) => {
         if (isTransientFormField(name, options.transientFieldNames))
-            continue;
+            return;
         if (typeof value === 'string')
             append(fields, name, value);
         else if (options.includeFileMetadata && fileLike(value) && value.size > 0) {
             (files[name] ??= []).push(fileDescriptor(value));
         }
-    }
+    });
     return { fields, ...(Object.keys(files).length ? { files } : {}) };
 }
 export function safeFormUrl(raw) {
