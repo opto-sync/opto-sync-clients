@@ -38,7 +38,10 @@ final class _Server {
   }
 }
 
-Matcher transportError(String code, {bool? retryable}) {
+TypeMatcher<SyncTransportException> transportError(
+  String code, {
+  bool? retryable,
+}) {
   var matcher = isA<SyncTransportException>().having(
     (error) => error.code,
     'code',
@@ -63,28 +66,37 @@ void main() {
 
   tearDown(() => server.close());
 
-  test('dispose cancels an unresolved dial and fences its late socket', () async {
-    final dial = Completer<WebSocket>();
-    final transport = WebSocketProtocolTransport(
-      url: server.url,
-      connect: (_) => dial.future,
-      requestTimeout: const Duration(seconds: 1),
-    );
+  test(
+    'dispose cancels an unresolved dial and fences its late socket',
+    () async {
+      final dial = Completer<WebSocket>();
+      final transport = WebSocketProtocolTransport(
+        url: server.url,
+        connect: (_) => dial.future,
+        requestTimeout: const Duration(seconds: 1),
+      );
 
-    final pending = transport.pull('0', 10, ProtocolCancellationToken());
-    await Future<void>.delayed(Duration.zero);
-    await transport.dispose();
-    await expectLater(pending, throwsA(transportError('WS_DISPOSED', retryable: false)));
+      final pending = transport.pull('0', 10, ProtocolCancellationToken());
+      final rejection = expectLater(
+        pending,
+        throwsA(transportError('WS_DISPOSED', retryable: false)),
+      );
+      await Future<void>.delayed(Duration.zero);
+      await transport.dispose();
+      await rejection;
 
-    final lateSocket = await WebSocket.connect(server.url);
-    dial.complete(lateSocket);
-    for (var attempt = 0;
+      final lateSocket = await WebSocket.connect(server.url);
+      dial.complete(lateSocket);
+      for (
+        var attempt = 0;
         attempt < 50 && lateSocket.readyState == WebSocket.open;
-        attempt += 1) {
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-    }
-    expect(lateSocket.readyState, isNot(WebSocket.open));
-  });
+        attempt += 1
+      ) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(lateSocket.readyState, isNot(WebSocket.open));
+    },
+  );
 
   test('dial timeout is bounded and invalidates the late generation', () async {
     final dial = Completer<WebSocket>();
@@ -100,9 +112,11 @@ void main() {
     );
     final lateSocket = await WebSocket.connect(server.url);
     dial.complete(lateSocket);
-    for (var attempt = 0;
-        attempt < 50 && lateSocket.readyState == WebSocket.open;
-        attempt += 1) {
+    for (
+      var attempt = 0;
+      attempt < 50 && lateSocket.readyState == WebSocket.open;
+      attempt += 1
+    ) {
       await Future<void>.delayed(const Duration(milliseconds: 10));
     }
     expect(lateSocket.readyState, isNot(WebSocket.open));
@@ -196,16 +210,19 @@ void main() {
     await transport.dispose();
   });
 
-  test('binary responses fail the owning generation as non-retryable', () async {
-    server.onFrame = (socket, _) {
-      socket.add(<int>[1, 2, 3]);
-    };
-    final transport = WebSocketProtocolTransport(url: server.url);
+  test(
+    'binary responses fail the owning generation as non-retryable',
+    () async {
+      server.onFrame = (socket, _) {
+        socket.add(<int>[1, 2, 3]);
+      };
+      final transport = WebSocketProtocolTransport(url: server.url);
 
-    await expectLater(
-      transport.pull('0', 10, ProtocolCancellationToken()),
-      throwsA(transportError('WS_BINARY_FRAME', retryable: false)),
-    );
-    await transport.dispose();
-  });
+      await expectLater(
+        transport.pull('0', 10, ProtocolCancellationToken()),
+        throwsA(transportError('WS_BINARY_FRAME', retryable: false)),
+      );
+      await transport.dispose();
+    },
+  );
 }

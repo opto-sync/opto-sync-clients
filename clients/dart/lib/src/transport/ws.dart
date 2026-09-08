@@ -32,11 +32,7 @@ const _resultTypeByRequest = <String, String>{
   'pull': 'pull-result',
   'snapshot': 'snapshot-result',
 };
-const _resultTypes = <String>{
-  'push-result',
-  'pull-result',
-  'snapshot-result',
-};
+const _resultTypes = <String>{'push-result', 'pull-result', 'snapshot-result'};
 const _credentialQueryKeys = <String>{
   'access_token',
   'apikey',
@@ -403,11 +399,7 @@ class WebSocketProtocolTransport implements ProtocolTransport {
       maximum: reconnectMax,
       random: _random.nextDouble,
     );
-    return SyncTransportException(
-      message,
-      retryAfter: retryAfter,
-      code: code,
-    );
+    return SyncTransportException(message, retryAfter: retryAfter, code: code);
   }
 
   SyncTransportException _disposedError() => const SyncTransportException(
@@ -439,10 +431,7 @@ class WebSocketProtocolTransport implements ProtocolTransport {
     _connection = null;
     _invalidateGeneration(generation);
     _failPending(
-      const SyncTransportException(
-        'websocket closed',
-        code: 'WS_CLOSED',
-      ),
+      const SyncTransportException('websocket closed', code: 'WS_CLOSED'),
       generation,
     );
   }
@@ -464,8 +453,7 @@ class WebSocketProtocolTransport implements ProtocolTransport {
   void _failPending(SyncTransportException error, [int? generation]) {
     final requestIds = _pending.entries
         .where(
-          (entry) =>
-              generation == null || entry.value.generation == generation,
+          (entry) => generation == null || entry.value.generation == generation,
         )
         .map((entry) => entry.key)
         .toList(growable: false);
@@ -475,11 +463,7 @@ class WebSocketProtocolTransport implements ProtocolTransport {
     }
   }
 
-  Future<void> _closeSocket(
-    WebSocket socket,
-    int code,
-    String reason,
-  ) async {
+  Future<void> _closeSocket(WebSocket socket, int code, String reason) async {
     try {
       await socket.close(code, reason);
     } catch (_) {
