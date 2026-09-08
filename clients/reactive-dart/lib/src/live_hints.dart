@@ -5,12 +5,7 @@ import 'package:rxdart/rxdart.dart';
 
 import 'contracts.dart';
 
-enum SupabaseHintChannelStatus {
-  subscribed,
-  closed,
-  channelError,
-  timedOut,
-}
+enum SupabaseHintChannelStatus { subscribed, closed, channelError, timedOut }
 
 enum SyncHintReason {
   localMutation,
@@ -85,10 +80,7 @@ final class DecodedSyncHint {
 typedef SupabaseHintChannelFactory =
     SupabaseRealtimeHintChannel Function(SyncSessionIdentity identity);
 typedef SupabaseHintDecoder =
-    DecodedSyncHint Function(
-      Object? payload,
-      SyncSessionIdentity identity,
-    );
+    DecodedSyncHint Function(Object? payload, SyncSessionIdentity identity);
 typedef SupabaseRetryDelay = Stream<void> Function(Duration delay);
 
 bool _sameSession(SyncSession previous, SyncSession next) {
@@ -100,11 +92,7 @@ bool _sameSession(SyncSession previous, SyncSession next) {
   return previous.runtimeType == next.runtimeType;
 }
 
-Duration _retryDelay(
-  Duration base,
-  Duration maximum,
-  int retryNumber,
-) {
+Duration _retryDelay(Duration base, Duration maximum, int retryNumber) {
   final exponent = math.min(math.max(0, retryNumber - 1), 10);
   final delayMillis = math.min(
     maximum.inMilliseconds,
@@ -188,8 +176,8 @@ Stream<SyncHint> _channelAttempt({
           if (intentionalTeardown || failed || controller.isClosed) return;
           late final DecodedSyncHint decoded;
           try {
-            decoded = decode?.call(payload, identity) ??
-                const DecodedSyncHint();
+            decoded =
+                decode?.call(payload, identity) ?? const DecodedSyncHint();
           } catch (_) {
             fail('DECODE_ERROR');
             return;
@@ -264,11 +252,7 @@ Stream<SyncHint> createSupabaseHints({
   SupabaseRetryDelay? retryDelay,
 }) {
   if (retryBase.isNegative) {
-    throw ArgumentError.value(
-      retryBase,
-      'retryBase',
-      'must not be negative',
-    );
+    throw ArgumentError.value(retryBase, 'retryBase', 'must not be negative');
   }
   if (retryMax < retryBase) {
     throw ArgumentError.value(

@@ -15,7 +15,9 @@ Future<void> _waitFor(bool Function() test) async {
   final deadline = DateTime.now().add(const Duration(seconds: 3));
   while (!test()) {
     if (DateTime.now().isAfter(deadline)) {
-      throw TimeoutException('Supabase lifecycle condition did not become true');
+      throw TimeoutException(
+        'Supabase lifecycle condition did not become true',
+      );
     }
     await Future<void>.delayed(const Duration(milliseconds: 5));
   }
@@ -85,10 +87,7 @@ Future<void> _freshAuthAndRetryTest() async {
       channels.add(channel);
       return channel;
     },
-    decode: (_, _) => const DecodedSyncHint(
-      table: 'todos',
-      recordId: 'todo-1',
-    ),
+    decode: (_, _) => const DecodedSyncHint(table: 'todos', recordId: 'todo-1'),
     retryBase: const Duration(milliseconds: 10),
     retryMax: const Duration(milliseconds: 20),
     retryAttempts: 2,
@@ -166,10 +165,7 @@ Future<void> _redactedFiniteAuthFailureTest() async {
     },
     retryAttempts: 1,
     retryDelay: (_) => retryGate.future.asStream(),
-  ).listen(
-    (_) {},
-    onError: (Object error, StackTrace _) => errors.add(error),
-  );
+  ).listen((_) {}, onError: (Object error, StackTrace _) => errors.add(error));
 
   await Future<void>.delayed(Duration.zero);
   retryGate.complete();

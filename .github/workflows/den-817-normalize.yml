@@ -8,7 +8,7 @@ on:
       - '.github/workflows/den-817-normalize.yml'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   normalize:
@@ -18,7 +18,8 @@ jobs:
       - name: Checkout branch
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          persist-credentials: true
+          persist-credentials: false
+          submodules: recursive
 
       - name: Install Dart
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
@@ -30,26 +31,18 @@ jobs:
           python3 -m pip install --disable-pip-version-check
           jsonschema==4.25.1 tomlkit==0.13.3
 
-      - name: Normalize and commit exact generated outputs
+      - name: Verify exact normalized outputs
         run: |
           set -euo pipefail
-          (cd clients/reactive-dart && dart pub get && dart format lib tool)
+          (cd clients/reactive-dart && dart pub get && dart format --output=none --set-exit-if-changed lib tool)
           python3 scripts/harden_client_contract.py \
             --root . \
             --schema clients/client-api.schema.json \
             --org opto-sync \
             --repo opto-sync-clients \
             --prefix opto-sync \
-            --write
-          git add -- \
+            --check
+          git diff --exit-code -- \
             clients/reactive-dart/lib/src/live_hints.dart \
             clients/reactive-dart/tool/supabase_auth_reconnect_self_test.dart \
             clients/contract-manifest.json
-          if git diff --cached --quiet; then
-            echo 'No normalization changes remain.'
-            exit 0
-          fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'normalize-supabase-reactive-contracts'
-          git push origin "HEAD:${GITHUB_REF_NAME}"
