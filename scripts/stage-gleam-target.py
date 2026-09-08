@@ -126,7 +126,7 @@ IO.puts("Gleam/BEAM blank consumer linked syncer.c #{version}")
             output / "syncer.c/bindings/beam/native/syncer_nif/Cargo.lock"
         ),
         "coreResolution": "bundled-source",
-        "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.4.0",
+        "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.5.0",
         "coexistenceRule": (
             "all installed opto-sync targets must resolve the same syncerSourceSha"
         ),
