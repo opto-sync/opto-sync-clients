@@ -387,7 +387,7 @@
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/ts",
       "implementationFileCount": 39,
-      "implementationSha256": "df707fe4a6259682cd880652d230a8d8776a2174e58bc2b5d22abb983211232f",
+      "implementationSha256": "8fec1eca3ff9a40dcf633c69cf5995f84ec0e41cd485308e5fe2d1fa0ee8fa24",
       "runtime": "ts",
       "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
       "schemaVersion": 1,
