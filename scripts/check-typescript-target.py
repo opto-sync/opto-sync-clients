@@ -12,6 +12,10 @@ from pathlib import Path
 SOURCE_ROOT = Path(__file__).resolve().parents[1]
 ROOT = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else SOURCE_ROOT
 SHA = re.compile(r"^[0-9a-f]{40}$")
+SEMVER = re.compile(
+    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+    r"(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
+)
 
 
 def fail(message: str) -> None:
@@ -93,12 +97,22 @@ def main() -> int:
         if path.is_file() and ".test." in path.name:
             fail(f"smoke consumer retains a test-like filename: {path.relative_to(ROOT)}")
 
+    client_manifest_path = ROOT / "clients/ts/package.json"
+    client = load_json(client_manifest_path)
+    client_version = client.get("version")
+    if (
+        client.get("name") != "@opto-sync/client"
+        or not isinstance(client_version, str)
+        or not SEMVER.fullmatch(client_version)
+    ):
+        fail("unexpected TypeScript client package identity")
+
     manifest = load_toml(ROOT / ".zpkg.toml")
     package_meta = manifest.get("package", {})
     expected_meta = {
         "org": "opto-sync",
         "name": "opto-sync-client-typescript",
-        "version": "0.4.0",
+        "version": client_version,
         "license": "MIT",
     }
     for key, expected in expected_meta.items():
@@ -126,17 +140,13 @@ def main() -> int:
     source_sha = (ROOT / "syncer.c/SOURCE_SHA").read_text(encoding="utf-8").strip()
     if source_sha != core_sha:
         fail("bundled core SOURCE_SHA differs from release-set syncerSourceSha")
-    if release.get("clientVersion") != "0.4.0" or release.get("syncerVersion") != "0.2.1":
+    if release.get("clientVersion") != client_version or release.get("syncerVersion") != "0.2.1":
         fail("release-set package versions are inconsistent")
     if release.get("publicationEnabled") is not False:
         fail("prototype publication must remain disabled")
     if release.get("coreResolution") != "bundled-source":
         fail("TypeScript target must use the approved bundled-source strategy")
 
-    client_manifest_path = ROOT / "clients/ts/package.json"
-    client = load_json(client_manifest_path)
-    if client.get("name") != "@opto-sync/client" or client.get("version") != "0.4.0":
-        fail("unexpected TypeScript client package identity")
     scripts = client.get("scripts", {})
     expected_scripts = {
         "test": "npm run build && npm run test:node && npm run test:browser",
@@ -165,6 +175,10 @@ def main() -> int:
 
     lock = load_json(ROOT / "clients/ts/package-lock.json")
     locked_root = lock.get("packages", {}).get("", {})
+    if lock.get("name") != client.get("name") or lock.get("version") != client_version:
+        fail("package-lock top-level identity differs from package.json")
+    if locked_root.get("name") != client.get("name") or locked_root.get("version") != client_version:
+        fail("package-lock root package identity differs from package.json")
     if locked_root.get("dependencies", {}) != dependencies:
         fail("package-lock root dependencies differ from package.json")
     if locked_root.get("optionalDependencies", {}) != optional:
