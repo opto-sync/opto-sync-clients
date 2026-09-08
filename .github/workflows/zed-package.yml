@@ -184,7 +184,7 @@ jobs:
             --dry-run \
             --allow-dirty \
             --skip-vcs-checks | tee ../zed-dry-run.txt
-          grep -F "$expected_coordinate" ../zed-dry-run.txt
+          grep -F "dry run: would publish ${expected_coordinate} (" ../zed-dry-run.txt
           test "$(grep -c '^dry run: would publish opto-sync/' ../zed-dry-run.txt)" -eq "$ZPKG_ARCHIVE_COUNT"
 
       - name: Run a clean local registry/install roundtrip
