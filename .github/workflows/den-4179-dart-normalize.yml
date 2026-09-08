@@ -47,10 +47,7 @@ jobs:
               "    final pending = transport.pull('0', 10, ProtocolCancellationToken());",
               '    await Future<void>.delayed(Duration.zero);',
               '    await transport.dispose();',
-              '    await expectLater(',
-              '      pending,',
-              "      throwsA(transportError('WS_DISPOSED', retryable: false)),",
-              '    );',
+              "    await expectLater(pending, throwsA(transportError('WS_DISPOSED', retryable: false)));",
           ])
           new_order = '\n'.join([
               "    final pending = transport.pull('0', 10, ProtocolCancellationToken());",
