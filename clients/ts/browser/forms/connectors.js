@@ -176,6 +176,8 @@ export function bindHtmxForm(queue, form, options = {}) {
     let replaying = false;
     let queueing = false;
     let pending;
+    let settling = false;
+    const completedRequests = new WeakSet();
     const replay = (submitter) => {
         replaying = true;
         try {
@@ -210,6 +212,8 @@ export function bindHtmxForm(queue, form, options = {}) {
             replay(submitter);
         }
         catch (error) {
+            // A failed replay leaves durable intent pending, but must release the UI gate.
+            pending = undefined;
             emit(form, 'opto-sync:form-error', { error });
             if (options.failOpen)
                 replay(submitter);
@@ -219,19 +223,40 @@ export function bindHtmxForm(queue, form, options = {}) {
         }
     };
     const after = async (raw) => {
-        if (pending === undefined)
+        if (!active || pending === undefined || settling)
             return;
         const detail = raw.detail;
-        const code = detail?.xhr?.status;
-        if (detail?.successful || (code !== undefined && code >= 200 && code < 300)) {
-            await mark(queue, pending, FORM_SYNC_STATUS.SYNCED);
-            emit(form, 'opto-sync:form-synced', { queueId: pending });
-            pending = undefined;
+        const xhr = detail?.xhr;
+        // responseError and afterRequest may describe the same request. Remember its
+        // identity so a late duplicate cannot acknowledge a subsequent submission.
+        if (xhr && completedRequests.has(xhr))
+            return;
+        if (xhr)
+            completedRequests.add(xhr);
+        const queueId = pending;
+        const code = xhr?.status;
+        settling = true;
+        try {
+            if (detail?.successful || (code !== undefined && code >= 200 && code < 300)) {
+                await mark(queue, queueId, FORM_SYNC_STATUS.SYNCED);
+                emit(form, 'opto-sync:form-synced', { queueId });
+            }
+            else if (terminal(code)) {
+                await mark(queue, queueId, FORM_SYNC_STATUS.FAILED);
+                emit(form, 'opto-sync:form-rejected', { queueId, status: code });
+            }
+            else {
+                emit(form, 'opto-sync:form-pending', { queueId, status: code });
+            }
         }
-        else if (terminal(code)) {
-            await mark(queue, pending, FORM_SYNC_STATUS.FAILED);
-            emit(form, 'opto-sync:form-rejected', { queueId: pending, status: code });
+        catch (error) {
+            emit(form, 'opto-sync:form-error', { error });
+        }
+        finally {
+            // In-flight state is not durable queue state. Ambiguous transport or a
+            // failed acknowledgement must remain queued without disabling the form.
             pending = undefined;
+            settling = false;
         }
     };
     form.addEventListener('submit', submit, { capture: true });
