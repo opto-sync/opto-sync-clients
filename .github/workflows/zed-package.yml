@@ -172,11 +172,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          expected_coordinate="$(python3 - <<'PY'
+          import pathlib
+          import tomllib
+
+          package = tomllib.loads(pathlib.Path('.zpkg.toml').read_text(encoding='utf-8'))['package']
+          print(f"{package['org']}/{package['name']}@{package['version']}")
+          PY
+          )"
           ../zed-cli/target/release/zed publish \
             --dry-run \
             --allow-dirty \
             --skip-vcs-checks | tee ../zed-dry-run.txt
-          grep -F 'opto-sync/opto-sync-clients@0.4.0' ../zed-dry-run.txt
+          grep -F "$expected_coordinate" ../zed-dry-run.txt
           test "$(grep -c '^dry run: would publish opto-sync/' ../zed-dry-run.txt)" -eq "$ZPKG_ARCHIVE_COUNT"
 
       - name: Run a clean local registry/install roundtrip
