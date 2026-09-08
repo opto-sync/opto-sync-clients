@@ -1,11 +1,11 @@
 [package]
 org = "opto-sync"
 name = "opto-sync-clients"
-# The lifecycle and protocol-scheduler state-machine APIs are additive but
+# The form connectors and lifecycle/protocol-scheduler APIs are additive but
 # switch-exhaustiveness-sensitive SDK changes. Keep this minor bump distinct
 # from earlier immutable release evidence; publishing requires fresh approval
 # and a reviewed tag.
-version = "0.4.0"
+version = "0.5.0"
 description = "Pinned polyglot local-first sync clients for TypeScript, Dart, Rust, Gleam, PHP, C#, and F#"
 license = "MIT"
 keywords = ["sync", "local-first", "optimistic", "indexeddb", "sqlite", "polyglot"]
