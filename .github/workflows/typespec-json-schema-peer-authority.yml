@@ -120,6 +120,8 @@ jobs:
         run: git diff --exit-code -- contract-admission/forms/
       - name: Install TypeScript client dependencies
         run: npm ci --prefix clients/ts --ignore-scripts --no-audit --no-fund
+      - name: Build TypeScript client outputs
+        run: npm --prefix clients/ts run build
       - name: Prove form runtime behavior stays aligned
         run: npm --prefix clients/ts run test:node
       - name: Retain form contract receipt, IR and comparison witness
