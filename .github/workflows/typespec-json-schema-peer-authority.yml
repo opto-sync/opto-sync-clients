@@ -5,12 +5,20 @@ on:
     paths:
       - "test/fixtures/schema-authority-canary/**"
       - "contract-admission/**"
+      - "clients/ts/src/forms/**"
+      - "clients/ts/browser/forms/**"
+      - "clients/ts/test/forms*.test.mjs"
+      - "clients/ts/package.json"
       - ".github/workflows/typespec-json-schema-peer-authority.yml"
   push:
     branches: [main, dev]
     paths:
       - "test/fixtures/schema-authority-canary/**"
       - "contract-admission/**"
+      - "clients/ts/src/forms/**"
+      - "clients/ts/browser/forms/**"
+      - "clients/ts/test/forms*.test.mjs"
+      - "clients/ts/package.json"
       - ".github/workflows/typespec-json-schema-peer-authority.yml"
   schedule:
     - cron: "37 5 * * 1"
@@ -51,8 +59,6 @@ jobs:
           contract_ir: .typespec-json-schema-validator/contract-ir.json
           output_dir: .typespec-json-schema-validator/generated
           max_probes: "64"
-      # The local envelope guard is not a replacement for current-source verification.
-      # This canary does not certify unrelated generated client contracts.
       - name: Verify current inputs, retained receipt, IR identity and complete scope
         uses: ORESoftware/typespec-json-schema-validator/actions/verify-contract-ir@c745036456dd80408b83217118b8563edb8f6abd
         with:
@@ -71,6 +77,57 @@ jobs:
         with:
           name: schema-peer-authority-${{ github.event.repository.name }}-${{ github.run_id }}
           path: .typespec-json-schema-validator/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+
+  form-envelope-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify checked-out revision
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - name: Generate form Schema B and compare peer authorities
+        uses: ORESoftware/typespec-json-schema-validator@c745036456dd80408b83217118b8563edb8f6abd
+        with:
+          typespec: contract-admission/forms/main.tsp
+          schema: contract-admission/forms/authored.schema.json
+          report: .typespec-json-schema-validator/forms/report.json
+          contract_ir: .typespec-json-schema-validator/forms/contract-ir.json
+          output_dir: .typespec-json-schema-validator/forms/generated
+          max_probes: "128"
+      - name: Verify complete form declaration scope
+        uses: ORESoftware/typespec-json-schema-validator/actions/verify-contract-ir@c745036456dd80408b83217118b8563edb8f6abd
+        with:
+          contract_ir: .typespec-json-schema-validator/forms/contract-ir.json
+          report: .typespec-json-schema-validator/forms/report.json
+          typespec: contract-admission/forms/main.tsp
+          schema: contract-admission/forms/authored.schema.json
+          generated_schema: .typespec-json-schema-validator/forms/generated/typespec.generated.schema.json
+          expected_declarations: '["OptoSync.Forms.FormSchemaVersion","OptoSync.Forms.FormMode","OptoSync.Forms.FormEnvelopeIdentity"]'
+      - name: Verify authored form authorities were not modified
+        shell: bash
+        run: git diff --exit-code -- contract-admission/forms/
+      - name: Install TypeScript client dependencies
+        run: npm ci --prefix clients/ts --ignore-scripts --no-audit --no-fund
+      - name: Prove form runtime behavior stays aligned
+        run: npm --prefix clients/ts run test:node
+      - name: Retain form contract receipt, IR and comparison witness
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: form-schema-peer-authority-${{ github.event.repository.name }}-${{ github.run_id }}
+          path: .typespec-json-schema-validator/forms/
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 30
