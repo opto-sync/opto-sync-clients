@@ -51,7 +51,7 @@ jobs:
       - name: Test client envelope integrity and literal digest regressions
         run: node --test contract-admission/*.test.mjs
       - name: Generate Schema B and compare both peer authorities
-        uses: ORESoftware/typespec-json-schema-validator@c745036456dd80408b83217118b8563edb8f6abd
+        uses: ORESoftware/typespec-json-schema-validator@2281843126ab644607b11cf8281d84f382d68dfc
         with:
           typespec: test/fixtures/schema-authority-canary/main.tsp
           schema: test/fixtures/schema-authority-canary/authored.schema.json
@@ -59,8 +59,8 @@ jobs:
           contract_ir: .typespec-json-schema-validator/contract-ir.json
           output_dir: .typespec-json-schema-validator/generated
           max_probes: "64"
-      - name: Verify current inputs, retained receipt, IR identity and complete scope
-        uses: ORESoftware/typespec-json-schema-validator/actions/verify-contract-ir@c745036456dd80408b83217118b8563edb8f6abd
+      - name: Require current admission and nineteen canonical refusals
+        uses: ORESoftware/typespec-json-schema-validator/actions/test-consumer-admission@2281843126ab644607b11cf8281d84f382d68dfc
         with:
           contract_ir: .typespec-json-schema-validator/contract-ir.json
           report: .typespec-json-schema-validator/report.json
@@ -68,10 +68,11 @@ jobs:
           schema: test/fixtures/schema-authority-canary/authored.schema.json
           generated_schema: .typespec-json-schema-validator/generated/typespec.generated.schema.json
           expected_declarations: '["OreSchemaAuthority.AuthorityKind","OreSchemaAuthority.PeerAuthorityRegistration"]'
+          verification: .typespec-json-schema-validator/consumer-verification.json
       - name: Verify authored authorities were not modified
         shell: bash
         run: git diff --exit-code -- test/fixtures/schema-authority-canary/
-      - name: Retain diagnostic receipt, IR and comparison witness
+      - name: Retain diagnostic receipt, IR, comparison witness and admission evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -98,7 +99,7 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - name: Generate form Schema B and compare peer authorities
-        uses: ORESoftware/typespec-json-schema-validator@c745036456dd80408b83217118b8563edb8f6abd
+        uses: ORESoftware/typespec-json-schema-validator@2281843126ab644607b11cf8281d84f382d68dfc
         with:
           typespec: contract-admission/forms/main.tsp
           schema: contract-admission/forms/authored.schema.json
@@ -106,8 +107,8 @@ jobs:
           contract_ir: .typespec-json-schema-validator/forms/contract-ir.json
           output_dir: .typespec-json-schema-validator/forms/generated
           max_probes: "128"
-      - name: Verify complete form declaration scope
-        uses: ORESoftware/typespec-json-schema-validator/actions/verify-contract-ir@c745036456dd80408b83217118b8563edb8f6abd
+      - name: Require complete form admission and nineteen canonical refusals
+        uses: ORESoftware/typespec-json-schema-validator/actions/test-consumer-admission@2281843126ab644607b11cf8281d84f382d68dfc
         with:
           contract_ir: .typespec-json-schema-validator/forms/contract-ir.json
           report: .typespec-json-schema-validator/forms/report.json
@@ -115,6 +116,7 @@ jobs:
           schema: contract-admission/forms/authored.schema.json
           generated_schema: .typespec-json-schema-validator/forms/generated/typespec.generated.schema.json
           expected_declarations: '["OptoSync.Forms.FormSchemaVersion","OptoSync.Forms.FormMode","OptoSync.Forms.FormEnvelopeIdentity"]'
+          verification: .typespec-json-schema-validator/forms/consumer-verification.json
       - name: Verify authored form authorities were not modified
         shell: bash
         run: git diff --exit-code -- contract-admission/forms/
@@ -124,7 +126,7 @@ jobs:
         run: npm --prefix clients/ts run build
       - name: Prove form runtime behavior stays aligned
         run: npm --prefix clients/ts run test:node
-      - name: Retain form contract receipt, IR and comparison witness
+      - name: Retain form contract receipt, IR, comparison witness and admission evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
