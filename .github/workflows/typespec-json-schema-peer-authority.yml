@@ -84,7 +84,7 @@ jobs:
 
   form-envelope-parity:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Check out exact head and pinned reconciliation core
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -92,13 +92,21 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
           submodules: recursive
-      - name: Verify checked-out revision
+      - name: Verify checked-out revision and pinned core
         shell: bash
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git submodule status --cached syncer.c
+          test -f syncer.c/core/include/syncer.h
+      - name: Set up pinned Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.16.0
+          cache: npm
+          cache-dependency-path: clients/ts/package-lock.json
       - name: Generate form Schema B and compare peer authorities
         uses: ORESoftware/typespec-json-schema-validator@2281843126ab644607b11cf8281d84f382d68dfc
         with:
@@ -121,8 +129,10 @@ jobs:
       - name: Verify authored form authorities were not modified
         shell: bash
         run: git diff --exit-code -- contract-admission/forms/
-      - name: Install TypeScript client dependencies
-        run: npm ci --prefix clients/ts --ignore-scripts --no-audit --no-fund
+      - name: Install locked native binding dependencies first
+        run: npm ci --prefix syncer.c/bindings/typescript --no-audit --no-fund
+      - name: Install TypeScript client dependencies and trusted local bootstrap
+        run: npm ci --prefix clients/ts --no-audit --no-fund
       - name: Build TypeScript client outputs
         run: npm --prefix clients/ts run build
       - name: Prove form runtime behavior stays aligned
