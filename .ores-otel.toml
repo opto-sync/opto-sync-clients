@@ -1,0 +1,25 @@
+version = 1
+
+[common]
+enabled = true
+
+[common.logging]
+enabled = true
+level = "info"
+console = true
+auto_send = false
+
+[common.tracing]
+enabled = true
+sample_ratio = 0.05
+propagators = ["tracecontext", "baggage"]
+
+[common.metrics]
+enabled = true
+
+[client]
+service_name = "opto-sync-client"
+
+[client.exporter]
+protocol = "otlp_http"
+endpoint_env = "OTEL_EXPORTER_OTLP_ENDPOINT"
