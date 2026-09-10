@@ -1,0 +1,25 @@
+# Client-only telemetry policy for the Opto-Sync SDK/client package.
+# Consumer applications may override deployment-specific values at runtime.
+version = 1
+
+[client]
+enabled = true
+service_name = "opto-sync-clients"
+
+[client.logging]
+enabled = true
+level = "info"
+console = false
+auto_send = false
+
+[client.tracing]
+enabled = true
+sample_ratio = 0.10
+propagators = ["tracecontext", "baggage"]
+
+[client.metrics]
+enabled = false
+
+[client.exporter]
+protocol = "otlp_http"
+endpoint_env = "OPTO_SYNC_CLIENT_OTEL_ENDPOINT"
