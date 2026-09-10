@@ -51,7 +51,7 @@ jobs:
       - name: Test client envelope integrity and literal digest regressions
         run: node --test contract-admission/*.test.mjs
       - name: Generate Schema B and compare both peer authorities
-        uses: ORESoftware/typespec-json-schema-validator@2281843126ab644607b11cf8281d84f382d68dfc
+        uses: ORESoftware/typespec-json-schema-validator@4740f1367a7906813dcd420a77d0c9ede26943fb
         with:
           typespec: test/fixtures/schema-authority-canary/main.tsp
           schema: test/fixtures/schema-authority-canary/authored.schema.json
@@ -60,7 +60,7 @@ jobs:
           output_dir: .typespec-json-schema-validator/generated
           max_probes: "64"
       - name: Require current admission and nineteen canonical refusals
-        uses: ORESoftware/typespec-json-schema-validator/actions/test-consumer-admission@2281843126ab644607b11cf8281d84f382d68dfc
+        uses: ORESoftware/typespec-json-schema-validator/actions/test-consumer-admission@4740f1367a7906813dcd420a77d0c9ede26943fb
         with:
           contract_ir: .typespec-json-schema-validator/contract-ir.json
           report: .typespec-json-schema-validator/report.json
@@ -108,7 +108,7 @@ jobs:
           cache: npm
           cache-dependency-path: clients/ts/package-lock.json
       - name: Generate form Schema B and compare peer authorities
-        uses: ORESoftware/typespec-json-schema-validator@2281843126ab644607b11cf8281d84f382d68dfc
+        uses: ORESoftware/typespec-json-schema-validator@4740f1367a7906813dcd420a77d0c9ede26943fb
         with:
           typespec: contract-admission/forms/main.tsp
           schema: contract-admission/forms/authored.schema.json
@@ -117,7 +117,7 @@ jobs:
           output_dir: .typespec-json-schema-validator/forms/generated
           max_probes: "128"
       - name: Require complete form admission and nineteen canonical refusals
-        uses: ORESoftware/typespec-json-schema-validator/actions/test-consumer-admission@2281843126ab644607b11cf8281d84f382d68dfc
+        uses: ORESoftware/typespec-json-schema-validator/actions/test-consumer-admission@4740f1367a7906813dcd420a77d0c9ede26943fb
         with:
           contract_ir: .typespec-json-schema-validator/forms/contract-ir.json
           report: .typespec-json-schema-validator/forms/report.json
