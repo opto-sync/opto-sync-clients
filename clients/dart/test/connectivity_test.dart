@@ -30,10 +30,12 @@ void main() {
         DateTime.utc(2026, 9, 11, 12, 1),
         DateTime.utc(2026, 9, 11, 12, 2),
       ].iterator;
-      final watcher = ManualOptoSyncConnectivityWatcher(now: () {
-        expect(times.moveNext(), isTrue);
-        return times.current;
-      });
+      final watcher = ManualOptoSyncConnectivityWatcher(
+        now: () {
+          expect(times.moveNext(), isTrue);
+          return times.current;
+        },
+      );
       final before = watcher.snapshot;
 
       final linked = watcher.publish(OptoSyncConnectivityState.link);
