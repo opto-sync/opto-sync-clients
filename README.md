@@ -54,11 +54,16 @@ See **[docs/OPTIMISTIC_WRITES.md](docs/OPTIMISTIC_WRITES.md)** for the full
 contract: rebase, `(clientId, mutationId)` dedupe, ordering, and what a push
 loop still has to do.
 
-The reactive packages make the write strategy explicit per operation:
+The reactive packages make the write strategy explicit per operation.
+Canonical wire-neutral identities are documented in
+**[docs/CONSISTENCY_MODES.md](docs/CONSISTENCY_MODES.md)**:
 
-- **remote-confirmed** — send and wait before changing local authoritative state;
-- **local-durable** — atomically save locally and queue, then let background sync land it;
-- **local-then-remote** — render immediately but await one protocol cycle before completion.
+- **remote-acknowledged** (`opto.consistency.remote-acknowledged.v1`) — send and wait for an exact-batch acknowledgement; committed-but-response-lost is `ambiguous`;
+- **write-through local-first** (`opto.consistency.write-through-local-first.v1`) — atomically save locally, start the remote request immediately, and return a typed outcome;
+- **queued local-first** (`opto.consistency.queued-local-first.v1`) — atomically save locally and queue, then let background sync land it.
+
+Legacy names (`remote-confirmed`, `local-then-remote`, `local-durable`,
+`await-server`, `local-first`, `background`) remain accepted aliases.
 
 WebSocket, Supabase Realtime, BroadcastChannel, and TCP events are wake hints.
 HTTP protocol push/pull remains the commit-ordered source of truth.
@@ -150,7 +155,7 @@ python3 clients/reactive-dart/tool/check_native_background_adapters.py
 
 ## Zed package
 
-The repository root declares `opto-sync/opto-sync-clients@0.4.0` in
+The repository root declares `opto-sync/opto-sync-clients@0.5.0` in
 `.zpkg.toml`, with `.zpkg.lock` committed for frozen source workflows. The first
 release is intentionally one whole-repository package: a language-only target
 would omit the root native submodule required by that client. The package

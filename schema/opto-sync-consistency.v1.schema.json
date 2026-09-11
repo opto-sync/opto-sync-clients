@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opto-sync.dev/schema/opto-sync-consistency.v1.schema.json",
+  "title": "Opto-Sync consistency policy, mutation intent, outcomes, and read reconciliation v1",
+  "description": "Wire-neutral identifiers and documents for caller-selected consistency modes. Policy identity is durable local intent, not a server wire field. Unknown identifiers fail closed.",
+  "oneOf": [
+    { "$ref": "#/$defs/MutationIntentDocument" },
+    { "$ref": "#/$defs/OutcomeDocument" },
+    { "$ref": "#/$defs/ReadModelDocument" }
+  ],
+  "$defs": {
+    "ConsistencyPolicyId": {
+      "type": "string",
+      "enum": [
+        "opto.consistency.remote-acknowledged.v1",
+        "opto.consistency.write-through-local-first.v1",
+        "opto.consistency.queued-local-first.v1"
+      ]
+    },
+    "CanonicalDecimal": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9][0-9]*)$"
+    },
+    "MutationId": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*$"
+    },
+    "Operation": {
+      "type": "string",
+      "enum": ["upsert", "delete"]
+    },
+    "Provenance": {
+      "type": "string",
+      "enum": ["authoritative", "pending", "rejected", "transformed", "stale"]
+    },
+    "OutcomeStatus": {
+      "type": "string",
+      "enum": [
+        "confirmed",
+        "pending",
+        "rejected",
+        "transformed",
+        "ambiguous",
+        "cancelled"
+      ]
+    },
+    "JsonObject": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "MutationIntent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "clientId",
+        "mutationId",
+        "table",
+        "recordId",
+        "operation",
+        "consistencyPolicy"
+      ],
+      "properties": {
+        "clientId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "mutationId": { "$ref": "#/$defs/MutationId" },
+        "table": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "recordId": { "type": "string", "minLength": 1, "maxLength": 512 },
+        "operation": { "$ref": "#/$defs/Operation" },
+        "payload": { "$ref": "#/$defs/JsonObject" },
+        "baseRevision": { "type": "string", "minLength": 1 },
+        "resurrect": { "type": "boolean" },
+        "consistencyPolicy": { "$ref": "#/$defs/ConsistencyPolicyId" }
+      }
+    },
+    "MutationIntentDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "intent"],
+      "properties": {
+        "kind": { "const": "mutation-intent" },
+        "intent": { "$ref": "#/$defs/MutationIntent" }
+      }
+    },
+    "OutcomeDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "status", "consistencyPolicy"],
+      "properties": {
+        "kind": { "const": "outcome" },
+        "status": { "$ref": "#/$defs/OutcomeStatus" },
+        "consistencyPolicy": { "$ref": "#/$defs/ConsistencyPolicyId" },
+        "coveredMutationIds": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/MutationId" }
+        },
+        "message": { "type": "string", "maxLength": 512 }
+      }
+    },
+    "ReadModelDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "localBase", "overlay", "records"],
+      "properties": {
+        "kind": { "const": "read-model" },
+        "localBase": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/BaseRow" }
+        },
+        "overlay": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/OverlayEntry" }
+        },
+        "remote": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/BaseRow" }
+        },
+        "acknowledgedMutationIds": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/MutationId" }
+        },
+        "records": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/ProjectedRow" }
+        }
+      }
+    },
+    "BaseRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["table", "recordId", "revision", "operation"],
+      "properties": {
+        "table": { "type": "string", "minLength": 1 },
+        "recordId": { "type": "string", "minLength": 1 },
+        "revision": { "$ref": "#/$defs/CanonicalDecimal" },
+        "operation": { "$ref": "#/$defs/Operation" },
+        "payload": { "$ref": "#/$defs/JsonObject" },
+        "identity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["clientId", "mutationId"],
+          "properties": {
+            "clientId": { "type": "string", "minLength": 1 },
+            "mutationId": { "$ref": "#/$defs/MutationId" }
+          }
+        },
+        "arrivalSeq": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "OverlayEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mutationId",
+        "clientId",
+        "table",
+        "recordId",
+        "operation",
+        "consistencyPolicy",
+        "status"
+      ],
+      "properties": {
+        "mutationId": { "$ref": "#/$defs/MutationId" },
+        "clientId": { "type": "string", "minLength": 1 },
+        "table": { "type": "string", "minLength": 1 },
+        "recordId": { "type": "string", "minLength": 1 },
+        "operation": { "$ref": "#/$defs/Operation" },
+        "payload": { "$ref": "#/$defs/JsonObject" },
+        "revision": { "$ref": "#/$defs/CanonicalDecimal" },
+        "consistencyPolicy": { "$ref": "#/$defs/ConsistencyPolicyId" },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "rejected", "transformed"]
+        },
+        "transformedPayload": { "$ref": "#/$defs/JsonObject" }
+      }
+    },
+    "ProjectedRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["table", "recordId", "revision", "operation", "provenance"],
+      "properties": {
+        "table": { "type": "string", "minLength": 1 },
+        "recordId": { "type": "string", "minLength": 1 },
+        "revision": { "$ref": "#/$defs/CanonicalDecimal" },
+        "operation": { "$ref": "#/$defs/Operation" },
+        "payload": { "$ref": "#/$defs/JsonObject" },
+        "provenance": { "$ref": "#/$defs/Provenance" }
+      }
+    }
+  }
+}

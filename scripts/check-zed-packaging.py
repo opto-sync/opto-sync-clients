@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import tomllib
@@ -15,6 +16,10 @@ SOURCE_ROOT = Path(__file__).resolve().parents[1]
 VALIDATING_SOURCE = len(sys.argv) == 1
 ROOT = SOURCE_ROOT if VALIDATING_SOURCE else Path(sys.argv[1]).resolve()
 MAX_CONTRACT_BYTES = 4 * 1024 * 1024
+SEMVER = re.compile(
+    r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+    r"(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$"
+)
 EXPECTED_LIFECYCLE_PHASES = (
     "pre-install",
     "post-install",
@@ -90,12 +95,22 @@ def validate_client_contracts() -> None:
     schema = read_json(schema_path)
     contract_manifest = read_json(manifest_path)
     matrix = read_json(matrix_path)
-    surface_digest = hashlib.sha256(surface_path.read_bytes()).hexdigest()
+    # Fingerprints cover the semantic JSON value, not whitespace or key order.
+    # Keep this byte-for-byte aligned with harden_client_contract.py and
+    # verify_client_contract.py so the writer and both independent gates cannot
+    # disagree about a valid generated contract.
+    canonical_surface = json.dumps(
+        surface,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    surface_digest = hashlib.sha256(canonical_surface).hexdigest()
     declared_digest = read_digest(clients / ".api-surface.sha256")
     if declared_digest != surface_digest:
         fail(
             "clients/.api-surface.sha256 does not match the exact committed "
-            "clients/api-surface.json bytes "
+            "clients/api-surface.json semantic value "
             f"(declared={declared_digest}, actual={surface_digest})"
         )
 
@@ -153,28 +168,37 @@ def validate_client_contracts() -> None:
             fail(f"contract-manifest target {name!r} has a stale API-surface fingerprint")
 
         target_contract = read_json(target_dir / ".zed-client-contract.json")
-        expected_contract = {key: value for key, value in target.items() if key != "dir"}
+        expected_contract = {
+            key: value
+            for key, value in target.items()
+            if key not in {"dir", "implementationFileCount", "implementationSha256"}
+        }
         if target_contract != expected_contract:
             fail(f"contract-manifest target {name!r} disagrees with its client contract")
         if read_digest(target_dir / ".zed-api-surface.sha256") != surface_digest:
             fail(f"contract-manifest target {name!r} has a stale fingerprint file")
         manifest_targets[name] = target
 
+    standard_manifest_targets = {
+        name: target
+        for name, target in manifest_targets.items()
+        if not name.startswith("extension-")
+    }
     if not isinstance(matrix, dict) or matrix.get("schema_version") != 1:
         fail("clients/sdk-matrix.json must use schema_version 1")
     if matrix.get("api_surface") != "clients/api-surface.json":
         fail("clients/sdk-matrix.json has the wrong API-surface path")
     if matrix.get("api_schema") != "clients/client-api.schema.json":
         fail("clients/sdk-matrix.json has the wrong API-schema path")
-    if matrix.get("standard_target_count") != len(manifest_targets):
+    if matrix.get("standard_target_count") != len(standard_manifest_targets):
         fail("clients/sdk-matrix.json standard_target_count does not match targets")
     minimum_targets = matrix.get("minimum_targets")
-    if not isinstance(minimum_targets, int) or len(manifest_targets) < minimum_targets:
+    if not isinstance(minimum_targets, int) or len(standard_manifest_targets) < minimum_targets:
         fail("clients/sdk-matrix.json does not meet its minimum target count")
     matrix_targets = matrix.get("targets")
-    if not isinstance(matrix_targets, dict) or set(matrix_targets) != set(manifest_targets):
+    if not isinstance(matrix_targets, dict) or set(matrix_targets) != set(standard_manifest_targets):
         fail("clients/sdk-matrix.json target names disagree with the contract manifest")
-    for name, target in manifest_targets.items():
+    for name, target in standard_manifest_targets.items():
         expected = {
             "dir": target["dir"],
             "runtime": target["runtime"],
@@ -194,12 +218,31 @@ def main() -> int:
     expected = {
         "org": "opto-sync",
         "name": "opto-sync-clients",
-        "version": "0.4.0",
         "license": "MIT",
     }
     for key, value in expected.items():
         if package.get(key) != value:
             fail(f"package.{key} must be {value!r}, got {package.get(key)!r}")
+
+    package_version = package.get("version")
+    if not isinstance(package_version, str) or not SEMVER.fullmatch(package_version):
+        fail(f"package.version must be valid SemVer, got {package_version!r}")
+
+    # The TypeScript package is currently the only independently extracted
+    # target and therefore provides a second, non-TOML check on the coordinated
+    # release version. Keep the whole-repository and target identity aligned
+    # without copying a release number into executable policy.
+    typescript_package = read_json(ROOT / "clients/ts/package.json")
+    if not isinstance(typescript_package, dict):
+        fail("clients/ts/package.json must contain an object")
+    if typescript_package.get("name") != "@opto-sync/client":
+        fail("clients/ts/package.json has an unexpected package name")
+    if typescript_package.get("version") != package_version:
+        fail(
+            "whole-repository and TypeScript package versions differ: "
+            f"root={package_version!r}, typescript={typescript_package.get('version')!r}"
+        )
+
     repository = package.get("repository", {})
     if repository.get("url") != "https://github.com/opto-sync/opto-sync-clients":
         fail("package.repository.url must be the canonical GitHub repository")
@@ -220,13 +263,24 @@ def main() -> int:
                 fail(f".zed/{phase} must use the portable fail-closed shell header")
 
     dependencies = manifest.get("dependencies", {})
-    if dependencies:
-        fail("unreleased Zed dependencies must not be declared")
+    expected_dependencies: dict[str, str] = {}
+    if dependencies != expected_dependencies:
+        fail(
+            "package dependencies must stay empty until every coordinate has "
+            f"an immutable public release; got {dependencies!r}"
+        )
     if any(name.startswith("opto-sync/syncer") for name in dependencies):
         fail("the bundled pinned core must not be duplicated as a Zed dependency")
 
-    if manifest.get("targets"):
-        fail("language targets are forbidden until each target is clean-room self-contained")
+    expected_targets = {"repository": {"dir": "."}}
+    targets = manifest.get("targets", {})
+    if VALIDATING_SOURCE and targets != expected_targets:
+        fail(
+            "installable targets must retain the whole-repository boundary; "
+            f"expected {expected_targets!r}, got {targets!r}"
+        )
+    if not VALIDATING_SOURCE and targets:
+        fail("zed-normalized installed artifacts must not retain source target declarations")
 
     publish = manifest.get("publish", {})
     if publish.get("tag_format") != "v{version}":
@@ -257,7 +311,10 @@ def main() -> int:
     subprocess.run([sys.executable, str(layout_check)], cwd=ROOT, check=True)
 
     kind = "source repository" if VALIDATING_SOURCE else "installed artifact"
-    print(f"Zed package contract passed for {kind}: one package, one pinned native core")
+    print(
+        f"Zed package contract passed for {kind}: "
+        f"version={package_version}, one coordinated release contract, one pinned root native core"
+    )
     return 0
 
 

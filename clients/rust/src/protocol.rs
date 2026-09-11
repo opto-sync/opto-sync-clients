@@ -7,6 +7,12 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
+
+use crate::consistency::{
+    assert_queued_intent_frozen, canonicalize_consistency_policy, ConsistencyError,
+    ConsistencyPolicy, MutationIntent, WRITE_THROUGH_LOCAL_FIRST,
+};
 
 const MAX_I64: u64 = i64::MAX as u64;
 pub const DEFAULT_MAX_PENDING_MUTATIONS: usize = 10_000;
@@ -235,6 +241,9 @@ pub struct ProtocolQueue {
     max_pending_mutations: usize,
     #[serde(default = "default_max_queued_payload_bytes")]
     max_queued_payload_bytes: usize,
+    /// Canonical consistency policy per mutation id. Local durable intent only.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    consistency_policies: BTreeMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -248,6 +257,8 @@ struct ProtocolQueueWire {
     max_pending_mutations: usize,
     #[serde(default = "default_max_queued_payload_bytes")]
     max_queued_payload_bytes: usize,
+    #[serde(default)]
+    consistency_policies: BTreeMap<String, String>,
 }
 
 impl<'de> Deserialize<'de> for ProtocolQueue {
@@ -263,6 +274,7 @@ impl<'de> Deserialize<'de> for ProtocolQueue {
             mutations: wire.mutations,
             max_pending_mutations: wire.max_pending_mutations,
             max_queued_payload_bytes: wire.max_queued_payload_bytes,
+            consistency_policies: wire.consistency_policies,
         };
         queue
             .validate()
@@ -302,6 +314,7 @@ impl ProtocolQueue {
             mutations: Vec::new(),
             max_pending_mutations,
             max_queued_payload_bytes,
+            consistency_policies: BTreeMap::new(),
         })
     }
 
@@ -436,26 +449,99 @@ impl ProtocolQueue {
             .ok_or(ProtocolError::MutationIdExhausted)?;
         mutation.mutation_id = id.clone();
         self.mutations.push(mutation);
+        self.consistency_policies
+            .entry(id.clone())
+            .or_insert_with(|| WRITE_THROUGH_LOCAL_FIRST.to_string());
         Ok(id)
+    }
+
+    pub fn queue_upsert_with_consistency(
+        &mut self,
+        table: impl Into<String>,
+        record_id: impl Into<String>,
+        payload: Value,
+        base_revision: Option<String>,
+        resurrect: bool,
+        policy: ConsistencyPolicy,
+    ) -> Result<String, ProtocolError> {
+        let id = self.queue_upsert(table, record_id, payload, base_revision, resurrect)?;
+        self.consistency_policies
+            .insert(id.clone(), policy.as_str().to_string());
+        Ok(id)
+    }
+
+    pub fn queue_delete_with_consistency(
+        &mut self,
+        table: impl Into<String>,
+        record_id: impl Into<String>,
+        base_revision: Option<String>,
+        policy: ConsistencyPolicy,
+    ) -> Result<String, ProtocolError> {
+        let id = self.queue_delete(table, record_id, base_revision)?;
+        self.consistency_policies
+            .insert(id.clone(), policy.as_str().to_string());
+        Ok(id)
+    }
+
+    #[must_use]
+    pub fn consistency_policy(&self, mutation_id: &str) -> Option<&str> {
+        self.consistency_policies
+            .get(mutation_id)
+            .map(String::as_str)
+    }
+
+    pub fn rebind_consistency(
+        &self,
+        mutation_id: &str,
+        proposed: &MutationIntent,
+    ) -> Result<(), ConsistencyError> {
+        let existing_row = self
+            .mutations
+            .iter()
+            .find(|mutation| mutation.mutation_id == mutation_id)
+            .ok_or_else(|| {
+                ConsistencyError::FrozenIntent(format!("queued mutation {mutation_id} is missing"))
+            })?;
+        let existing = MutationIntent {
+            client_id: self.client_id.clone(),
+            mutation_id: existing_row.mutation_id.clone(),
+            table: existing_row.table.clone(),
+            record_id: existing_row.record_id.clone(),
+            operation: match existing_row.operation {
+                Operation::Upsert => "upsert".to_string(),
+                Operation::Delete => "delete".to_string(),
+            },
+            payload: existing_row.payload.clone(),
+            base_revision: existing_row.base_revision.clone(),
+            resurrect: existing_row.resurrect,
+            consistency_policy: self
+                .consistency_policy(mutation_id)
+                .unwrap_or(WRITE_THROUGH_LOCAL_FIRST)
+                .to_string(),
+        };
+        let _ = canonicalize_consistency_policy(&existing.consistency_policy)?;
+        assert_queued_intent_frozen(&existing, proposed)
     }
 
     /// Remove the oldest confirmed entries while preserving pending work.
     pub fn prune_confirmed(&mut self, retain: usize) -> usize {
-        let confirmed = self
+        let drop_count = self
             .mutations
             .iter()
             .filter(|mutation| mutation.status == LocalProtocolStatus::Confirmed)
-            .count();
-        let mut remove = confirmed.saturating_sub(retain);
+            .count()
+            .saturating_sub(retain);
+        let drop_ids: Vec<_> = self
+            .mutations
+            .iter()
+            .filter(|mutation| mutation.status == LocalProtocolStatus::Confirmed)
+            .map(|mutation| mutation.mutation_id.as_str())
+            .take(drop_count)
+            .map(str::to_owned)
+            .collect();
         let before = self.mutations.len();
-        self.mutations.retain(|mutation| {
-            if remove > 0 && mutation.status == LocalProtocolStatus::Confirmed {
-                remove -= 1;
-                false
-            } else {
-                true
-            }
-        });
+        self.mutations
+            .retain(|mutation| !drop_ids.iter().any(|id| id == &mutation.mutation_id));
         before - self.mutations.len()
     }
 
@@ -527,15 +613,19 @@ impl ProtocolQueue {
         if !watermark_is_valid(watermark, self.next_mutation_id) {
             return Err(ProtocolError::WatermarkAhead);
         }
-        let mut changed = 0;
-        for mutation in &mut self.mutations {
-            let id = parse_decimal(&mutation.mutation_id)?;
-            if id <= watermark && mutation.status == LocalProtocolStatus::Pending {
-                mutation.status = LocalProtocolStatus::Confirmed;
-                changed += 1;
-            }
-        }
-        Ok(changed)
+        self.mutations
+            .iter_mut()
+            .try_fold(0usize, |changed, mutation| {
+                let id = parse_decimal(&mutation.mutation_id)?;
+                Ok(
+                    if id <= watermark && mutation.status == LocalProtocolStatus::Pending {
+                        mutation.status = LocalProtocolStatus::Confirmed;
+                        changed + 1
+                    } else {
+                        changed
+                    },
+                )
+            })
     }
 
     pub fn set_checkpoint(&mut self, checkpoint: impl Into<String>) -> Result<(), ProtocolError> {
@@ -560,49 +650,50 @@ impl ProtocolQueue {
             return Err(ProtocolError::InvalidQueueState);
         }
 
-        let mut prior_id = 0;
-        let mut pending = 0usize;
-        for mutation in &self.mutations {
-            let id = parse_decimal(&mutation.mutation_id)
-                .map_err(|_| ProtocolError::InvalidQueueState)?;
-            if id == 0
-                || id <= prior_id
-                || id >= self.next_mutation_id
-                || !valid_scope_id(&mutation.table)
-                || !valid_record_id(&mutation.record_id)
-                || mutation
-                    .base_revision
-                    .as_deref()
-                    .is_some_and(|revision| parse_decimal(revision).is_err())
-            {
-                return Err(ProtocolError::InvalidQueueState);
-            }
-            prior_id = id;
-
-            match mutation.operation {
-                Operation::Upsert => {
-                    let payload = mutation
-                        .payload
-                        .as_ref()
-                        .filter(|payload| payload.is_object())
-                        .ok_or(ProtocolError::InvalidQueueState)?;
-                    let bytes = serde_json::to_vec(payload)
-                        .map_err(|_| ProtocolError::InvalidQueueState)?
-                        .len();
-                    if bytes > self.max_queued_payload_bytes {
-                        return Err(ProtocolError::InvalidQueueState);
+        let pending = self
+            .mutations
+            .iter()
+            .try_fold((0u64, 0usize), |(prior_id, pending), mutation| {
+                let id = parse_decimal(&mutation.mutation_id)
+                    .map_err(|_| ProtocolError::InvalidQueueState)?;
+                if id == 0
+                    || id <= prior_id
+                    || id >= self.next_mutation_id
+                    || !valid_scope_id(&mutation.table)
+                    || !valid_record_id(&mutation.record_id)
+                    || mutation
+                        .base_revision
+                        .as_deref()
+                        .is_some_and(|revision| parse_decimal(revision).is_err())
+                {
+                    return Err(ProtocolError::InvalidQueueState);
+                }
+                match mutation.operation {
+                    Operation::Upsert => {
+                        let payload = mutation
+                            .payload
+                            .as_ref()
+                            .filter(|payload| payload.is_object())
+                            .ok_or(ProtocolError::InvalidQueueState)?;
+                        let bytes = serde_json::to_vec(payload)
+                            .map_err(|_| ProtocolError::InvalidQueueState)?
+                            .len();
+                        if bytes > self.max_queued_payload_bytes {
+                            return Err(ProtocolError::InvalidQueueState);
+                        }
+                    }
+                    Operation::Delete => {
+                        if mutation.payload.is_some() || mutation.resurrect {
+                            return Err(ProtocolError::InvalidQueueState);
+                        }
                     }
                 }
-                Operation::Delete => {
-                    if mutation.payload.is_some() || mutation.resurrect {
-                        return Err(ProtocolError::InvalidQueueState);
-                    }
-                }
-            }
-            if mutation.status == LocalProtocolStatus::Pending {
-                pending += 1;
-            }
-        }
+                Ok((
+                    id,
+                    pending + usize::from(mutation.status == LocalProtocolStatus::Pending),
+                ))
+            })?
+            .1;
         if pending > self.max_pending_mutations {
             return Err(ProtocolError::InvalidQueueState);
         }
@@ -740,6 +831,44 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    fn overlay_json(value: &Value, path: &[&str], replacement: Value) -> Value {
+        match path.split_first() {
+            None => replacement,
+            Some((key, rest)) => match value {
+                Value::Object(map) => {
+                    let child = map.get(*key).cloned().unwrap_or(Value::Null);
+                    let updated = overlay_json(&child, rest, replacement);
+                    Value::Object(
+                        map.iter()
+                            .filter(|(existing_key, _)| existing_key != key)
+                            .map(|(existing_key, existing_value)| {
+                                (existing_key.clone(), existing_value.clone())
+                            })
+                            .chain(std::iter::once(((*key).to_string(), updated)))
+                            .collect(),
+                    )
+                }
+                Value::Array(items) => {
+                    let index: usize = key.parse().expect("array index");
+                    Value::Array(
+                        items
+                            .iter()
+                            .enumerate()
+                            .map(|(item_index, item)| {
+                                if item_index == index {
+                                    overlay_json(item, rest, replacement.clone())
+                                } else {
+                                    item.clone()
+                                }
+                            })
+                            .collect(),
+                    )
+                }
+                _ => replacement,
+            },
+        }
+    }
+
     #[test]
     fn wire_format_and_acknowledgement_match_protocol_v1() {
         let mut queue = ProtocolQueue::new("device-a").unwrap();
@@ -854,14 +983,12 @@ mod tests {
         );
         assert!(!malformed_called);
 
-        let mut installed = Vec::new();
         queue
             .install_snapshot(&snapshot, |records| {
-                installed = records.to_vec();
+                assert_eq!(records, snapshot.records.as_slice());
                 Ok::<(), &'static str>(())
             })
             .unwrap();
-        assert_eq!(installed, snapshot.records);
         assert_eq!(queue.checkpoint(), "42");
         assert_eq!(queue.pending().count(), 1);
     }
@@ -1093,22 +1220,15 @@ mod tests {
             "maxQueuedPayloadBytes": 1024
         });
 
-        let mut cases = Vec::new();
-        let mut reused_id = baseline.clone();
-        reused_id["nextMutationId"] = json!(1);
-        cases.push(reused_id);
-        let mut noncanonical_checkpoint = baseline.clone();
-        noncanonical_checkpoint["checkpoint"] = json!("01");
-        cases.push(noncanonical_checkpoint);
-        let mut invalid_table = baseline.clone();
-        invalid_table["mutations"][0]["table"] = json!("bad table");
-        cases.push(invalid_table);
-        let mut delete_with_payload = baseline.clone();
-        delete_with_payload["mutations"][0]["operation"] = json!("delete");
-        cases.push(delete_with_payload);
-        let mut over_quota = baseline.clone();
-        over_quota["maxPendingMutations"] = json!(0);
-        cases.push(over_quota);
+        let cases = [
+            (["nextMutationId"].as_slice(), json!(1)),
+            (["checkpoint"].as_slice(), json!("01")),
+            (["mutations", "0", "table"].as_slice(), json!("bad table")),
+            (["mutations", "0", "operation"].as_slice(), json!("delete")),
+            (["maxPendingMutations"].as_slice(), json!(0)),
+        ]
+        .into_iter()
+        .map(|(path, replacement)| overlay_json(&baseline, path, replacement));
 
         for state in cases {
             assert!(

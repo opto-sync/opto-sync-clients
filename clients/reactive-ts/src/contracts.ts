@@ -4,8 +4,42 @@ export const SYNC_OPTIMISM = Object.freeze({
   localThenRemote: 'local-then-remote',
 } as const);
 
+export const CONSISTENCY_POLICY = Object.freeze({
+  remoteAcknowledged: 'opto.consistency.remote-acknowledged.v1',
+  writeThroughLocalFirst: 'opto.consistency.write-through-local-first.v1',
+  queuedLocalFirst: 'opto.consistency.queued-local-first.v1',
+} as const);
+
 export type SyncOptimism =
   (typeof SYNC_OPTIMISM)[keyof typeof SYNC_OPTIMISM];
+
+export type ConsistencyPolicyId =
+  | (typeof CONSISTENCY_POLICY)[keyof typeof CONSISTENCY_POLICY]
+  | SyncOptimism;
+
+const POLICY_TO_STRATEGY: Record<string, SyncOptimism> = {
+  [CONSISTENCY_POLICY.remoteAcknowledged]: SYNC_OPTIMISM.remoteConfirmed,
+  'remote-acknowledged': SYNC_OPTIMISM.remoteConfirmed,
+  strict: SYNC_OPTIMISM.remoteConfirmed,
+  'await-server': SYNC_OPTIMISM.remoteConfirmed,
+  [SYNC_OPTIMISM.remoteConfirmed]: SYNC_OPTIMISM.remoteConfirmed,
+  [CONSISTENCY_POLICY.writeThroughLocalFirst]: SYNC_OPTIMISM.localThenRemote,
+  'write-through-local-first': SYNC_OPTIMISM.localThenRemote,
+  'local-first': SYNC_OPTIMISM.localThenRemote,
+  [SYNC_OPTIMISM.localThenRemote]: SYNC_OPTIMISM.localThenRemote,
+  [CONSISTENCY_POLICY.queuedLocalFirst]: SYNC_OPTIMISM.localDurable,
+  'queued-local-first': SYNC_OPTIMISM.localDurable,
+  background: SYNC_OPTIMISM.localDurable,
+  [SYNC_OPTIMISM.localDurable]: SYNC_OPTIMISM.localDurable,
+};
+
+export function resolveSyncOptimism(identifier: string): SyncOptimism {
+  const strategy = POLICY_TO_STRATEGY[identifier];
+  if (!strategy) {
+    throw new RangeError(`unknown consistency policy ${JSON.stringify(identifier)}`);
+  }
+  return strategy;
+}
 
 export type SyncSource =
   | 'local'

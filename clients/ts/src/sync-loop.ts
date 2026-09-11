@@ -110,6 +110,20 @@ export interface ProtocolSyncCycleResult {
   hasMorePending: boolean;
 }
 
+/** Cancellable timer handle used by the protocol scheduler. */
+export interface ProtocolSyncTimer {
+  cancel(): void;
+}
+
+/**
+ * Injectable timer boundary for deterministic hosts and formal replay.
+ * Production callers normally use the default platform timer.
+ */
+export type ProtocolSyncTimerFactory = (
+  delayMs: number,
+  callback: () => void,
+) => ProtocolSyncTimer;
+
 export interface ProtocolSyncLoopOptions {
   pushLimit?: number;
   pullLimit?: number;
@@ -120,6 +134,7 @@ export interface ProtocolSyncLoopOptions {
   random?: () => number;
   now?: () => number;
   isOnline?: () => boolean;
+  timerFactory?: ProtocolSyncTimerFactory;
   onStateChange?: (state: Readonly<ProtocolSyncState>) => void;
   /**
    * Disable browser `online` and `visibilitychange` listeners when an
@@ -262,6 +277,11 @@ function safeError(error: unknown): string {
   return message.slice(0, 200);
 }
 
+const systemTimerFactory: ProtocolSyncTimerFactory = (delayMs, callback) => {
+  const handle = setTimeout(callback, delayMs);
+  return { cancel: () => clearTimeout(handle) };
+};
+
 /**
  * Single-flight, transport-neutral protocol v1 background synchronization.
  *
@@ -279,17 +299,20 @@ export class ProtocolSyncLoop {
   private readonly random: () => number;
   private readonly now: () => number;
   private readonly isOnline: () => boolean;
+  private readonly timerFactory: ProtocolSyncTimerFactory;
   private readonly observeBrowserLifecycle: boolean;
   private stateValue: ProtocolSyncState = {
     status: 'stopped',
     consecutiveFailures: 0,
   };
-  private timer: ReturnType<typeof setTimeout> | undefined;
+  private timer: ProtocolSyncTimer | undefined;
   private inFlight: Promise<ProtocolSyncCycleResult> | undefined;
   private abortController: AbortController | undefined;
   private started = false;
   private rerunRequested = false;
+  private generation = 0;
   private readonly onlineListener = () => this.hint();
+  private readonly offlineListener = () => this.hint();
   private readonly visibilityListener = () => {
     if (
       typeof document === 'undefined' ||
@@ -329,6 +352,7 @@ export class ProtocolSyncLoop {
     this.isOnline =
       options.isOnline ??
       (() => typeof navigator === 'undefined' || navigator.onLine !== false);
+    this.timerFactory = options.timerFactory ?? systemTimerFactory;
     this.observeBrowserLifecycle = options.observeBrowserLifecycle !== false;
   }
 
@@ -338,26 +362,38 @@ export class ProtocolSyncLoop {
 
   start(): void {
     if (this.started) return;
+    this.generation += 1;
     this.started = true;
     if (this.observeBrowserLifecycle) {
       globalThis.addEventListener?.('online', this.onlineListener);
+      globalThis.addEventListener?.('offline', this.offlineListener);
       if (typeof document !== 'undefined') {
         document.addEventListener('visibilitychange', this.visibilityListener);
       }
     }
+    if (!this.isOnline()) {
+      this.transition({
+        status: 'offline',
+        consecutiveFailures: 0,
+        nextRetryAt: undefined,
+      });
+      return;
+    }
+    this.stateValue.consecutiveFailures = 0;
     this.transition({ status: 'idle', nextRetryAt: undefined });
     this.schedule(0);
   }
 
   stop(): void {
+    this.generation += 1;
     this.started = false;
     this.rerunRequested = false;
-    if (this.timer !== undefined) clearTimeout(this.timer);
+    this.timer?.cancel();
     this.timer = undefined;
     this.abortController?.abort();
-    this.abortController = undefined;
     if (this.observeBrowserLifecycle) {
       globalThis.removeEventListener?.('online', this.onlineListener);
+      globalThis.removeEventListener?.('offline', this.offlineListener);
       if (typeof document !== 'undefined') {
         document.removeEventListener('visibilitychange', this.visibilityListener);
       }
@@ -371,8 +407,16 @@ export class ProtocolSyncLoop {
    */
   hint(): void {
     if (!this.started) return;
+    if (!this.isOnline()) {
+      this.enterOffline();
+      return;
+    }
+    if (this.stateValue.status === 'offline') {
+      this.transition({ status: 'idle', nextRetryAt: undefined });
+    }
     this.rerunRequested = true;
-    if (this.timer !== undefined) clearTimeout(this.timer);
+    if (this.inFlight) return;
+    this.timer?.cancel();
     this.timer = undefined;
     this.schedule(0);
   }
@@ -384,10 +428,12 @@ export class ProtocolSyncLoop {
       return this.inFlight;
     }
     const controller = new AbortController();
+    const generation = this.generation;
     this.abortController = controller;
     this.transition({ status: 'syncing', nextRetryAt: undefined, lastError: undefined });
     const running = this.performCycle(controller.signal)
       .then((result) => {
+        if (generation !== this.generation) return result;
         this.stateValue.consecutiveFailures = 0;
         this.transition({
           status: this.started ? 'idle' : 'stopped',
@@ -398,16 +444,26 @@ export class ProtocolSyncLoop {
         return result;
       })
       .catch((error) => {
-        this.transition({
-          status: this.started ? 'error' : 'stopped',
-          lastError: safeError(error),
-          nextRetryAt: undefined,
-        });
+        if (generation === this.generation) {
+          this.transition({
+            status: this.started ? 'error' : 'stopped',
+            lastError: safeError(error),
+            nextRetryAt: undefined,
+          });
+        }
         throw error;
       })
       .finally(() => {
-        this.inFlight = undefined;
-        this.abortController = undefined;
+        if (this.inFlight === running) this.inFlight = undefined;
+        if (this.abortController === controller) this.abortController = undefined;
+        if (
+          generation !== this.generation &&
+          this.started &&
+          this.isOnline() &&
+          this.rerunRequested
+        ) {
+          this.schedule(0);
+        }
       });
     this.inFlight = running;
     return running;
@@ -508,37 +564,47 @@ export class ProtocolSyncLoop {
 
   private schedule(delayMs: number): void {
     if (!this.started || this.timer !== undefined) return;
-    this.timer = setTimeout(() => {
-      this.timer = undefined;
-      void this.drive();
-    }, delayMs);
+    const generation = this.generation;
+    let scheduled: ProtocolSyncTimer;
+    scheduled = this.timerFactory(delayMs, () => {
+      const isCurrent = this.timer === scheduled;
+      if (isCurrent) this.timer = undefined;
+      if (!isCurrent || generation !== this.generation || !this.started) return;
+      void this.drive(generation);
+    });
+    this.timer = scheduled;
   }
 
-  private async drive(): Promise<void> {
-    if (!this.started) return;
-    if (!this.isOnline()) {
-      this.transition({ status: 'offline', nextRetryAt: undefined });
-      return;
-    }
+  private async drive(generation: number): Promise<void> {
+    if (!this.started || generation !== this.generation) return;
     if (this.inFlight) {
       this.rerunRequested = true;
+      return;
+    }
+    if (!this.isOnline()) {
+      this.enterOffline();
       return;
     }
     this.rerunRequested = false;
     try {
       const result = await this.syncNow();
+      if (generation !== this.generation) return;
       if (this.started && (this.rerunRequested || result.hasMorePending)) {
         this.schedule(0);
       }
     } catch (error) {
-      if (!this.started || (error instanceof Error && error.name === 'AbortError')) {
+      if (
+        !this.started ||
+        generation !== this.generation ||
+        (error instanceof Error && error.name === 'AbortError')
+      ) {
         return;
       }
       if (error instanceof SyncTransportError && !error.retryable) {
         this.transition({ status: 'error', nextRetryAt: undefined });
         return;
       }
-      const failures = this.stateValue.consecutiveFailures + 1;
+      const failures = Math.min(this.stateValue.consecutiveFailures + 1, 31);
       const retryAfter =
         error instanceof SyncTransportError ? error.retryAfterMs ?? 0 : 0;
       const delay = computeRetryDelay(
@@ -556,6 +622,16 @@ export class ProtocolSyncLoop {
       });
       this.schedule(delay);
     }
+  }
+
+  private enterOffline(): void {
+    if (!this.started || this.stateValue.status === 'offline') return;
+    this.generation += 1;
+    this.rerunRequested = false;
+    this.timer?.cancel();
+    this.timer = undefined;
+    this.abortController?.abort();
+    this.transition({ status: 'offline', nextRetryAt: undefined });
   }
 
   private transition(patch: Partial<ProtocolSyncState>): void {

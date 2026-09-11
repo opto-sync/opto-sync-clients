@@ -111,6 +111,14 @@ def main() -> int:
         ROOT / "schema/opto-sync-telemetry.schema.json",
         output / "schema/opto-sync-telemetry.schema.json",
     )
+    copy_file(
+        ROOT / "schema/opto-sync-consistency.v1.schema.json",
+        output / "schema/opto-sync-consistency.v1.schema.json",
+    )
+    copy_file(
+        ROOT / "formal/consistency_vectors.v1.json",
+        output / "formal/consistency_vectors.v1.json",
+    )
     copy_file(ROOT / "LICENSE", output / "LICENSE")
     copy_file(
         ROOT / "scripts/check-dart-target.py",
@@ -138,7 +146,7 @@ def main() -> int:
         "schemaVersion": 1,
         "target": "dart",
         "package": "opto-sync/opto-sync-client-dart",
-        "clientVersion": "1.1.0",
+        "clientVersion": "1.2.0",
         "syncerVersion": "0.2.1",
         "clientSourceSha": client_sha,
         "syncerSourceSha": nested_sha,
@@ -146,7 +154,7 @@ def main() -> int:
         "bindingPubspecSha256": sha256(binding_pubspec),
         "bindingPubLockSha256": sha256(binding_lock),
         "coreResolution": "bundled-source",
-        "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.4.0",
+        "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.5.0",
         "coexistenceRule": (
             "all installed opto-sync targets must resolve the same syncerSourceSha"
         ),
@@ -168,7 +176,7 @@ def main() -> int:
         '''[package]
 org = "opto-sync"
 name = "opto-sync-client-dart"
-version = "1.1.0"
+version = "1.2.0"
 description = "Clean-room Dart and Flutter sync client with bundled native and WASM cores"
 license = "MIT"
 

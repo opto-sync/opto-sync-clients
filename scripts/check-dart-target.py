@@ -115,7 +115,9 @@ def main() -> int:
         "schema/fixtures/valid/basic-upsert.json",
         "schema/fixtures/invalid/bad-table-identifier.json",
         "schema/opto-sync-telemetry.schema.json",
+        "schema/opto-sync-consistency.v1.schema.json",
         "schema/telemetry-fixtures/valid/cycle-completed.json",
+        "formal/consistency_vectors.v1.json",
         "syncer.c/SOURCE_SHA",
         "syncer.c/core/CMakeLists.txt",
         "syncer.c/core/include/syncer.h",
@@ -139,7 +141,7 @@ def main() -> int:
     expected = {
         "org": "opto-sync",
         "name": "opto-sync-client-dart",
-        "version": "1.1.0",
+        "version": "1.2.0",
         "license": "MIT",
     }
     for key, value in expected.items():
@@ -158,10 +160,10 @@ def main() -> int:
         "schemaVersion": 1,
         "target": "dart",
         "package": "opto-sync/opto-sync-client-dart",
-        "clientVersion": "1.1.0",
+        "clientVersion": "1.2.0",
         "syncerVersion": "0.2.1",
         "coreResolution": "bundled-source",
-        "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.4.0",
+        "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.5.0",
         "coexistenceRule": (
             "all installed opto-sync targets must resolve the same syncerSourceSha"
         ),
@@ -194,7 +196,7 @@ def main() -> int:
             fail(f"release-set {key} is stale")
 
     client = load_pubspec(ROOT / "clients/dart/pubspec.yaml")
-    if (client.get("name"), client.get("version")) != ("opto_sync_client", "1.1.0"):
+    if (client.get("name"), client.get("version")) != ("opto_sync_client", "1.2.0"):
         fail("unexpected Dart client package identity")
     syncer_path = client.get("syncer.path")
     if syncer_path != "../../syncer.c/bindings/dart":

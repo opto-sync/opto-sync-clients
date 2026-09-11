@@ -95,15 +95,18 @@ restoration.
 Every write declares one of three strategies rather than inheriting accidental
 framework behavior.
 
-| Strategy | Visible local state | Network completion returned to caller | Offline behavior |
-|---|---|---|---|
-| `remote-confirmed` | only after server success | required | fails |
-| `local-durable` | atomic local row + queue immediately | not awaited | fully supported |
-| `local-then-remote` | atomic local row + queue immediately | one protocol cycle awaited | local write survives; caller sees cycle failure |
+| Strategy | Canonical identity | Visible local state | Network completion returned to caller | Offline behavior |
+|---|---|---|---|---|
+| Remote-acknowledged / `remote-confirmed` | `opto.consistency.remote-acknowledged.v1` | only after exact-batch ack | required; `ambiguous` if the response is lost | fails closed |
+| Write-through / `local-then-remote` | `opto.consistency.write-through-local-first.v1` | atomic local row + queue immediately | typed pending/confirmed/rejected/ambiguous | local write survives |
+| Queued local-first / `local-durable` | `opto.consistency.queued-local-first.v1` | atomic local row + queue immediately | not awaited (`pending`) | fully supported |
 
-`local-durable` is the strongest UX/offline default. `remote-confirmed` remains
+See [CONSISTENCY_MODES.md](CONSISTENCY_MODES.md) for frozen intent, exact-batch
+acknowledgement, and deterministic local-plus-remote read reconciliation.
+
+`queued-local-first` / `local-durable` is the strongest UX/offline default. `remote-acknowledged` remains
 appropriate for operations that are meaningless without server authorization or
-inventory allocation. `local-then-remote` is useful when the screen may update
+inventory allocation. Write-through is useful when the screen may update
 optimistically but navigation/completion should wait for a confirmed cycle.
 
 ## Reactive read model

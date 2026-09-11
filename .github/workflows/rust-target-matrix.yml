@@ -5,6 +5,8 @@ on:
     paths:
       - 'clients/rust/**'
       - 'schema/fixtures/**'
+      - 'schema/opto-sync-consistency.v1.schema.json'
+      - 'formal/consistency_vectors.v1.json'
       - 'syncer.c'
       - 'targets/layouts.v1.json'
       - 'scripts/check-rust-target.py'
@@ -17,6 +19,8 @@ on:
     paths:
       - 'clients/rust/**'
       - 'schema/fixtures/**'
+      - 'schema/opto-sync-consistency.v1.schema.json'
+      - 'formal/consistency_vectors.v1.json'
       - 'syncer.c'
       - 'targets/layouts.v1.json'
       - 'scripts/check-rust-target.py'
@@ -135,6 +139,8 @@ jobs:
             'pkg/schema/fixtures/valid/basic-upsert.json'
             'pkg/schema/fixtures/valid/nested-keyed-arrays.json'
             'pkg/schema/fixtures/invalid/bad-table-identifier.json'
+            'pkg/schema/opto-sync-consistency.v1.schema.json'
+            'pkg/formal/consistency_vectors.v1.json'
             'pkg/syncer.c/SOURCE_SHA'
             'pkg/syncer.c/core/include/syncer.h'
             'pkg/syncer.c/core/src/syncer.c'

@@ -96,3 +96,16 @@ test('local-then-remote exposes optimistic state but awaits one protocol cycle',
   assert.equal(result.status, 'confirmed');
   assert.deepEqual(result.syncResult, { acknowledgedMutations: 1 });
 });
+
+test('canonical consistency ids map onto the existing strategy table', async () => {
+  const state = harness();
+  const result = await writeWithOptimism({
+    strategy: 'opto.consistency.queued-local-first.v1',
+    session,
+    value: { title: 'offline' },
+    ...state,
+  });
+  assert.deepEqual(state.calls, ['local:offline', 'hint', 'wake']);
+  assert.equal(result.strategy, SYNC_OPTIMISM.localDurable);
+  assert.equal(result.status, 'queued');
+});

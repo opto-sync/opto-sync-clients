@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "opto-sync.form-envelope-identity.schema.json",
+  "$defs": {
+    "FormSchemaVersion": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "FormSchemaVersion",
+      "type": "string",
+      "enum": ["opto-sync.form.v1"]
+    },
+    "FormMode": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "FormMode",
+      "type": "string",
+      "enum": ["native", "htmx", "manual"]
+    },
+    "FormEnvelopeIdentity": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "FormEnvelopeIdentity",
+      "type": "object",
+      "properties": {
+        "schemaVersion": { "$ref": "FormSchemaVersion" },
+        "submissionId": { "type": "string" },
+        "formName": { "type": "string" },
+        "mode": { "$ref": "FormMode" },
+        "queuedAt": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "action": { "type": "string" },
+        "method": { "type": "string" },
+        "sourceUrl": { "type": "string" }
+      },
+      "required": [
+        "schemaVersion",
+        "submissionId",
+        "formName",
+        "mode",
+        "queuedAt",
+        "createdAt",
+        "updatedAt"
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}
