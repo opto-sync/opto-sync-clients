@@ -22,6 +22,39 @@ void main() {
     await watcher.close();
   });
 
+  test('connectivity transitions replace snapshots instead of mutating them', () async {
+    final times = <DateTime>[
+      DateTime.utc(2026, 9, 11, 12),
+      DateTime.utc(2026, 9, 11, 12, 1),
+      DateTime.utc(2026, 9, 11, 12, 2),
+    ].iterator;
+    final watcher = ManualOptoSyncConnectivityWatcher(now: () {
+      expect(times.moveNext(), isTrue);
+      return times.current;
+    });
+    final before = watcher.snapshot;
+
+    final linked = watcher.publish(OptoSyncConnectivityState.link);
+
+    expect(identical(before, linked), isFalse);
+    expect(before.state, OptoSyncConnectivityState.unknown);
+    expect(before.source, OptoSyncConnectivitySource.initial);
+    expect(linked.state, OptoSyncConnectivityState.link);
+    expect(linked.source, OptoSyncConnectivitySource.manual);
+    expect(linked.changedAt, DateTime.utc(2026, 9, 11, 12, 1));
+
+    final sameState = watcher.publish(
+      OptoSyncConnectivityState.link,
+      source: OptoSyncConnectivitySource.platform,
+    );
+    expect(identical(linked, sameState), isFalse);
+    expect(linked.source, OptoSyncConnectivitySource.manual);
+    expect(sameState.source, OptoSyncConnectivitySource.platform);
+    expect(sameState.changedAt, linked.changedAt);
+
+    await watcher.close();
+  });
+
   test('save signal runs only after durable operation resolves', () async {
     final watcher = ManualOptoSyncConnectivityWatcher(
       initialState: OptoSyncConnectivityState.internet,
