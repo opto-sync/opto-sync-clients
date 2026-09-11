@@ -43,6 +43,38 @@ final class OptoSyncConnectivitySnapshot {
   };
 }
 
+typedef _ConnectivityTransition = ({
+  OptoSyncConnectivitySnapshot snapshot,
+  bool changed,
+});
+
+/// Pure domain transition used by the stateful watcher shell.
+///
+/// The watcher owns stream/subscription lifecycle state, but connectivity domain
+/// state is always represented by a brand-new immutable snapshot. Keeping the
+/// clock value explicit makes the transition deterministic and independently
+/// testable while avoiding any mutation of the previous snapshot.
+_ConnectivityTransition _nextConnectivitySnapshot({
+  required OptoSyncConnectivitySnapshot previous,
+  required OptoSyncConnectivityState state,
+  required OptoSyncConnectivityMode mode,
+  required OptoSyncConnectivitySource source,
+  required DateTime observedAt,
+  DateTime? verifiedAt,
+}) {
+  final changed = state != previous.state || mode != previous.mode;
+  return (
+    snapshot: OptoSyncConnectivitySnapshot(
+      state: state,
+      mode: mode,
+      source: source,
+      changedAt: changed ? observedAt : previous.changedAt,
+      verifiedAt: verifiedAt,
+    ),
+    changed: changed,
+  );
+}
+
 abstract interface class OptoSyncConnectivityWatcher {
   OptoSyncConnectivitySnapshot get snapshot;
   Stream<OptoSyncConnectivitySnapshot> get changes;
@@ -111,20 +143,23 @@ final class ManualOptoSyncConnectivityWatcher
   @override
   void setMode(OptoSyncConnectivityMode mode) {
     if (_closed || mode == _current.mode) return;
-    if (mode == OptoSyncConnectivityMode.offline) {
-      _transition(
-        state: OptoSyncConnectivityState.offline,
-        mode: OptoSyncConnectivityMode.offline,
-        source: OptoSyncConnectivitySource.forcedOffline,
-      );
-      return;
-    }
-    _transition(
-      state: _automatic.state,
-      mode: OptoSyncConnectivityMode.automatic,
-      source: _automatic.source,
-      verifiedAt: _automatic.verifiedAt,
-    );
+    final transition = mode == OptoSyncConnectivityMode.offline
+        ? _nextConnectivitySnapshot(
+            previous: _current,
+            state: OptoSyncConnectivityState.offline,
+            mode: OptoSyncConnectivityMode.offline,
+            source: OptoSyncConnectivitySource.forcedOffline,
+            observedAt: _now(),
+          )
+        : _nextConnectivitySnapshot(
+            previous: _current,
+            state: _automatic.state,
+            mode: OptoSyncConnectivityMode.automatic,
+            source: _automatic.source,
+            observedAt: _now(),
+            verifiedAt: _automatic.verifiedAt,
+          );
+    _applyCurrentTransition(transition);
   }
 
   void setTotalOffline(bool enabled) => setMode(
@@ -144,19 +179,25 @@ final class ManualOptoSyncConnectivityWatcher
     final verified = state == OptoSyncConnectivityState.internet
         ? verifiedAt ?? observedAt
         : null;
-    _automatic = OptoSyncConnectivitySnapshot(
+    final nextAutomatic = _nextConnectivitySnapshot(
+      previous: _automatic,
       state: state,
       mode: OptoSyncConnectivityMode.automatic,
       source: source,
-      changedAt: state == _automatic.state ? _automatic.changedAt : observedAt,
+      observedAt: observedAt,
       verifiedAt: verified,
     );
+    _automatic = nextAutomatic.snapshot;
     if (_current.mode == OptoSyncConnectivityMode.automatic) {
-      _transition(
-        state: state,
-        mode: OptoSyncConnectivityMode.automatic,
-        source: source,
-        verifiedAt: verified,
+      _applyCurrentTransition(
+        _nextConnectivitySnapshot(
+          previous: _current,
+          state: state,
+          mode: OptoSyncConnectivityMode.automatic,
+          source: source,
+          observedAt: observedAt,
+          verifiedAt: verified,
+        ),
       );
     }
     return _current;
@@ -168,21 +209,13 @@ final class ManualOptoSyncConnectivityWatcher
     await _controller.close();
   }
 
-  void _transition({
-    required OptoSyncConnectivityState state,
-    required OptoSyncConnectivityMode mode,
-    required OptoSyncConnectivitySource source,
-    DateTime? verifiedAt,
-  }) {
-    final changed = state != _current.state || mode != _current.mode;
-    _current = OptoSyncConnectivitySnapshot(
-      state: state,
-      mode: mode,
-      source: source,
-      changedAt: changed ? _now() : _current.changedAt,
-      verifiedAt: verifiedAt,
-    );
-    if (changed) _controller.add(_current);
+  void _applyCurrentTransition(_ConnectivityTransition transition) {
+    // This assignment is the intentional stateful shell around the pure
+    // transition function. A StreamController is a resource/lifecycle object;
+    // replacing the current snapshot pointer avoids mutating published domain
+    // values while keeping the watcher allocation and subscription model small.
+    _current = transition.snapshot;
+    if (transition.changed) _controller.add(transition.snapshot);
   }
 }
 
