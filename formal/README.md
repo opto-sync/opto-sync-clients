@@ -125,6 +125,43 @@ forever. Android and Apple OS adapters are integration-tested but are not yet
 active ITF refinements; extracting their pure reducers is tracked as the next
 native proof step in the assurance ledger.
 
+## Protocol sync scheduler model
+
+`protocol_sync_scheduler.qnt` specifies the host scheduler around a protocol
+cycle. The scheduler, rather than ad-hoc timers or completion callbacks, is the
+authority for `stopped`, `idle`, `syncing`, `offline`, `backoff`, and `error`.
+It makes the current timer and cycle generations explicit, coalesces a trailing
+wake while a cycle is active, orders reset installation, bounds diagnostic
+failure counters, and treats completions from an older generation as stale.
+
+The composed `scheduler_safety` invariant requires that network work is owned
+by exactly the current syncing generation, stopped and offline phases own no
+network work, reset installation occurs only inside that cycle, current timers
+belong to the current generation, and the failure counter stays bounded. The
+simulator separately requires reachability of stop/offline during a cycle,
+online recovery, retryable and permanent failure, reset, malformed response,
+paging reruns, trailing wakes, and stale timer and cycle callbacks.
+
+TLC checks three conditional progress claims: a current scheduled timer runs,
+an active cycle settles, and retry backoff ends. These claims assume strong
+fairness only for host-owned timer delivery, cycle settlement, and reset
+completion. Connectivity is deliberately not fair: neither the model nor the
+SDK promises that a device eventually comes online.
+
+One deterministic 256-trace ITF corpus is replayed through the production Rust
+`ProtocolSyncScheduler` and `ProtocolSyncDriver`, TypeScript
+`ProtocolSyncLoop`, and Dart `ProtocolSyncLoop`. Each adapter requires all 20
+model actions and all 11 critical state-dependent scenarios. The timer factory
+is a public, injectable host boundary so replay controls real production loops
+without sleeping or duplicating their scheduler logic.
+
+This scheduler proof covers background orchestration through `start`, `stop`,
+connectivity, timers, and `hint`. An application may also invoke a one-shot
+`syncNow` cycle directly; its queue/pull/reset behavior is covered by the
+protocol model and runtime suites, but that explicit caller-driven invocation
+is outside the scheduler temporal theorem. OS process survival and eventual
+network recovery are likewise not claimed.
+
 ## Run locally
 
 The canonical entry point is `fmctl`. Local runs require Node.js 22, Java 17 or
@@ -156,7 +193,8 @@ $FMCTL replay --adapter dart "${traces[@]}"
 
 for manifest in \
   formal/mobile_desktop_lifecycle.fm.toml \
-  formal/connectivity_override.fm.toml; do
+  formal/connectivity_override.fm.toml \
+  formal/protocol_sync_scheduler.fm.toml; do
   $FMCTL --manifest "$manifest" validate
   $FMCTL --manifest "$manifest" check
   $FMCTL --manifest "$manifest" simulate

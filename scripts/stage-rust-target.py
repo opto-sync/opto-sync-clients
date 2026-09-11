@@ -161,14 +161,14 @@ def main() -> int:
         "schemaVersion": 1,
         "target": "rust",
         "clientPackage": "opto-sync-client",
-        "clientVersion": "0.2.0",
+        "clientVersion": "0.3.0",
         "syncerPackage": "syncer-rs",
         "syncerVersion": "0.2.1",
         "clientSourceSha": client_sha,
         "syncerSourceSha": gitlink_sha,
         "cargoLockSha256": lock_hash,
         "coreResolution": "bundled-source",
-        "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.4.0",
+        "wholeRepositoryPackage": "opto-sync/opto-sync-clients@0.5.0",
         "coexistenceRule": (
             "all installed opto-sync targets must resolve the same syncerSourceSha"
         ),
@@ -183,7 +183,7 @@ def main() -> int:
         """[package]
 org = "opto-sync"
 name = "opto-sync-client-rust"
-version = "0.2.0"
+version = "0.3.0"
 description = "Clean-room Rust optimistic-sync client with the exact bundled syncer.c core"
 license = "MIT"
 repository = { type = "git", url = "https://github.com/opto-sync/opto-sync-clients" }

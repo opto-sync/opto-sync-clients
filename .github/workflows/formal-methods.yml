@@ -105,6 +105,19 @@ jobs:
           nix develop --command tools/fmctl/target/release/fmctl
           --manifest formal/mobile_desktop_lifecycle.fm.toml trace
 
+      - name: Check protocol scheduler safety and conditional progress
+        run: |
+          scheduler_manifest='formal/protocol_sync_scheduler.fm.toml'
+          nix develop --command tools/fmctl/target/release/fmctl --manifest "$scheduler_manifest" validate
+          nix develop --command tools/fmctl/target/release/fmctl --manifest "$scheduler_manifest" check
+          nix develop --command tools/fmctl/target/release/fmctl --manifest "$scheduler_manifest" simulate
+          nix develop --command tools/fmctl/target/release/fmctl --manifest "$scheduler_manifest" verify
+
+      - name: Generate the deterministic scheduler refinement corpus
+        run: >-
+          nix develop --command tools/fmctl/target/release/fmctl
+          --manifest formal/protocol_sync_scheduler.fm.toml trace
+
       - name: Exhaustively check connectivity override safety
         run: |
           connectivity_manifest='formal/connectivity_override.fm.toml'
@@ -152,6 +165,18 @@ jobs:
         run: |
           set -euo pipefail
           nix develop --command cargo fmt \
+            --manifest-path clients/rust/Cargo.toml \
+            -- --check
+          nix develop --command cargo clippy \
+            --locked \
+            --manifest-path clients/rust/Cargo.toml \
+            --all-targets \
+            -- -D warnings
+          nix develop --command cargo test \
+            --locked \
+            --manifest-path clients/rust/Cargo.toml \
+            --all-targets
+          nix develop --command cargo fmt \
             --manifest-path formal/rust-itf-replay/Cargo.toml \
             -- --check
           nix develop --command cargo clippy \
@@ -188,6 +213,8 @@ jobs:
             nix develop ../.. --command node --check ../../formal/typescript-itf-replay.mjs
             nix develop ../.. --command node --experimental-strip-types \
               --check ../../formal/typescript-lifecycle-itf-replay.mjs
+            nix develop ../.. --command node --experimental-strip-types \
+              --check ../../formal/typescript-scheduler-itf-replay.mjs
             nix develop ../.. --command node \
               --check ../../formal/typescript-connectivity-itf-replay.mjs
           } 2>&1 | tee ../../.formal-artifacts/typescript-build.log
@@ -220,6 +247,7 @@ jobs:
             dart pub get
             dart format --output=none --set-exit-if-changed \
               tool/connectivity_itf_replay.dart \
+              tool/scheduler_itf_replay.dart \
               tool/formal_itf_replay.dart \
               tool/formal_itf_replay
             dart analyze
@@ -344,6 +372,51 @@ jobs:
             --adapter dart \
             "${traces[@]}" 2>&1 \
             | tee .formal-artifacts/connectivity/dart-itf-replay.log
+
+      - name: Refine the scheduler model through the Rust production driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          traces=()
+          for trace in .formal-artifacts/scheduler/opto-sync-clients-protocol-sync-scheduler-v1-*.itf.json; do
+            test -f "$trace"
+            traces+=(--trace "$trace")
+          done
+          nix develop --command tools/fmctl/target/release/fmctl \
+            --manifest formal/protocol_sync_scheduler.fm.toml replay \
+            --adapter rust \
+            "${traces[@]}" 2>&1 \
+            | tee .formal-artifacts/scheduler/rust-itf-replay.log
+
+      - name: Refine the scheduler model through the TypeScript production loop
+        shell: bash
+        run: |
+          set -euo pipefail
+          traces=()
+          for trace in .formal-artifacts/scheduler/opto-sync-clients-protocol-sync-scheduler-v1-*.itf.json; do
+            test -f "$trace"
+            traces+=(--trace "$trace")
+          done
+          nix develop --command tools/fmctl/target/release/fmctl \
+            --manifest formal/protocol_sync_scheduler.fm.toml replay \
+            --adapter typescript \
+            "${traces[@]}" 2>&1 \
+            | tee .formal-artifacts/scheduler/typescript-itf-replay.log
+
+      - name: Refine the scheduler model through the Dart production loop
+        shell: bash
+        run: |
+          set -euo pipefail
+          traces=()
+          for trace in .formal-artifacts/scheduler/opto-sync-clients-protocol-sync-scheduler-v1-*.itf.json; do
+            test -f "$trace"
+            traces+=(--trace "$trace")
+          done
+          tools/fmctl/target/release/fmctl \
+            --manifest formal/protocol_sync_scheduler.fm.toml replay \
+            --adapter dart \
+            "${traces[@]}" 2>&1 \
+            | tee .formal-artifacts/scheduler/dart-itf-replay.log
 
       - name: Upload verifier, trace, lockfile, and normalized fmctl artifacts
         if: always()

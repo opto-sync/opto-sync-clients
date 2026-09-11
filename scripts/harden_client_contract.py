@@ -411,7 +411,7 @@ def baseline_symbols(cap: str) -> list[dict[str, Any]]:
 
 
 def declared_interface_sources(root: Path) -> list[dict[str, str]]:
-    """Read the canonical ``*-interfaces`` dependencies from .zpkg.toml."""
+    """Read installable or explicitly recorded ``*-interfaces`` sources."""
 
     manifest_path = root / ".zpkg.toml"
     if not manifest_path.is_file():
@@ -437,7 +437,22 @@ def declared_interface_sources(root: Path) -> list[dict[str, str]]:
                 "schemaDialect": "https://json-schema.org/draft/2020-12/schema",
             }
         )
-    return sources
+    if sources:
+        return sources
+
+    # An SDK schema source may precede an immutable registry release. Preserve
+    # that reviewed contract without misrepresenting it as an installable Zed
+    # dependency; the package gate independently requires an empty dependency
+    # table until the public registry can resolve the coordinate.
+    surface_path = root / "clients/api-surface.json"
+    if not surface_path.is_file():
+        return []
+    surface = json.loads(surface_path.read_text(encoding="utf-8"))
+    package = surface.get("package", {}) if isinstance(surface, dict) else {}
+    recorded = package.get("interfaces", []) if isinstance(package, dict) else []
+    if not isinstance(recorded, list):
+        return []
+    return [entry for entry in recorded if isinstance(entry, dict)]
 
 
 def baseline_surface(
@@ -821,6 +836,19 @@ def ensure_manifest(root: Path, org: str, repo: str, target_dirs: dict[str, Path
             repository_target["dir"] = "."
             repository_target.pop("adapter", None)
             del targets["contract"]
+
+    # A client directory that reaches the root native gitlink is not a
+    # standalone registry artifact. Keep the API/conformance matrix broad, but
+    # fail closed at the packaging boundary by publishing only the complete
+    # repository until clean-room target staging owns a materialized core.
+    if (root / ".gitmodules").is_file() and (root / "syncer.c").is_dir():
+        for name in list(targets):
+            if name != "repository":
+                del targets[name]
+        rendered = tomlkit.dumps(data)
+        tomllib.loads(rendered)
+        write_text(path, rendered, changed)
+        return
 
     for spec in TARGETS:
         if not spec.publish:

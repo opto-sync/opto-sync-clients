@@ -50,6 +50,12 @@ retention snapshots and reverts in-memory queue/checkpoint changes when durable
 persistence fails. Run it on a worker thread or a runtime blocking boundary;
 WebSocket or Supabase Realtime notifications are wake-up hints.
 
+`protocol_scheduler::ProtocolSyncScheduler` is the runtime-neutral authority
+around those cycles. Hosts feed it timer, connectivity, wake, reset, page, and
+cycle-settlement events; invalid transitions fail without mutation. Its intent
+generation makes cancelled timers and late cycle completions stutter instead
+of overwriting a newer stop/offline/restart decision.
+
 Implement:
 
 - `ProtocolTransport` for push, pull, and snapshot HTTP;

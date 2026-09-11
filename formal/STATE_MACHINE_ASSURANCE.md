@@ -1,6 +1,6 @@
 # State-machine assurance ledger
 
-Audit date: 2026-08-22
+Audit date: 2026-08-29
 
 This ledger answers a narrower and more useful question than “is opto-sync
 formally verified?”: for each critical state machine, which properties are
@@ -34,7 +34,7 @@ arbitrary application callback.
 | Connectivity total-offline override and cached automatic state | High | M3 for TS/Dart core; T for native bridges | Forced offline is authoritative; cached observations cannot leak; restore exposes the latest cache; setters are idempotent; only semantic changes emit | Production TypeScript and Dart manual watchers replay one shared 64-trace corpus covering all 8 actions and both repeated same-mode setter scenarios | Android `ConnectivityManager`, Apple `NWPathMonitor`/probe callbacks, Flutter method-channel ordering, and native locks are integration-tested rather than trace-refined |
 | Rust mutation allocation, batch bounds, and acknowledgement watermark arithmetic | High | M1 | Bounded production predicates cannot allocate invalid identities, exceed limits, or acknowledge outside permitted bounds | Kani harnesses call production Rust predicates | No temporal scheduling or durable-restart claim |
 | C timestamp comparator and Rust FFI discriminants in pinned `syncer.c` | High | M1 | Bounded comparator ordering/antisymmetry and invalid ABI guards; C/Rust strategy-discriminant agreement | CBMC includes the production C translation unit; Kani checks production Rust binding constants | The bound is the documented timestamp domain, not arbitrary JSON reconciliation |
-| TypeScript/Dart protocol sync-loop scheduler (`stopped`, `idle`, `syncing`, `offline`, `backoff`, `error`) | Critical | T | Single-flight execution, retry/backoff, reset ordering, paging bounds, malformed-response failure, stop/abort behavior | Runtime unit, fault, and live PostgreSQL tests | No temporal model or shared Rust/TS/Dart scheduler refinement yet |
+| Protocol sync-loop scheduler (`stopped`, `idle`, `syncing`, `offline`, `backoff`, `error`) | Critical | M3 | Current-generation ownership; stale callback suppression; single flight; coalesced wake; offline/stop safety; bounded retry state; ordered reset; conditional timer, cycle, and backoff progress | Production Rust scheduler/driver, TypeScript loop, and Dart loop replay one shared 256-trace corpus covering all 20 actions and 11 critical scenarios | Direct caller-driven `syncNow` invocation is covered by protocol/runtime tests rather than this scheduler theorem; the network, host timer service, callbacks, process survival, and connectivity recovery remain assumptions; liveness is conditional on named strong-fairness assumptions |
 | Rust/Dart SQLite desktop lease, fencing, wake generation, renewal, and recovery | Critical | T | Cross-process exclusion, stale-fence rejection, expiry takeover, renewal, completion, crash recovery | Native SQLite and subprocess tests | No exhaustive lease/fencing model; real time, SQLite locking, and process death remain environmental dimensions |
 | WebSocket request multiplexing and reconnect lifecycle | High | T | Correlation, timeout, close failure, retryability, bounded fallback, reconnect backoff | Rust/TypeScript/Dart transport tests | No common connection-state model; socket and timer scheduling are not refined |
 | Browser service-worker and Android/iOS background scheduler registration | High | T | Bounded invocation, retry/failure mapping, offline suppression, platform adapter structure | Browser, Flutter, Kotlin, Java, Swift, and Objective-C tests/static gates | Browser/OS delivery is best effort by platform contract and cannot honestly be promised as liveness |
@@ -50,6 +50,7 @@ that future extensions must preserve.
 | `opto_sync_protocol.qnt` | 297,526 generated / 29,497 distinct; depth 26 | 2 | 16 traces, 17/17 actions required |
 | `mobile_desktop_lifecycle.qnt` | 301 generated / 58 distinct; depth 11 | 3 | 128 traces; 12/12 actions and 7/7 critical scenarios required |
 | `connectivity_override.qnt` | 645 generated / 92 distinct; depth 8 | None: no pending environmental operation exists in this abstraction | 64 traces; 8/8 actions and 2/2 idempotence scenarios required |
+| `protocol_sync_scheduler.qnt` | 5,885,676 generated / 931,034 distinct; depth 86 | 3 | 256 traces; 20/20 actions and 11/11 critical scenarios required |
 
 The connectivity model deliberately has no liveness theorem. A network observer
 may remain silent forever, and an application may leave total-offline mode
@@ -77,22 +78,24 @@ environment.
    checks, simulates, exhaustively verifies, generates deterministic corpora,
    validates adapters, and replays both lifecycle and connectivity models in
    addition to the protocol model.
+5. The runtime protocol loops had single-flight tests but no shared authority
+   for timer ownership or old asynchronous completions. The scheduler model and
+   production implementations now carry a monotonic generation, reject stale
+   timer and cycle settlements, and enter offline directly when startup occurs
+   without connectivity. Random simulation found the offline-start timer
+   invariant violation before publication; the corrected path is exercised by
+   the shared refinement corpus.
 
 ## Highest-priority remaining proof work
 
-1. Model the protocol sync-loop scheduler, including single flight, coalesced
-   hints, stop during an active cycle, offline recovery, retryable versus
-   permanent failure, bounded backoff, and “has more pending” reruns. Refine the
-   TypeScript and Dart loops and the closest Rust driver projection through one
-   corpus.
-2. Model the durable SQLite lease/fencing coordinator with two processes, lease
+1. Model the durable SQLite lease/fencing coordinator with two processes, lease
    expiry, wake generations, renewal, crash, stale completion, and takeover.
    Replay through Rust and Dart against an abstract clock before adding selected
    Loom interleavings for the in-process wrapper.
-3. Separate the WebSocket connection/reconnect machine from protocol request
+2. Separate the WebSocket connection/reconnect machine from protocol request
    semantics, then refine the Rust, TypeScript, and Dart transports with a
    deterministic fake socket and fake clock.
-4. Extract the cache/override reducer from Android and Apple OS adapters so
+3. Extract the cache/override reducer from Android and Apple OS adapters so
    Kotlin and Swift can consume the same ITF connectivity corpus without
    requiring live platform networking frameworks. Java and Objective-C wrappers
    should remain thin delegation tests rather than duplicate models.
