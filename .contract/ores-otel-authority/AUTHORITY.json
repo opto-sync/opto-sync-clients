@@ -1,0 +1,10 @@
+{
+  "repository": "ores-otel/ores-otel-interfaces",
+  "commit": "b544872d13323de7be19a9d5879c419149679f7a",
+  "contract": "contracts/ores-otel-config.v1",
+  "files": {
+    "main.tsp": "f6a21d7c29ddd62a4d2e7e8743f88e55eb77a0d8",
+    "authored.schema.json": "adbc84d51ec3adace217582dbcbcba1b7f4983a7"
+  },
+  "role": "immutable CI snapshot; upstream remains the authority"
+}

@@ -1,0 +1,71 @@
+name: ORES OTEL config contract
+
+on:
+  pull_request:
+    paths:
+      - '.ores-otel.toml'
+      - '.contract/ores-otel-authority/**'
+      - '.github/workflows/ores-otel-config-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - '.ores-otel.toml'
+      - '.contract/ores-otel-authority/**'
+      - '.github/workflows/ores-otel-config-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ores-otel-config-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact consumer head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Verify immutable telemetry authority snapshot provenance
+        run: |
+          set -euo pipefail
+          test "$(git hash-object .contract/ores-otel-authority/main.tsp)" = "f6a21d7c29ddd62a4d2e7e8743f88e55eb77a0d8"
+          test "$(git hash-object .contract/ores-otel-authority/authored.schema.json)" = "adbc84d51ec3adace217582dbcbcba1b7f4983a7"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          provenance = json.loads(Path('.contract/ores-otel-authority/AUTHORITY.json').read_text())
+          assert provenance['repository'] == 'ores-otel/ores-otel-interfaces'
+          assert provenance['commit'] == 'b544872d13323de7be19a9d5879c419149679f7a'
+          assert provenance['files']['main.tsp'] == 'f6a21d7c29ddd62a4d2e7e8743f88e55eb77a0d8'
+          assert provenance['files']['authored.schema.json'] == 'adbc84d51ec3adace217582dbcbcba1b7f4983a7'
+          PY
+
+      - name: Parse TOML into the cross-runtime contract object
+        run: |
+          mkdir -p .contract/instances/OresOtelConfigV1/valid
+          python3 - <<'PY'
+          import json
+          import tomllib
+          from pathlib import Path
+          with Path('.ores-otel.toml').open('rb') as f:
+              value = tomllib.load(f)
+          out = Path('.contract/instances/OresOtelConfigV1/valid/repository.json')
+          out.write_text(json.dumps(value, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          PY
+
+      - name: Enforce both authored authorities with TJSV
+        uses: ORESoftware/typespec-json-schema-validator@4a5d049218adc2740d4cf78f612caf7f38f6f64c
+        with:
+          typespec: .contract/ores-otel-authority/main.tsp
+          schema: .contract/ores-otel-authority/authored.schema.json
+          instances: .contract/instances
+          report: .contract/tjsv-report.json
+          contract_ir: .contract/tjsv-contract-ir.json
+          output_dir: .contract/generated
+          quiet: 'false'
