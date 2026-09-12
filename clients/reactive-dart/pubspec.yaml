@@ -11,3 +11,5 @@ dependencies:
     path: ../dart
   rxdart: 0.28.0
   sqlite3: ^3.5.0
+dev_dependencies:
+  test: ^1.25.0

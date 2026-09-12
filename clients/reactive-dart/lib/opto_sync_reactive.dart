@@ -7,4 +7,7 @@ export 'src/live_hints.dart';
 export 'src/optimism.dart';
 export 'src/reactive_record.dart';
 export 'src/session_lifecycle.dart';
+export 'src/ridl_frame.dart';
+export 'src/ridl_rpc.dart';
+export 'src/ridl_sync.dart';
 export 'src/sync_lifecycle.dart';
