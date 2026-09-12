@@ -77,3 +77,4 @@ sops-private*.txt
 tmp/
 temp/
 .typespec-json-schema-validator/
+# Sanctioned scratch locations - AGENTS.md requires both, trailing-slash form
