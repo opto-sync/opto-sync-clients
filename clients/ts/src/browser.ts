@@ -42,6 +42,7 @@ export * as queue from './client.js';
 export * as clock from './clock.js';
 export * as protocol from './protocol.js';
 export * as syncLoop from './sync-loop.js';
+export * as caughtUp from './caught-up.js';
 export * as transports from './transport/ws.js';
 export * as crossTab from './cross-tab.js';
 export * as backgroundSync from './register-sw.js';
@@ -122,6 +123,21 @@ export {
   SyncTransportError,
   computeRetryDelay,
 } from './sync-loop.js';
+export {
+  CaughtUpBarrierError,
+  awaitCaughtUp,
+  checkpointReached,
+  requestAndAwaitCaughtUp,
+  validateAuthoritativeCheckpointTarget,
+} from './caught-up.js';
+export type {
+  AuthoritativeCheckpointRequester,
+  AuthoritativeCheckpointTarget,
+  AwaitCaughtUpOptions,
+  CaughtUpBarrierErrorCode,
+  CaughtUpResult,
+  CaughtUpSyncLoop,
+} from './caught-up.js';
 export type {
   ProtocolTransport,
   ProtocolQueueAdapter,
@@ -258,19 +274,15 @@ export function initOptoSync(options?: InitOptoSyncOptions): Promise<void> {
   return initPromise;
 }
 
-/** True once the wasm engine is installed and reconciling is safe. */
-export function isOptoSyncReady(): boolean {
-  return hasMergeEngine();
+/** Construct a client after guaranteeing the wasm engine is ready. */
+export async function createOptoSyncClient(
+  options?: OptoSyncClientOptions,
+): Promise<OptoSyncClient> {
+  await initOptoSync();
+  return new OptoSyncClient(options);
 }
 
-/**
- * Async factory: initialize the engine (if needed) and hand back a client.
- * Equivalent to `await initOptoSync(); new OptoSyncClient(options)`.
- */
-export async function createOptoSyncClient(
-  options?: OptoSyncClientOptions & { init?: InitOptoSyncOptions },
-): Promise<OptoSyncClient> {
-  const { init, ...clientOptions } = options ?? {};
-  await initOptoSync(init);
-  return new OptoSyncClient(clientOptions);
+/** Whether initOptoSync() has completed successfully. */
+export function isOptoSyncInitialized(): boolean {
+  return hasMergeEngine();
 }
