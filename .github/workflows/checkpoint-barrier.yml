@@ -1,0 +1,74 @@
+name: checkpoint-barrier
+
+on:
+  pull_request:
+    paths:
+      - 'contract/checkpoint-barrier.v1.tsp'
+      - 'schema/opto-sync-checkpoint-barrier.v1.schema.json'
+      - 'schema/check-checkpoint-barrier-parity.mjs'
+      - 'formal/checkpoint_barrier_vectors.v1.json'
+      - 'clients/ts/src/caught-up.ts'
+      - 'clients/ts/src/index.ts'
+      - 'clients/ts/src/browser.ts'
+      - 'clients/ts/test/caught-up.test.mjs'
+      - 'clients/dart/lib/caught_up.dart'
+      - 'clients/dart/test/caught_up_test.dart'
+      - 'clients/rust/src/caught_up.rs'
+      - 'clients/rust/tests/caught_up_compile.rs'
+      - '.github/workflows/checkpoint-barrier.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node schema/check-checkpoint-barrier-parity.mjs
+
+  typescript:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/ts
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: clients/ts/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: node --test test/caught-up.test.mjs
+
+  dart:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/dart
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+      - run: dart pub get
+      - run: dart format --output=none --set-exit-if-changed lib/caught_up.dart test/caught_up_test.dart
+      - run: dart analyze lib/caught_up.dart test/caught_up_test.dart
+      - run: dart test test/caught_up_test.dart
+
+  rust:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+      - run: cargo test --test caught_up_compile
