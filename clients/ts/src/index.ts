@@ -27,6 +27,7 @@ export * as queue from './client.js';
 export * as clock from './clock.js';
 export * as protocol from './protocol.js';
 export * as syncLoop from './sync-loop.js';
+export * as caughtUp from './caught-up.js';
 export * as transports from './transport/ws.js';
 export * as crossTab from './cross-tab.js';
 export * as backgroundSync from './register-sw.js';
@@ -110,6 +111,21 @@ export {
   SyncTransportError,
   computeRetryDelay,
 } from './sync-loop.js';
+export {
+  CaughtUpBarrierError,
+  awaitCaughtUp,
+  checkpointReached,
+  requestAndAwaitCaughtUp,
+  validateAuthoritativeCheckpointTarget,
+} from './caught-up.js';
+export type {
+  AuthoritativeCheckpointRequester,
+  AuthoritativeCheckpointTarget,
+  AwaitCaughtUpOptions,
+  CaughtUpBarrierErrorCode,
+  CaughtUpResult,
+  CaughtUpSyncLoop,
+} from './caught-up.js';
 export {
   OPTO_SYNC_TELEMETRY_SCHEMA,
   createProtocolSyncTelemetryRecord,
