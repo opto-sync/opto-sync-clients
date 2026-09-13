@@ -1,0 +1,308 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "version": 1,
+  "updated": "2026-09-12",
+  "statusValues": [
+    "implemented",
+    "partial",
+    "missing",
+    "not-applicable"
+  ],
+  "policy": {
+    "parityDefinition": "Behavioral capability parity. Vendor-specific architecture and API names are not requirements.",
+    "implementedGate": "A capability may be marked implemented only when evidence includes a public API or protocol contract plus deterministic test/runtime evidence.",
+    "localStores": [
+      "IndexedDB",
+      "SQLite"
+    ],
+    "primaryRuntimes": [
+      "typescript",
+      "dart",
+      "rust"
+    ]
+  },
+  "comparators": [
+    {
+      "id": "linear",
+      "name": "Linear",
+      "reference": "https://linear.app/now/rebuilding-delta-sync-read-path",
+      "focus": [
+        "local-first foreground state",
+        "ordered checkpoint delta catch-up",
+        "permission/subscription filtered deltas",
+        "replay-safe serving"
+      ]
+    },
+    {
+      "id": "powersync",
+      "name": "PowerSync",
+      "reference": "https://powersync.com/blog/checkpoint-requests-client-synced-now",
+      "focus": [
+        "SQLite local store",
+        "partial sync",
+        "checkpoint requests",
+        "durable upload queue"
+      ]
+    },
+    {
+      "id": "rxdb",
+      "name": "RxDB",
+      "reference": "https://rxdb.info/replication.html",
+      "focus": [
+        "IndexedDB replication",
+        "checkpoints",
+        "multi-tab leadership",
+        "custom conflict handling"
+      ]
+    },
+    {
+      "id": "tanstack-db",
+      "name": "TanStack DB",
+      "reference": "https://tanstack.com/db/latest/docs/guides/mutations",
+      "focus": [
+        "separate optimistic overlay",
+        "optimistic transactions",
+        "rollback",
+        "wait for sync-back"
+      ]
+    },
+    {
+      "id": "livestore",
+      "name": "LiveStore",
+      "reference": "https://livestore.dev/",
+      "focus": [
+        "reactive SQLite",
+        "deterministic local state",
+        "sync status",
+        "rebuildability"
+      ]
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "durable-local-mutation-queue",
+      "status": "implemented",
+      "stores": [
+        "IndexedDB",
+        "SQLite"
+      ],
+      "runtimes": [
+        "typescript",
+        "dart",
+        "rust"
+      ],
+      "evidence": [
+        "clients/ts/src/client.ts",
+        "clients/dart",
+        "clients/rust",
+        "docs/SYNC_PATTERNS.md",
+        "Linear:DEN-817"
+      ]
+    },
+    {
+      "id": "selectable-consistency-policy",
+      "status": "implemented",
+      "stores": [
+        "IndexedDB",
+        "SQLite"
+      ],
+      "runtimes": [
+        "typescript",
+        "dart",
+        "rust"
+      ],
+      "evidence": [
+        "clients/ts/src/consistency.ts",
+        "formal/consistency_vectors.v1.json",
+        "schema/opto-sync-consistency.v1.schema.json",
+        "Linear:DEN-820"
+      ]
+    },
+    {
+      "id": "optimistic-overlay-over-authoritative-base",
+      "status": "implemented",
+      "stores": [
+        "IndexedDB",
+        "SQLite"
+      ],
+      "runtimes": [
+        "typescript",
+        "dart",
+        "rust"
+      ],
+      "evidence": [
+        "clients/ts/src/consistency.ts",
+        "clients/ts/src/reconcile-core.ts",
+        "formal/consistency_vectors.v1.json",
+        "Linear:DEN-820"
+      ]
+    },
+    {
+      "id": "ordered-opaque-pull-checkpoint",
+      "status": "implemented",
+      "stores": [
+        "IndexedDB",
+        "SQLite"
+      ],
+      "runtimes": [
+        "typescript",
+        "dart",
+        "rust"
+      ],
+      "evidence": [
+        "clients/ts/src/client.ts",
+        "clients/ts/src/sync-loop.ts",
+        "docs/SYNC_PATTERNS.md",
+        "Linear:DEN-1239"
+      ]
+    },
+    {
+      "id": "service-worker-and-multi-instance-ownership",
+      "status": "implemented",
+      "stores": [
+        "IndexedDB"
+      ],
+      "runtimes": [
+        "typescript"
+      ],
+      "evidence": [
+        "clients/ts/src/service-worker.ts",
+        "clients/ts/src/cross-tab.ts",
+        "Linear:DEN-818"
+      ]
+    },
+    {
+      "id": "restart-safe-sqlite-background-sync",
+      "status": "partial",
+      "stores": [
+        "SQLite"
+      ],
+      "runtimes": [
+        "dart",
+        "rust"
+      ],
+      "evidence": [
+        "clients/dart/lib/src/protocol_sync_loop.dart",
+        "clients/rust",
+        "Linear:DEN-1071",
+        "Linear:DEN-1078"
+      ],
+      "target": "Complete and certify restart/kill/duplicate-wake/fencing lifecycle evidence across Dart/Flutter SQLite and Rust SQLite, including real process/background lifecycle tests."
+    },
+    {
+      "id": "authoritative-caught-up-barrier",
+      "status": "missing",
+      "stores": [
+        "IndexedDB",
+        "SQLite"
+      ],
+      "runtimes": [
+        "typescript",
+        "dart",
+        "rust"
+      ],
+      "evidence": [
+        "clients/ts/src/client.ts exposes local pullCheckpoint persistence but no source-now checkpoint request/wait contract",
+        "Comparator:PowerSync checkpoint requests",
+        "Comparator:Linear ordered delta checkpoint catch-up"
+      ],
+      "target": "Request or receive an authoritative source checkpoint representing now, drive sync, and resolve only when the durable local checkpoint reaches it. Timeout, cancellation, offline, and reset are typed outcomes."
+    },
+    {
+      "id": "selective-partial-sync-scopes",
+      "status": "missing",
+      "stores": [
+        "IndexedDB",
+        "SQLite"
+      ],
+      "runtimes": [
+        "typescript",
+        "dart",
+        "rust"
+      ],
+      "evidence": [
+        "No versioned durable scope/subscription contract is present in the current public protocol surface",
+        "Comparator:Linear permission/subscription-filtered delta sync",
+        "Comparator:PowerSync Sync Streams"
+      ],
+      "target": "Versioned scope identity and parameters, scope-bound checkpoints, safe subscribe/unsubscribe/cache retention, authorization-safe scope changes, and absence-is-not-deletion semantics."
+    },
+    {
+      "id": "multi-mutation-application-transaction",
+      "status": "partial",
+      "stores": [
+        "IndexedDB",
+        "SQLite"
+      ],
+      "runtimes": [
+        "typescript",
+        "dart",
+        "rust"
+      ],
+      "evidence": [
+        "clients/ts/src/client.ts has same-store atomic optimistic write plus queue insertion",
+        "Protocol push batches are immutable/exactly acknowledged",
+        "docs/SYNC_PATTERNS.md identifies transaction grouping as a remaining comparator capability"
+      ],
+      "target": "Distinguish transport batches from application transaction groups and define exact grouped confirmation/rejection/transformation semantics across multiple records/tables."
+    },
+    {
+      "id": "portable-conflict-policy-extensibility",
+      "status": "partial",
+      "stores": [
+        "IndexedDB",
+        "SQLite"
+      ],
+      "runtimes": [
+        "typescript",
+        "dart",
+        "rust"
+      ],
+      "evidence": [
+        "clients/ts/src/reconcile-core.ts exposes deterministic array/LWW/FWW policy knobs",
+        "Linear:DEN-1237",
+        "Linear:DEN-1239",
+        "Comparator:RxDB custom conflict handler"
+      ],
+      "target": "Either define a versioned deterministic policy registry replayable by every supported runtime or explicitly reject arbitrary non-portable custom conflict handlers."
+    },
+    {
+      "id": "reactive-query-and-sync-state-surface",
+      "status": "partial",
+      "stores": [
+        "IndexedDB",
+        "SQLite"
+      ],
+      "runtimes": [
+        "typescript",
+        "dart",
+        "rust"
+      ],
+      "evidence": [
+        "clients/reactive-ts",
+        "clients/reactive-dart",
+        "clients/state-rust",
+        "Linear:DEN-1234",
+        "GitHub:opto-sync/opto-sync-clients#115"
+      ],
+      "target": "One canonical public surface for provenance, pending/rejected/transformed state, queue depth, checkpoint/scope identity, background state, and caught-up results."
+    },
+    {
+      "id": "generic-crdt-ot-causal-consistency",
+      "status": "not-applicable",
+      "stores": [
+        "IndexedDB",
+        "SQLite"
+      ],
+      "runtimes": [
+        "typescript",
+        "dart",
+        "rust"
+      ],
+      "evidence": [
+        "Linear:DEN-1239 explicitly limits convergence claims to implemented HLC/LWW/tombstone semantics"
+      ],
+      "target": "Do not claim generic CRDT, OT, or causal consistency unless separately specified and proven."
+    }
+  ]
+}

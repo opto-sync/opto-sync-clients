@@ -1,0 +1,28 @@
+name: competitive sync parity
+
+on:
+  pull_request:
+    paths:
+      - 'conformance/competitive-sync-parity.v1.json'
+      - 'conformance/check-competitive-sync-parity.mjs'
+      - 'docs/COMPETITIVE_SYNC_PARITY.md'
+      - '.github/workflows/competitive-sync-parity.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'conformance/competitive-sync-parity.v1.json'
+      - 'conformance/check-competitive-sync-parity.mjs'
+      - 'docs/COMPETITIVE_SYNC_PARITY.md'
+
+permissions:
+  contents: read
+
+jobs:
+  parity-manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node conformance/check-competitive-sync-parity.mjs
