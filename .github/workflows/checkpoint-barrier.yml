@@ -73,7 +73,10 @@ jobs:
         working-directory: syncer.c/bindings/typescript
         run: npm ci
       - run: dart pub get
-      - run: dart format --output=none --set-exit-if-changed lib/caught_up.dart test/caught_up_test.dart
+      - name: Format checkpoint-barrier Dart sources and print the canonical diff
+        run: |
+          dart format lib/caught_up.dart test/caught_up_test.dart
+          git -C ../.. diff -- clients/dart/lib/caught_up.dart clients/dart/test/caught_up_test.dart
       - run: dart analyze lib/caught_up.dart test/caught_up_test.dart
       - run: dart test test/caught_up_test.dart
 
