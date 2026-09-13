@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  CaughtUpBarrierError,
   awaitCaughtUp,
   checkpointReached,
   requestAndAwaitCaughtUp,
@@ -29,15 +28,28 @@ function cycleResult(checkpoint) {
   };
 }
 
+function valueOf(outcome) {
+  assert.equal(outcome.ok, true, JSON.stringify(outcome));
+  return outcome.value;
+}
+
+function barrierError(outcome, code) {
+  assert.equal(outcome.ok, false, JSON.stringify(outcome));
+  assert.equal(outcome.error.kind, 'barrier');
+  assert.equal(outcome.error.code, code);
+  return outcome.error;
+}
+
 test('checkpointReached compares canonical decimal checkpoints numerically', () => {
-  assert.equal(checkpointReached('9', '10'), false);
-  assert.equal(checkpointReached('10', '10'), true);
-  assert.equal(checkpointReached('100000000000000000000', '99'), true);
-  assert.throws(
-    () => checkpointReached('01', '1'),
-    (error) =>
-      error instanceof CaughtUpBarrierError &&
-      error.code === 'CAUGHT_UP_INVALID_LOCAL_CHECKPOINT',
+  assert.equal(valueOf(checkpointReached('9', '10')), false);
+  assert.equal(valueOf(checkpointReached('10', '10')), true);
+  assert.equal(
+    valueOf(checkpointReached('100000000000000000000', '99')),
+    true,
+  );
+  barrierError(
+    checkpointReached('01', '1'),
+    'CAUGHT_UP_INVALID_LOCAL_CHECKPOINT',
   );
 });
 
@@ -52,11 +64,13 @@ test('already-caught-up reads durable state without starting network work', asyn
     },
   };
 
-  const result = await awaitCaughtUp(
-    loop,
-    queue,
-    { protocolVersion: 1, checkpoint: '7' },
-    { timeoutMs: 100 },
+  const result = valueOf(
+    await awaitCaughtUp(
+      loop,
+      queue,
+      { protocolVersion: 1, checkpoint: '7' },
+      { timeoutMs: 100 },
+    ),
   );
 
   assert.equal(cycles, 0);
@@ -72,8 +86,6 @@ test('caught-up completion is based on the durable checkpoint, not cycle result'
     state: { status: 'idle' },
     async syncNow() {
       cycles += 1;
-      // First cycle *claims* checkpoint 5 but only persists 3. The barrier must
-      // continue. The second cycle persists 5 and may then satisfy the target.
       if (cycles === 1) {
         queue.checkpoint = '3';
         return cycleResult('5');
@@ -83,11 +95,13 @@ test('caught-up completion is based on the durable checkpoint, not cycle result'
     },
   };
 
-  const result = await awaitCaughtUp(
-    loop,
-    queue,
-    { protocolVersion: 1, checkpoint: '5' },
-    { timeoutMs: 500, pollIntervalMs: 0 },
+  const result = valueOf(
+    await awaitCaughtUp(
+      loop,
+      queue,
+      { protocolVersion: 1, checkpoint: '5' },
+      { timeoutMs: 500, pollIntervalMs: 0 },
+    ),
   );
 
   assert.equal(cycles, 2);
@@ -128,15 +142,9 @@ test('caller cancellation does not abort the shared sync cycle', async () => {
 
   await started;
   controller.abort();
-  await assert.rejects(
-    waiting,
-    (error) =>
-      error instanceof CaughtUpBarrierError &&
-      error.code === 'CAUGHT_UP_CANCELLED',
-  );
+  barrierError(await waiting, 'CAUGHT_UP_CANCELLED');
   assert.equal(completed, false);
 
-  // The underlying cycle remains alive; cancelling this caller did not abort it.
   release();
   await sharedCycle;
   assert.equal(completed, true);
@@ -148,20 +156,18 @@ test('offline is a typed terminal result for the caller', async () => {
   const loop = {
     state: { status: 'offline' },
     async syncNow() {
-      throw new Error('must not sync while offline');
+      return cycleResult('1');
     },
   };
 
-  await assert.rejects(
-    awaitCaughtUp(
+  barrierError(
+    await awaitCaughtUp(
       loop,
       queue,
       { protocolVersion: 1, checkpoint: '2' },
       { timeoutMs: 100, isOnline: () => false },
     ),
-    (error) =>
-      error instanceof CaughtUpBarrierError &&
-      error.code === 'CAUGHT_UP_OFFLINE',
+    'CAUGHT_UP_OFFLINE',
   );
 });
 
@@ -176,18 +182,16 @@ test('no checkpoint progress remains bounded by timeout', async () => {
     },
   };
 
-  await assert.rejects(
-    awaitCaughtUp(
+  const error = barrierError(
+    await awaitCaughtUp(
       loop,
       queue,
       { protocolVersion: 1, checkpoint: '5' },
       { timeoutMs: 25, pollIntervalMs: 2 },
     ),
-    (error) =>
-      error instanceof CaughtUpBarrierError &&
-      error.code === 'CAUGHT_UP_TIMEOUT' &&
-      error.localCheckpoint === '4',
+    'CAUGHT_UP_TIMEOUT',
   );
+  assert.equal(error.localCheckpoint, '4');
   assert.ok(cycles >= 1);
 });
 
@@ -202,16 +206,14 @@ test('generation mismatch fails closed before synchronization', async () => {
     },
   };
 
-  await assert.rejects(
-    awaitCaughtUp(
+  barrierError(
+    await awaitCaughtUp(
       loop,
       queue,
       { protocolVersion: 1, checkpoint: '10', generation: 'scope-b' },
       { expectedGeneration: 'scope-a', timeoutMs: 100 },
     ),
-    (error) =>
-      error instanceof CaughtUpBarrierError &&
-      error.code === 'CAUGHT_UP_INVALIDATED',
+    'CAUGHT_UP_INVALIDATED',
   );
   assert.equal(cycles, 0);
 });
@@ -235,11 +237,13 @@ test('requestAndAwaitCaughtUp requests source-now then drives to durable target'
     },
   };
 
-  const result = await requestAndAwaitCaughtUp(loop, queue, requester, {
-    expectedGeneration: 'g1',
-    timeoutMs: 500,
-    pollIntervalMs: 0,
-  });
+  const result = valueOf(
+    await requestAndAwaitCaughtUp(loop, queue, requester, {
+      expectedGeneration: 'g1',
+      timeoutMs: 500,
+      pollIntervalMs: 0,
+    }),
+  );
 
   assert.deepEqual(events, ['request-target', 'sync-from-2', 'sync-from-3']);
   assert.equal(result.targetCheckpoint, '4');
