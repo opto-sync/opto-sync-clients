@@ -38,11 +38,18 @@ jobs:
         working-directory: clients/ts
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: recursive
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: clients/ts/package-lock.json
+      - name: Install pinned syncer TypeScript binding dependencies
+        working-directory: syncer.c/bindings/typescript
+        run: npm ci
       - run: npm ci
       - run: npm run build
       - run: node --test test/caught-up.test.mjs
@@ -54,7 +61,17 @@ jobs:
         working-directory: clients/dart
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
       - uses: dart-lang/setup-dart@v1
+      - name: Install pinned syncer TypeScript binding dependencies
+        working-directory: syncer.c/bindings/typescript
+        run: npm ci
       - run: dart pub get
       - run: dart format --output=none --set-exit-if-changed lib/caught_up.dart test/caught_up_test.dart
       - run: dart analyze lib/caught_up.dart test/caught_up_test.dart
@@ -67,8 +84,12 @@ jobs:
         working-directory: clients/rust
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          submodules: recursive
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
       - run: cargo fmt --all -- --check
-      - run: cargo test --test caught_up_compile
+      - run: cargo test --locked --test caught_up_compile
