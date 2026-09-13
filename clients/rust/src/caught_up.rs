@@ -142,10 +142,7 @@ fn barrier_error(
 }
 
 /// Compare arbitrary-size canonical decimal checkpoints without integer overflow.
-pub fn checkpoint_reached(
-    local: &str,
-    target: &str,
-) -> Result<bool, CaughtUpBarrierError> {
+pub fn checkpoint_reached(local: &str, target: &str) -> Result<bool, CaughtUpBarrierError> {
     if !canonical_checkpoint(local) {
         return Err(barrier_error(
             CaughtUpBarrierErrorCode::InvalidLocalCheckpoint,
@@ -227,9 +224,7 @@ where
         .map_err(AwaitCaughtUpError::Barrier)?;
     let started = Instant::now();
     let mut checkpoint = queue.checkpoint().to_string();
-    if checkpoint_reached(&checkpoint, &target.checkpoint)
-        .map_err(AwaitCaughtUpError::Barrier)?
-    {
+    if checkpoint_reached(&checkpoint, &target.checkpoint).map_err(AwaitCaughtUpError::Barrier)? {
         return Ok(CaughtUpResult {
             target_checkpoint: target.checkpoint.clone(),
             checkpoint,
@@ -309,10 +304,7 @@ pub fn request_and_await_caught_up<R, T, C, P, Online, Cancelled>(
     expected_generation: Option<&str>,
     is_online: Online,
     is_cancelled: Cancelled,
-) -> Result<
-    CaughtUpResult,
-    RequestAndAwaitCaughtUpError<R::Error, T::Error, C::Error, P::Error>,
->
+) -> Result<CaughtUpResult, RequestAndAwaitCaughtUpError<R::Error, T::Error, C::Error, P::Error>>
 where
     R: AuthoritativeCheckpointRequester,
     T: ProtocolTransport,
