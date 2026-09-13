@@ -177,9 +177,8 @@ CaughtUpFailure? validateAuthoritativeCheckpointTarget(
   return null;
 }
 
-Duration _normalizedDuration(Duration value, Duration fallback) {
-  if (value.isNegative) return Duration.zero;
-  return value;
+Duration _normalizedDuration(Duration value) {
+  return value.isNegative ? Duration.zero : value;
 }
 
 sealed class _WaitResult<T> {
@@ -239,40 +238,87 @@ Future<_WaitResult<T>> _boundedForCaller<T>(
   ]);
 }
 
-CaughtUpFailed<T> _waitFailure<T>(
+CaughtUpFailure _waitFailure<T>(
   _WaitResult<T> result,
   String target,
   String local,
   String syncMessage,
 ) {
   if (result is _WaitOperationError<T>) {
-    return CaughtUpFailed<T>(
-      CaughtUpFailure(
-        kind: CaughtUpFailureKind.sync,
-        message: syncMessage,
-        targetCheckpoint: target,
-        localCheckpoint: local,
-        cause: result.cause,
-      ),
+    return CaughtUpFailure(
+      kind: CaughtUpFailureKind.sync,
+      message: syncMessage,
+      targetCheckpoint: target,
+      localCheckpoint: local,
+      cause: result.cause,
     );
   }
   if (result is _WaitCancelled<T>) {
-    return CaughtUpFailed<T>(
-      _barrierFailure(
-        CaughtUpBarrierErrorCode.cancelled,
-        'caught-up wait was cancelled',
-        target: target,
-        local: local,
-      ),
-    );
-  }
-  return CaughtUpFailed<T>(
-    _barrierFailure(
-      CaughtUpBarrierErrorCode.timeout,
-      'caught-up wait timed out before the durable checkpoint reached the target',
+    return _barrierFailure(
+      CaughtUpBarrierErrorCode.cancelled,
+      'caught-up wait was cancelled',
       target: target,
       local: local,
-    ),
+    );
+  }
+  return _barrierFailure(
+    CaughtUpBarrierErrorCode.timeout,
+    'caught-up wait timed out before the durable checkpoint reached the target',
+    target: target,
+    local: local,
+  );
+}
+
+CaughtUpFailure? _preCycleFailure(
+  ProtocolSyncLoop loop,
+  AuthoritativeCheckpointTarget target,
+  String checkpoint,
+  CaughtUpCancellationToken? cancellation,
+  bool Function() online,
+  Duration remaining,
+) {
+  if (cancellation?.isCancelled ?? false) {
+    return _barrierFailure(
+      CaughtUpBarrierErrorCode.cancelled,
+      'caught-up wait was cancelled',
+      target: target.checkpoint,
+      local: checkpoint,
+    );
+  }
+  if (!online() || loop.state.status == ProtocolSyncStatus.offline) {
+    return _barrierFailure(
+      CaughtUpBarrierErrorCode.offline,
+      'cannot establish authoritative freshness while offline',
+      target: target.checkpoint,
+      local: checkpoint,
+    );
+  }
+  if (remaining <= Duration.zero) {
+    return _barrierFailure(
+      CaughtUpBarrierErrorCode.timeout,
+      'caught-up wait timed out before the durable checkpoint reached the target',
+      target: target.checkpoint,
+      local: checkpoint,
+    );
+  }
+  return null;
+}
+
+CaughtUpResult _caughtUpResult(
+  AuthoritativeCheckpointTarget target,
+  String checkpoint,
+  DateTime startedAt,
+  DateTime Function() clock,
+  int cycles,
+  bool alreadyCaughtUp,
+) {
+  return CaughtUpResult(
+    targetCheckpoint: target.checkpoint,
+    checkpoint: checkpoint,
+    generation: target.generation,
+    elapsed: clock().difference(startedAt),
+    cycles: cycles,
+    alreadyCaughtUp: alreadyCaughtUp,
   );
 }
 
@@ -293,11 +339,8 @@ Future<CaughtUpOutcome<CaughtUpResult>> awaitCaughtUp(
   );
   if (targetError != null) return CaughtUpFailed<CaughtUpResult>(targetError);
   final clock = now ?? DateTime.now;
-  final boundedTimeout = _normalizedDuration(timeout, const Duration(seconds: 30));
-  final boundedPoll = _normalizedDuration(
-    pollInterval,
-    const Duration(milliseconds: 50),
-  );
+  final boundedTimeout = _normalizedDuration(timeout);
+  final boundedPoll = _normalizedDuration(pollInterval);
   final online = isOnline ?? loop.isOnline;
   final startedAt = clock();
   final deadline = startedAt.add(boundedTimeout);
@@ -312,51 +355,24 @@ Future<CaughtUpOutcome<CaughtUpResult>> awaitCaughtUp(
   }
   if ((initialReached as CaughtUpSuccess<bool>).value) {
     return CaughtUpSuccess<CaughtUpResult>(
-      CaughtUpResult(
-        targetCheckpoint: target.checkpoint,
-        checkpoint: checkpoint,
-        generation: target.generation,
-        elapsed: clock().difference(startedAt),
-        cycles: 0,
-        alreadyCaughtUp: true,
-      ),
+      _caughtUpResult(target, checkpoint, startedAt, clock, 0, true),
     );
   }
 
   var cycles = 0;
   while (true) {
-    if (cancellation?.isCancelled ?? false) {
-      return CaughtUpFailed<CaughtUpResult>(
-        _barrierFailure(
-          CaughtUpBarrierErrorCode.cancelled,
-          'caught-up wait was cancelled',
-          target: target.checkpoint,
-          local: checkpoint,
-        ),
-      );
-    }
-    if (!online() || loop.state.status == ProtocolSyncStatus.offline) {
-      return CaughtUpFailed<CaughtUpResult>(
-        _barrierFailure(
-          CaughtUpBarrierErrorCode.offline,
-          'cannot establish authoritative freshness while offline',
-          target: target.checkpoint,
-          local: checkpoint,
-        ),
-      );
-    }
     final remaining = deadline.difference(clock());
-    if (remaining <= Duration.zero) {
-      return CaughtUpFailed<CaughtUpResult>(
-        _barrierFailure(
-          CaughtUpBarrierErrorCode.timeout,
-          'caught-up wait timed out before the durable checkpoint reached the target',
-          target: target.checkpoint,
-          local: checkpoint,
-        ),
-      );
+    final preCycleFailure = _preCycleFailure(
+      loop,
+      target,
+      checkpoint,
+      cancellation,
+      online,
+      remaining,
+    );
+    if (preCycleFailure != null) {
+      return CaughtUpFailed<CaughtUpResult>(preCycleFailure);
     }
-
     final before = checkpoint;
     final waited = await _boundedForCaller<ProtocolSyncCycleResult>(
       loop.syncNow(),
@@ -364,15 +380,16 @@ Future<CaughtUpOutcome<CaughtUpResult>> awaitCaughtUp(
       cancellation: cancellation,
     );
     if (waited is! _WaitValue<ProtocolSyncCycleResult>) {
-      return _waitFailure<ProtocolSyncCycleResult>(
-        waited,
-        target.checkpoint,
-        checkpoint,
-        'protocol sync failed before the caught-up target was reached',
-      ) as CaughtUpFailed<CaughtUpResult>;
+      return CaughtUpFailed<CaughtUpResult>(
+        _waitFailure(
+          waited,
+          target.checkpoint,
+          checkpoint,
+          'protocol sync failed before the caught-up target was reached',
+        ),
+      );
     }
     cycles++;
-
     checkpoint = await queue.pullCheckpoint();
     final checkpointError = _checkpointFailure(checkpoint, local: true);
     if (checkpointError != null) {
@@ -384,17 +401,9 @@ Future<CaughtUpOutcome<CaughtUpResult>> awaitCaughtUp(
     }
     if ((reached as CaughtUpSuccess<bool>).value) {
       return CaughtUpSuccess<CaughtUpResult>(
-        CaughtUpResult(
-          targetCheckpoint: target.checkpoint,
-          checkpoint: checkpoint,
-          generation: target.generation,
-          elapsed: clock().difference(startedAt),
-          cycles: cycles,
-          alreadyCaughtUp: false,
-        ),
+        _caughtUpResult(target, checkpoint, startedAt, clock, cycles, false),
       );
     }
-
     if (checkpoint == before && boundedPoll > Duration.zero) {
       final afterCycleRemaining = deadline.difference(clock());
       final delay = boundedPoll < afterCycleRemaining
@@ -406,13 +415,14 @@ Future<CaughtUpOutcome<CaughtUpResult>> awaitCaughtUp(
         cancellation: cancellation,
       );
       if (delayed is! _WaitValue<void>) {
-        final failure = _waitFailure<void>(
-          delayed,
-          target.checkpoint,
-          checkpoint,
-          'caught-up poll delay failed',
+        return CaughtUpFailed<CaughtUpResult>(
+          _waitFailure(
+            delayed,
+            target.checkpoint,
+            checkpoint,
+            'caught-up poll delay failed',
+          ),
         );
-        return CaughtUpFailed<CaughtUpResult>(failure.error);
       }
     }
   }
@@ -430,7 +440,7 @@ Future<CaughtUpOutcome<CaughtUpResult>> requestAndAwaitCaughtUp(
   DateTime Function()? now,
 }) async {
   final clock = now ?? DateTime.now;
-  final boundedTimeout = _normalizedDuration(timeout, const Duration(seconds: 30));
+  final boundedTimeout = _normalizedDuration(timeout);
   final startedAt = clock();
   final requestCancellation = CaughtUpCancellationToken();
   final mirror = cancellation == null
@@ -475,19 +485,16 @@ Future<CaughtUpOutcome<CaughtUpResult>> requestAndAwaitCaughtUp(
   final target = (requested as _WaitValue<AuthoritativeCheckpointTarget>).value;
   final elapsed = clock().difference(startedAt);
   final remaining = boundedTimeout - elapsed;
-  return await awaitCaughtUp(
+  final outcome = await awaitCaughtUp(
     loop,
     queue,
     target,
     timeout: remaining.isNegative ? Duration.zero : remaining,
-    pollInterval: boundedPollInterval(pollInterval),
+    pollInterval: _normalizedDuration(pollInterval),
     cancellation: cancellation,
     expectedGeneration: expectedGeneration,
     isOnline: isOnline,
     now: clock,
   );
-}
-
-Duration boundedPollInterval(Duration pollInterval) {
-  return _normalizedDuration(pollInterval, const Duration(milliseconds: 50));
+  return outcome;
 }
