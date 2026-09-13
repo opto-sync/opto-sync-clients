@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:opto_sync_client/caught_up.dart';
 import 'package:opto_sync_client/opto_sync_client.dart';
 import 'package:test/test.dart';
@@ -188,9 +190,7 @@ void main() {
   test('caller cancellation does not stop the shared sync loop', () async {
     final queue = _Queue();
     final cancellation = CaughtUpCancellationToken();
-    late void Function() release;
-    final gate = Future<void>(() {});
-    final transport = _BlockingTransport(queue, (complete) => release = complete);
+    final transport = _BlockingTransport(queue);
     final loop = ProtocolSyncLoop(queue, transport, _Callbacks(queue));
 
     final wait = awaitCaughtUp(
@@ -200,7 +200,7 @@ void main() {
       timeout: const Duration(seconds: 1),
       cancellation: cancellation,
     );
-    await gate;
+    await transport.started.future;
     cancellation.cancel();
     await expectLater(
       wait,
@@ -215,17 +215,22 @@ void main() {
 
     // Cancellation belongs to this waiter only. The ProtocolSyncLoop cycle is
     // still live and can finish normally for other/background callers.
-    release();
+    transport.release();
     final cycle = await loop.syncNow();
     expect(cycle.checkpoint, '2');
   });
 }
 
 class _BlockingTransport extends _Transport {
-  final void Function(void Function() complete) captureRelease;
+  final Completer<void> started = Completer<void>();
+  final Completer<void> _release = Completer<void>();
   bool blocked = false;
 
-  _BlockingTransport(super.queue, this.captureRelease);
+  _BlockingTransport(super.queue);
+
+  void release() {
+    if (!_release.isCompleted) _release.complete();
+  }
 
   @override
   Future<Map<String, dynamic>> pull(
@@ -235,9 +240,8 @@ class _BlockingTransport extends _Transport {
   ) async {
     if (!blocked && checkpoint == '0') {
       blocked = true;
-      final completer = Completer<void>();
-      captureRelease(() => completer.complete());
-      await completer.future;
+      if (!started.isCompleted) started.complete();
+      await _release.future;
     }
     return super.pull(checkpoint, limit, cancellation);
   }
