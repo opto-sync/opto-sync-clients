@@ -274,15 +274,19 @@ export function initOptoSync(options?: InitOptoSyncOptions): Promise<void> {
   return initPromise;
 }
 
-/** Construct a client after guaranteeing the wasm engine is ready. */
-export async function createOptoSyncClient(
-  options?: OptoSyncClientOptions,
-): Promise<OptoSyncClient> {
-  await initOptoSync();
-  return new OptoSyncClient(options);
+/** True once the wasm engine is installed and reconciling is safe. */
+export function isOptoSyncReady(): boolean {
+  return hasMergeEngine();
 }
 
-/** Whether initOptoSync() has completed successfully. */
-export function isOptoSyncInitialized(): boolean {
-  return hasMergeEngine();
+/**
+ * Async factory: initialize the engine (if needed) and hand back a client.
+ * Equivalent to `await initOptoSync(); new OptoSyncClient(options)`.
+ */
+export async function createOptoSyncClient(
+  options?: OptoSyncClientOptions & { init?: InitOptoSyncOptions },
+): Promise<OptoSyncClient> {
+  const { init, ...clientOptions } = options ?? {};
+  await initOptoSync(init);
+  return new OptoSyncClient(clientOptions);
 }
