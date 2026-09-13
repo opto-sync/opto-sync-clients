@@ -99,7 +99,11 @@ test('caught-up completion is based on the durable checkpoint, not cycle result'
 test('caller cancellation does not abort the shared sync cycle', async () => {
   const queue = new CheckpointQueue('0');
   let release;
+  let markStarted;
   let completed = false;
+  const started = new Promise((resolve) => {
+    markStarted = resolve;
+  });
   const sharedCycle = new Promise((resolve) => {
     release = () => {
       queue.checkpoint = '9';
@@ -110,6 +114,7 @@ test('caller cancellation does not abort the shared sync cycle', async () => {
   const loop = {
     state: { status: 'idle' },
     syncNow() {
+      markStarted();
       return sharedCycle;
     },
   };
@@ -121,6 +126,7 @@ test('caller cancellation does not abort the shared sync cycle', async () => {
     { timeoutMs: 500, signal: controller.signal },
   );
 
+  await started;
   controller.abort();
   await assert.rejects(
     waiting,
