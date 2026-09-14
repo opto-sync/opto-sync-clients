@@ -124,7 +124,6 @@ export {
   computeRetryDelay,
 } from './sync-loop.js';
 export {
-  CaughtUpBarrierError,
   awaitCaughtUp,
   checkpointReached,
   requestAndAwaitCaughtUp,
@@ -135,7 +134,12 @@ export type {
   AuthoritativeCheckpointTarget,
   AwaitCaughtUpOptions,
   CaughtUpBarrierErrorCode,
+  CaughtUpBarrierFailure,
+  CaughtUpFailure,
+  CaughtUpOutcome,
+  CaughtUpRequestFailure,
   CaughtUpResult,
+  CaughtUpSyncFailure,
   CaughtUpSyncLoop,
 } from './caught-up.js';
 export type {
