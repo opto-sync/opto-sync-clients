@@ -193,7 +193,7 @@ function waitForCaller<T>(
   signal: AbortSignal | undefined,
   timeoutMs: number,
 ): Promise<WaitResult<T>> {
-  const operationResult = operation.then<WaitResult<T>>(
+  const operationResult = operation.then<WaitResult<T>, WaitResult<T>>(
     (value) => ({ kind: 'value', value }),
     (cause: unknown) => ({ kind: 'operation-error', cause }),
   );
