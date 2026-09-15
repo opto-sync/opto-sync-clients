@@ -6,6 +6,7 @@ name = "opto-sync-clients"
 # from earlier immutable release evidence; publishing requires fresh approval
 # and a reviewed tag.
 version = "0.5.0"
+kind = "sdk"
 description = "Pinned polyglot local-first sync clients for TypeScript, Dart, Rust, Gleam, PHP, C#, and F#"
 license = "MIT"
 keywords = ["sync", "local-first", "optimistic", "indexeddb", "sqlite", "polyglot"]
@@ -36,7 +37,7 @@ url = "https://github.com/opto-sync/opto-sync-clients"
 [publish]
 include_readme = true
 tag_format = "v{version}"
-smoke_test = "python3 \"$ZED_PKG_TEST_TARGET/scripts/check-package-layout.py\""
+smoke_test = "sh \"$ZED_PKG_TEST_TARGET/scripts/tests/smoke-published-artifact.sh\""
 exclude = [
   ".gitmodules",
   ".zed/**",
