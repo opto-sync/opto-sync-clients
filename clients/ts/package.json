@@ -52,13 +52,15 @@
   "scripts": {
     "test:contract": "python3 ../../contract/bin/check_surface.py --lang ts",
     "pretest": "python3 ../../contract/bin/check_surface.py --lang ts",
-    "prepublishOnly": "python3 ../../contract/bin/check_surface.py --prepublish --lang ts",
+    "prepublishOnly": "npm run lint:ores && python3 ../../contract/bin/check_surface.py --prepublish --lang ts",
     "postinstall": "node scripts/bootstrap-native-binding.mjs",
     "build": "tsc && tsc -p tsconfig.esm.json && node scripts/postbuild.mjs",
     "test": "npm run build && node --test",
     "test:node": "node --test test/queue.test.js test/reconcile.test.js",
     "test:browser": "node --test test/browser-e2e.test.mjs",
-    "test:service-worker-browser": "node --test test/core-service-worker-browser.test.mjs"
+    "test:service-worker-browser": "node --test test/core-service-worker-browser.test.mjs",
+    "lint:ores": "if [ -f ../../.ores-lint/lint.sh ]; then sh ../../.ores-lint/lint.sh; else echo 'ores-lint not installed'; fi",
+    "prebuild": "npm run lint:ores"
   },
   "keywords": [
     "sync",
@@ -85,5 +87,13 @@
   },
   "optionalDependencies": {
     "@opto-sync/syncer": "file:../../syncer.c/bindings/typescript"
+  },
+  "oresLint": {
+    "note": "Declared, not installed. ores-lint resolves these from a global install - see .ores-lint/README.md",
+    "requires": {
+      "eslint": ">=9",
+      "typescript-eslint": ">=8 (optional; without it .ts files are skipped)"
+    },
+    "install": "npm i -g eslint typescript-eslint"
   }
 }
