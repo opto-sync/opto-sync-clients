@@ -18,7 +18,9 @@
   ],
   "scripts": {
     "test": "node --experimental-strip-types --test test/*.test.ts",
-    "test:browser": "node test/service-worker-browser.mjs"
+    "test:browser": "node test/service-worker-browser.mjs",
+    "lint:ores": "if [ -f ../../.ores-lint/lint.sh ]; then sh ../../.ores-lint/lint.sh; else echo 'ores-lint not installed'; fi",
+    "prepublishOnly": "npm run lint:ores"
   },
   "keywords": [
     "rxjs",
@@ -44,5 +46,13 @@
   },
   "engines": {
     "node": ">=22.16.0"
+  },
+  "oresLint": {
+    "note": "Declared, not installed. ores-lint resolves these from a global install - see .ores-lint/README.md",
+    "requires": {
+      "eslint": ">=9",
+      "typescript-eslint": ">=8 (optional; without it .ts files are skipped)"
+    },
+    "install": "npm i -g eslint typescript-eslint"
   }
 }
