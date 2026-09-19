@@ -57,7 +57,9 @@ Map<String, Object?> _object(Object? value, String label) {
 }
 
 Object? _field(Map<String, Object?> value, String name) {
-  if (!value.containsKey(name)) _invalid('missing field $name');
+  if (!value.containsKey(name)) {
+    _invalid('missing field $name');
+  }
   return value[name];
 }
 
@@ -74,7 +76,9 @@ Map<String, Object?> _modelProjection(Map<String, Object?> rawState) {
     'cancel_requested',
     'permit_held',
   ]) {
-    if (_field(state, name) is! bool) _invalid('$name must be boolean');
+    if (_field(state, name) is! bool) {
+      _invalid('$name must be boolean');
+    }
   }
   return <String, Object?>{
     'phase': _phaseByTag[phaseTag]!.name,
@@ -125,7 +129,9 @@ void _recordScenario(
 }
 
 bool _sameProjection(Map<String, Object?> left, Map<String, Object?> right) {
-  if (left.length != right.length) return false;
+  if (left.length != right.length) {
+    return false;
+  }
   return left.keys.every(
     (key) => right.containsKey(key) && left[key] == right[key],
   );
@@ -158,7 +164,9 @@ Map<String, Object?>? _replayTrace(
     coverage.add(action);
 
     if (step == 0) {
-      if (action != 'init') _invalid('the first lifecycle state must be init');
+      if (action != 'init') {
+        _invalid('the first lifecycle state must be init');
+      }
     } else if (action != 'idle') {
       _recordScenario(
         action,
@@ -166,8 +174,9 @@ Map<String, Object?>? _replayTrace(
         scenarios,
       );
       final event = _eventByAction[action];
-      if (event == null)
+      if (event == null) {
         _invalid('model action $action has no production event');
+      }
       machine.apply(event);
     }
 
@@ -201,14 +210,18 @@ Map<String, Object?> _validateRequest(Object? value) {
   if (jsonEncode(keys) != jsonEncode(expectedKeys)) {
     _invalid('adapter request contains missing or unknown fields');
   }
-  if (request['protocol'] != 'fmctl.adapter.v1')
+  if (request['protocol'] != 'fmctl.adapter.v1') {
     _invalid('unsupported adapter protocol');
-  if (request['adapter'] != 'dart')
+  }
+  if (request['adapter'] != 'dart') {
     _invalid('request selected a non-Dart adapter');
-  if (request['project'] != 'opto-sync-clients')
+  }
+  if (request['project'] != 'opto-sync-clients') {
     _invalid('unexpected lifecycle project');
-  if (request['model'] != 'mobile-desktop-lifecycle-v1')
+  }
+  if (request['model'] != 'mobile-desktop-lifecycle-v1') {
     _invalid('unexpected lifecycle model');
+  }
   final specification = request['specification'];
   if (specification is! String ||
       File(specification).statSync().type != FileSystemEntityType.file) {
@@ -266,7 +279,9 @@ Map<String, Object?> _replayPaths(List<String> inputPaths) {
       'expected': _requiredActions,
       'actual': coverage.toList()..sort(),
     });
-    if (passed == paths.length) passed -= 1;
+    if (passed == paths.length) {
+      passed -= 1;
+    }
   }
 
   final missingScenarios = _requiredScenarios
@@ -283,7 +298,9 @@ Map<String, Object?> _replayPaths(List<String> inputPaths) {
       'expected': _requiredScenarios,
       'actual': scenarios.toList()..sort(),
     });
-    if (passed == paths.length) passed -= 1;
+    if (passed == paths.length) {
+      passed -= 1;
+    }
   }
 
   return <String, Object?>{
