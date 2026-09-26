@@ -143,7 +143,8 @@ impl SyncLifecycleMachine {
             }
         }
 
-        let Some(next_lifecycle) = BaseSyncLifecycleMachine::transition(state.lifecycle, command.event)
+        let Some(next_lifecycle) =
+            BaseSyncLifecycleMachine::transition(state.lifecycle, command.event)
         else {
             return unchanged(TransitionDisposition::Rejected);
         };
@@ -227,31 +228,25 @@ mod tests {
         let begin = apply(&mut machine, SyncLifecycleEvent::BeginAcquire, None);
         let generation = begin.after.generation;
         assert_eq!(generation, 1);
-        assert!(
-            apply(
-                &mut machine,
-                SyncLifecycleEvent::AcquireGranted,
-                Some(generation)
-            )
-            .applied()
-        );
+        assert!(apply(
+            &mut machine,
+            SyncLifecycleEvent::AcquireGranted,
+            Some(generation)
+        )
+        .applied());
         assert!(machine.state().may_run_sync_work());
-        assert!(
-            apply(
-                &mut machine,
-                SyncLifecycleEvent::CycleSettled,
-                Some(generation)
-            )
-            .applied()
-        );
-        assert!(
-            apply(
-                &mut machine,
-                SyncLifecycleEvent::ReleaseSettled,
-                Some(generation)
-            )
-            .applied()
-        );
+        assert!(apply(
+            &mut machine,
+            SyncLifecycleEvent::CycleSettled,
+            Some(generation)
+        )
+        .applied());
+        assert!(apply(
+            &mut machine,
+            SyncLifecycleEvent::ReleaseSettled,
+            Some(generation)
+        )
+        .applied());
         assert!(apply(&mut machine, SyncLifecycleEvent::Close, None).applied());
         assert_eq!(machine.state().lifecycle.phase, SyncLifecyclePhase::Closed);
     }
