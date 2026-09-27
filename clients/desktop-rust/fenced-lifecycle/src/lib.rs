@@ -184,10 +184,7 @@ fn validate_generation(
     return Ok(());
 }
 
-fn advance_generation(
-    state: SyncLifecycleSnapshot,
-    event: SyncLifecycleEvent,
-) -> Option<u64> {
+fn advance_generation(state: SyncLifecycleSnapshot, event: SyncLifecycleEvent) -> Option<u64> {
     if matches!(event, SyncLifecycleEvent::BeginAcquire) {
         return state.generation.checked_add(1);
     }
