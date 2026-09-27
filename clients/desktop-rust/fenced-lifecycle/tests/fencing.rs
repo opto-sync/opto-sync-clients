@@ -1,9 +1,9 @@
 #![forbid(unsafe_code)]
 
 use opto_sync_desktop_lifecycle::{
-    BaseSyncLifecycleSnapshot, SyncLifecycleCommand, SyncLifecycleEvent, SyncLifecycleMachine,
-    SyncLifecyclePhase, SyncLifecycleSnapshot, SyncLifecycleTransition, TransitionDisposition,
-    requires_generation,
+    requires_generation, BaseSyncLifecycleSnapshot, SyncLifecycleCommand, SyncLifecycleEvent,
+    SyncLifecycleMachine, SyncLifecyclePhase, SyncLifecycleSnapshot, SyncLifecycleTransition,
+    TransitionDisposition,
 };
 
 const PHASES: [SyncLifecyclePhase; 5] = [
