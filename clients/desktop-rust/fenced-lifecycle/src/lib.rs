@@ -122,49 +122,29 @@ impl SyncLifecycleMachine {
         state: SyncLifecycleSnapshot,
         command: SyncLifecycleCommand,
     ) -> SyncLifecycleTransition {
-        let unchanged = |disposition| SyncLifecycleTransition {
-            disposition,
-            before: state,
-            after: state,
-            command,
-        };
-
         if !state.is_valid() {
-            return unchanged(TransitionDisposition::Rejected);
+            return unchanged(state, command, TransitionDisposition::Rejected);
         }
 
-        if requires_generation(command.event) {
-            let Some(generation) = command.generation else {
-                return unchanged(TransitionDisposition::Rejected);
-            };
-
-            if generation != state.generation {
-                return unchanged(TransitionDisposition::Stale);
-            }
+        if let Err(disposition) = validate_generation(state, command) {
+            return unchanged(state, command, disposition);
         }
 
         let Some(next_lifecycle) =
             BaseSyncLifecycleMachine::transition(state.lifecycle, command.event)
         else {
-            return unchanged(TransitionDisposition::Rejected);
+            return unchanged(state, command, TransitionDisposition::Rejected);
         };
-
-        let generation = if matches!(command.event, SyncLifecycleEvent::BeginAcquire) {
-            let Some(next_generation) = state.generation.checked_add(1) else {
-                return unchanged(TransitionDisposition::Rejected);
-            };
-            next_generation
-        } else {
-            state.generation
+        let Some(generation) = advance_generation(state, command.event) else {
+            return unchanged(state, command, TransitionDisposition::Rejected);
         };
-
         let after = SyncLifecycleSnapshot {
             lifecycle: next_lifecycle,
             generation,
         };
 
         if !after.is_valid() {
-            return unchanged(TransitionDisposition::Rejected);
+            return unchanged(state, command, TransitionDisposition::Rejected);
         }
 
         return SyncLifecycleTransition {
@@ -186,4 +166,43 @@ pub const fn requires_generation(event: SyncLifecycleEvent) -> bool {
             | SyncLifecycleEvent::ReleaseSettled
             | SyncLifecycleEvent::ProcessAbort
     );
+}
+
+fn validate_generation(
+    state: SyncLifecycleSnapshot,
+    command: SyncLifecycleCommand,
+) -> Result<(), TransitionDisposition> {
+    if !requires_generation(command.event) {
+        return Ok(());
+    }
+    let Some(generation) = command.generation else {
+        return Err(TransitionDisposition::Rejected);
+    };
+    if generation != state.generation {
+        return Err(TransitionDisposition::Stale);
+    }
+    return Ok(());
+}
+
+fn advance_generation(
+    state: SyncLifecycleSnapshot,
+    event: SyncLifecycleEvent,
+) -> Option<u64> {
+    if matches!(event, SyncLifecycleEvent::BeginAcquire) {
+        return state.generation.checked_add(1);
+    }
+    return Some(state.generation);
+}
+
+fn unchanged(
+    state: SyncLifecycleSnapshot,
+    command: SyncLifecycleCommand,
+    disposition: TransitionDisposition,
+) -> SyncLifecycleTransition {
+    return SyncLifecycleTransition {
+        disposition,
+        before: state,
+        after: state,
+        command,
+    };
 }
