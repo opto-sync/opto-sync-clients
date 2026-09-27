@@ -1,0 +1,14 @@
+[package]
+name = "opto-sync-desktop-lifecycle"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.88"
+description = "Generation-fenced lifecycle adapter for the shared opto-sync desktop reducer"
+license = "MIT"
+publish = false
+
+[dependencies]
+opto-sync-desktop = { path = ".." }
+
+[lints.rust]
+unsafe_code = "forbid"
