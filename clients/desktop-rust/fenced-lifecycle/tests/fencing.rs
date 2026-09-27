@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+#![allow(clippy::needless_return)]
 
 use opto_sync_desktop_lifecycle::{
     requires_generation, BaseSyncLifecycleSnapshot, SyncLifecycleCommand, SyncLifecycleEvent,
