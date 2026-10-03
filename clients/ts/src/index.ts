@@ -30,8 +30,6 @@ export * as syncLoop from './sync-loop.js';
 export * as transports from './transport/ws.js';
 export * as crossTab from './cross-tab.js';
 export * as backgroundSync from './register-sw.js';
-export * as connectivity from './connectivity.js';
-export * as connectedClient from './connected-client.js';
 export * as rx from './rx/index.js';
 export * as schema from './schema/ingest.js';
 
@@ -134,28 +132,3 @@ export type {
   BackgroundSyncStrategy,
   RegisterBackgroundSyncOptions,
 } from './register-sw.js';
-export {
-  BrowserConnectivityWatcher,
-  ManualConnectivityWatcher,
-  createDefaultConnectivityWatcher,
-} from './connectivity.js';
-export type {
-  BrowserConnectivityHost,
-  BrowserConnectivityWatcherOptions,
-  ConnectivityListener,
-  ConnectivityMode,
-  ConnectivitySnapshot,
-  ConnectivitySource,
-  ConnectivityState,
-  ConnectivitySubscribeOptions,
-  ConnectivityWatcher,
-  ManualConnectivityWatcherOptions,
-} from './connectivity.js';
-export { ConnectivityAwareOptoSyncClient } from './connected-client.js';
-export type {
-  ConnectivityAwareOptoSyncClientOptions,
-  LocalSaveEvent,
-  LocalSaveListener,
-  LocalSaveOperation,
-  SaveSubscribeOptions,
-} from './connected-client.js';

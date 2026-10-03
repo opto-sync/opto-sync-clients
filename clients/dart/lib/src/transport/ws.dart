@@ -71,10 +71,7 @@ class WebSocketProtocolTransport implements ProtocolTransport {
     String checkpoint,
     int limit,
     ProtocolCancellationToken cancellation,
-  ) => _request('pull', {
-    'checkpoint': checkpoint,
-    'limit': limit,
-  }, cancellation);
+  ) => _request('pull', {'checkpoint': checkpoint, 'limit': limit}, cancellation);
 
   @override
   Future<Map<String, dynamic>> snapshot(
@@ -102,10 +99,7 @@ class WebSocketProtocolTransport implements ProtocolTransport {
     ProtocolCancellationToken cancellation,
   ) async {
     if (_disposed) {
-      throw const SyncTransportException(
-        'transport disposed',
-        retryable: false,
-      );
+      throw const SyncTransportException('transport disposed', retryable: false);
     }
     cancellation.throwIfCancelled();
 
@@ -130,9 +124,7 @@ class WebSocketProtocolTransport implements ProtocolTransport {
     final completer = Completer<Map<String, dynamic>>();
     _pending[requestId] = completer;
     try {
-      socket.add(
-        jsonEncode({'v': 1, 'type': type, 'requestId': requestId, ...body}),
-      );
+      socket.add(jsonEncode({'v': 1, 'type': type, 'requestId': requestId, ...body}));
     } catch (error) {
       _pending.remove(requestId);
       throw SyncTransportException(
@@ -166,8 +158,7 @@ class WebSocketProtocolTransport implements ProtocolTransport {
     final token = await auth?.call();
     if (token != null && token.isNotEmpty) {
       final separator = target.contains('?') ? '&' : '?';
-      target =
-          '$target$separator'
+      target = '$target$separator'
           'token=${Uri.encodeQueryComponent(token)}';
     }
     final WebSocket socket;
@@ -248,9 +239,7 @@ class WebSocketProtocolTransport implements ProtocolTransport {
                 ? decoded['message'] as String
                 : 'sync websocket error',
             retryable: decoded['retryable'] != false,
-            code: decoded['code'] is String
-                ? decoded['code'] as String
-                : 'WS_ERROR',
+            code: decoded['code'] is String ? decoded['code'] as String : 'WS_ERROR',
           ),
         );
       case 'push-result' || 'pull-result' || 'snapshot-result':

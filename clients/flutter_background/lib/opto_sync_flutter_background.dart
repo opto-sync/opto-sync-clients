@@ -27,8 +27,6 @@
 /// ```
 library;
 
-export 'opto_sync_connectivity.dart';
-
 import 'dart:async';
 import 'dart:ui';
 

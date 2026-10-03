@@ -60,42 +60,37 @@ void main() {
 
   tearDown(() => server.close());
 
-  test(
-    'pull round-trips through result frames with requestId correlation',
-    () async {
-      server.responder = (frame) => {
-        'v': 1,
-        'type': 'pull-result',
-        'requestId': frame['requestId'],
-        'protocolVersion': 1,
-        'checkpoint': '5',
-        'hasMore': false,
-        'changes': <Object>[],
-      };
-      final transport = WebSocketProtocolTransport(url: server.url);
-      final result = await transport.pull(
-        '0',
-        100,
-        ProtocolCancellationToken(),
-      );
-      expect(result['checkpoint'], '5');
-      expect(server.received.single['type'], 'pull');
-      expect(server.received.single['checkpoint'], '0');
-      expect(server.received.single['limit'], 100);
-      expect(server.received.single['v'], 1);
-      await transport.dispose();
-    },
-  );
+  test('pull round-trips through result frames with requestId correlation',
+      () async {
+    server.responder = (frame) => {
+          'v': 1,
+          'type': 'pull-result',
+          'requestId': frame['requestId'],
+          'protocolVersion': 1,
+          'checkpoint': '5',
+          'hasMore': false,
+          'changes': <Object>[],
+        };
+    final transport = WebSocketProtocolTransport(url: server.url);
+    final result =
+        await transport.pull('0', 100, ProtocolCancellationToken());
+    expect(result['checkpoint'], '5');
+    expect(server.received.single['type'], 'pull');
+    expect(server.received.single['checkpoint'], '0');
+    expect(server.received.single['limit'], 100);
+    expect(server.received.single['v'], 1);
+    await transport.dispose();
+  });
 
   test('push sends the request body and unwraps the result envelope', () async {
     server.responder = (frame) => {
-      'v': 1,
-      'type': 'push-result',
-      'requestId': frame['requestId'],
-      'protocolVersion': 1,
-      'lastMutationId': '3',
-      'results': <Object>[],
-    };
+          'v': 1,
+          'type': 'push-result',
+          'requestId': frame['requestId'],
+          'protocolVersion': 1,
+          'lastMutationId': '3',
+          'results': <Object>[],
+        };
     final transport = WebSocketProtocolTransport(url: server.url);
     final response = await transport.push({
       'protocolVersion': 1,
@@ -108,41 +103,39 @@ void main() {
     await transport.dispose();
   });
 
-  test(
-    'error frames become SyncTransportException with code and retryability',
-    () async {
-      server.responder = (frame) => {
-        'v': 1,
-        'type': 'error',
-        'requestId': frame['requestId'],
-        'code': 'AUTH_EXPIRED',
-        'message': 'token expired',
-        'retryable': false,
-      };
-      final transport = WebSocketProtocolTransport(url: server.url);
-      await expectLater(
-        transport.pull('0', 10, ProtocolCancellationToken()),
-        throwsA(
-          isA<SyncTransportException>()
-              .having((e) => e.code, 'code', 'AUTH_EXPIRED')
-              .having((e) => e.retryable, 'retryable', false),
-        ),
-      );
-      await transport.dispose();
-    },
-  );
+  test('error frames become SyncTransportException with code and retryability',
+      () async {
+    server.responder = (frame) => {
+          'v': 1,
+          'type': 'error',
+          'requestId': frame['requestId'],
+          'code': 'AUTH_EXPIRED',
+          'message': 'token expired',
+          'retryable': false,
+        };
+    final transport = WebSocketProtocolTransport(url: server.url);
+    await expectLater(
+      transport.pull('0', 10, ProtocolCancellationToken()),
+      throwsA(
+        isA<SyncTransportException>()
+            .having((e) => e.code, 'code', 'AUTH_EXPIRED')
+            .having((e) => e.retryable, 'retryable', false),
+      ),
+    );
+    await transport.dispose();
+  });
 
   test('unsolicited changed frames invoke onChanged', () async {
     final hints = <num>[];
     server.responder = (frame) => {
-      'v': 1,
-      'type': 'pull-result',
-      'requestId': frame['requestId'],
-      'protocolVersion': 1,
-      'checkpoint': '1',
-      'hasMore': false,
-      'changes': <Object>[],
-    };
+          'v': 1,
+          'type': 'pull-result',
+          'requestId': frame['requestId'],
+          'protocolVersion': 1,
+          'checkpoint': '1',
+          'hasMore': false,
+          'changes': <Object>[],
+        };
     final transport = WebSocketProtocolTransport(
       url: server.url,
       onChanged: hints.add,
@@ -156,14 +149,14 @@ void main() {
 
   test('auth token is appended to the dial URL', () async {
     server.responder = (frame) => {
-      'v': 1,
-      'type': 'pull-result',
-      'requestId': frame['requestId'],
-      'protocolVersion': 1,
-      'checkpoint': '0',
-      'hasMore': false,
-      'changes': <Object>[],
-    };
+          'v': 1,
+          'type': 'pull-result',
+          'requestId': frame['requestId'],
+          'protocolVersion': 1,
+          'checkpoint': '0',
+          'hasMore': false,
+          'changes': <Object>[],
+        };
     final transport = WebSocketProtocolTransport(
       url: server.url,
       auth: () async => 'session-token-123',
@@ -173,24 +166,22 @@ void main() {
     await transport.dispose();
   });
 
-  test(
-    'dial failure without fallback throws retryable WS_DIAL_FAILED with backoff',
-    () async {
-      final transport = WebSocketProtocolTransport(
-        url: 'ws://127.0.0.1:1/sync/ws', // nothing listens on port 1
-      );
-      await expectLater(
-        transport.pull('0', 10, ProtocolCancellationToken()),
-        throwsA(
-          isA<SyncTransportException>()
-              .having((e) => e.code, 'code', 'WS_DIAL_FAILED')
-              .having((e) => e.retryable, 'retryable', true)
-              .having((e) => e.retryAfter, 'retryAfter', isNotNull),
-        ),
-      );
-      await transport.dispose();
-    },
-  );
+  test('dial failure without fallback throws retryable WS_DIAL_FAILED with backoff',
+      () async {
+    final transport = WebSocketProtocolTransport(
+      url: 'ws://127.0.0.1:1/sync/ws', // nothing listens on port 1
+    );
+    await expectLater(
+      transport.pull('0', 10, ProtocolCancellationToken()),
+      throwsA(
+        isA<SyncTransportException>()
+            .having((e) => e.code, 'code', 'WS_DIAL_FAILED')
+            .having((e) => e.retryable, 'retryable', true)
+            .having((e) => e.retryAfter, 'retryAfter', isNotNull),
+      ),
+    );
+    await transport.dispose();
+  });
 
   test('dial failure falls back to the provided transport', () async {
     final calls = <String>[];
@@ -213,11 +204,8 @@ void main() {
     await expectLater(
       transport.pull('0', 10, ProtocolCancellationToken()),
       throwsA(
-        isA<SyncTransportException>().having(
-          (e) => e.code,
-          'code',
-          'WS_TIMEOUT',
-        ),
+        isA<SyncTransportException>()
+            .having((e) => e.code, 'code', 'WS_TIMEOUT'),
       ),
     );
     await transport.dispose();

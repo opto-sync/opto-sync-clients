@@ -36,7 +36,9 @@ Stream<List<Mutation>> pendingMutationsStream(
 /// True while anything still waits to reach the server — drive "saving…" /
 /// "saved" UI from this, never from individual request futures.
 Stream<bool> hasUnsyncedWorkStream(OptoSyncClient client) =>
-    pendingMutationsStream(client).map((rows) => rows.isNotEmpty).distinct();
+    pendingMutationsStream(client)
+        .map((rows) => rows.isNotEmpty)
+        .distinct();
 
 /// The render-ready view of one record: authoritative server state with this
 /// client's un-pushed writes replayed on top, recomputed whenever either
@@ -57,11 +59,12 @@ Stream<Map<String, dynamic>?> watchLocalView({
     tableName: tableName,
     recordId: recordId,
   );
-  return Rx.combineLatest2<
-        Map<String, dynamic>?,
-        List<Mutation>,
-        (Map<String, dynamic>?, int)
-      >(authoritative, pending, (server, rows) => (server, rows.length))
+  return Rx.combineLatest2<Map<String, dynamic>?, List<Mutation>,
+          (Map<String, dynamic>?, int)>(
+        authoritative,
+        pending,
+        (server, rows) => (server, rows.length),
+      )
       // switchMap: a superseded rebase computation is dropped, never raced.
       .switchMap((pair) {
         final (server, pendingCount) = pair;
