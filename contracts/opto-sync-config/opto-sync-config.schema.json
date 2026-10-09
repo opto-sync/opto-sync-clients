@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opto-sync.github.io/contracts/opto-sync-config/v1/authored.schema.json",
+  "$defs": {
+    "OptoSyncMode": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "OptoSyncMode",
+      "type": "string",
+      "enum": ["client", "server", "hybrid"]
+    },
+    "EnvKind": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "EnvKind",
+      "type": "string",
+      "enum": ["string", "bool", "integer", "double", "json", "url"]
+    },
+    "Flags2EnvPrecedence": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "Flags2EnvPrecedence",
+      "type": "string",
+      "enum": ["argv-over-env"]
+    },
+    "ConflictPolicy": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "ConflictPolicy",
+      "type": "string",
+      "enum": ["server-wins", "client-wins", "last-write-wins", "manual"]
+    },
+    "Flags2EnvConfig": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "Flags2EnvConfig",
+      "type": "object",
+      "properties": {
+        "contract": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "require_audit": { "type": "boolean" },
+        "precedence": { "$ref": "Flags2EnvPrecedence" }
+      },
+      "required": ["contract", "require_audit", "precedence"],
+      "unevaluatedProperties": false
+    },
+    "EnvBinding": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "EnvBinding",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z][a-z0-9_]*$" },
+        "key": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Z_][A-Z0-9_]*$" },
+        "kind": { "$ref": "EnvKind" },
+        "required": { "type": "boolean" },
+        "secret": { "type": "boolean" },
+        "default": { "type": "string", "maxLength": 8192 },
+        "description": { "type": "string", "maxLength": 512 }
+      },
+      "required": ["name", "key", "kind", "required", "secret"],
+      "unevaluatedProperties": false
+    },
+    "SyncPolicy": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "SyncPolicy",
+      "type": "object",
+      "properties": {
+        "push_interval_ms": { "type": "integer", "minimum": 100, "maximum": 3600000 },
+        "pull_interval_ms": { "type": "integer", "minimum": 100, "maximum": 3600000 },
+        "max_batch_size": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "conflict_policy": { "$ref": "ConflictPolicy" }
+      },
+      "required": ["push_interval_ms", "pull_interval_ms", "max_batch_size", "conflict_policy"],
+      "unevaluatedProperties": false
+    },
+    "OptoSyncClientConfig": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "OptoSyncClientConfig",
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "api_base_url_binding": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "device_id_binding": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "auth_token_binding": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "local_store_binding": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "background_sync_binding": { "type": "string", "minLength": 1, "maxLength": 64 }
+      },
+      "required": ["enabled"],
+      "unevaluatedProperties": false
+    },
+    "OptoSyncServerConfig": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "OptoSyncServerConfig",
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "bind_addr_binding": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "database_url_binding": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "nats_url_binding": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "redis_url_binding": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "poll_interval_ms_binding": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "pubsub_channel_binding": { "type": "string", "minLength": 1, "maxLength": 64 }
+      },
+      "required": ["enabled"],
+      "unevaluatedProperties": false
+    },
+    "OptoSyncConfig": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "OptoSyncConfig",
+      "type": "object",
+      "properties": {
+        "version": { "type": "integer", "minimum": 1, "maximum": 1 },
+        "mode": { "$ref": "OptoSyncMode" },
+        "strict": { "type": "boolean" },
+        "flags2env": { "$ref": "Flags2EnvConfig" },
+        "sync": { "$ref": "SyncPolicy" },
+        "env": { "type": "array", "items": { "$ref": "EnvBinding" } },
+        "client": { "$ref": "OptoSyncClientConfig" },
+        "server": { "$ref": "OptoSyncServerConfig" }
+      },
+      "required": ["version", "mode", "strict", "flags2env", "sync", "env"],
+      "unevaluatedProperties": false
+    }
+  }
+}
