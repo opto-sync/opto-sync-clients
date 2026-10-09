@@ -1,0 +1,93 @@
+name: OptoSync client config and native SDK contract admission
+
+on:
+  pull_request:
+    paths:
+      - "clients/**"
+      - "schema/**"
+      - "contract-admission/**"
+      - ".github/workflows/product-config-client-contract-ir.yml"
+  push:
+    branches: [main]
+    paths:
+      - "clients/**"
+      - "schema/**"
+      - "contract-admission/**"
+      - ".github/workflows/product-config-client-contract-ir.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  product-config:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out exact reviewed client head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact client source
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      # CI-only independent peer byte mirror from opto-sync-interfaces
+      # PR #36 head 698452de023e9854e754d9e854f9dd5313d1b1d0.
+      # Blob hashes were verified against the original source via GitHub.
+      # The mirror is NOT a newly authored authority.
+      - name: Check out immutable test-only configuration authority mirror
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: c6608e5009193ca56abf8b50744b7f1ea75c9bca
+          path: .contract-source
+          persist-credentials: false
+      - name: Verify both peer bytes against the original authority blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C .contract-source rev-parse HEAD)" = "c6608e5009193ca56abf8b50744b7f1ea75c9bca"
+          test "$(git -C .contract-source hash-object contracts/opto-sync-config/opto-sync-config.tsp)" = "1b94b6b4ec34ed9c5365331bd361dd0b597fb71e"
+          test "$(git -C .contract-source hash-object contracts/opto-sync-config/opto-sync-config.schema.json)" = "ef3dfeabb0bd7e6c1131077c8599fee92160f0ab"
+      - name: Compare independently authored ten-declaration product config
+        uses: ORESoftware/typespec-json-schema-validator@eb669d2c2c4f0800fac54f9b5a306b550121f1ac
+        with:
+          typespec: .contract-source/contracts/opto-sync-config/opto-sync-config.tsp
+          schema: .contract-source/contracts/opto-sync-config/opto-sync-config.schema.json
+          report: .typespec-json-schema-validator/product/report.json
+          contract_ir: .typespec-json-schema-validator/product/contract-ir.json
+          output_dir: .typespec-json-schema-validator/product/generated
+          max_probes: "96"
+      - name: Admit complete config Contract IR and negative regressions
+        uses: ORESoftware/typespec-json-schema-validator/actions/test-consumer-admission@eb669d2c2c4f0800fac54f9b5a306b550121f1ac
+        with:
+          contract_ir: .typespec-json-schema-validator/product/contract-ir.json
+          report: .typespec-json-schema-validator/product/report.json
+          typespec: .contract-source/contracts/opto-sync-config/opto-sync-config.tsp
+          schema: .contract-source/contracts/opto-sync-config/opto-sync-config.schema.json
+          generated_schema: .typespec-json-schema-validator/product/generated/typespec.generated.schema.json
+          expected_declarations: '["OptoSync.Config.OptoSyncMode","OptoSync.Config.EnvKind","OptoSync.Config.Flags2EnvPrecedence","OptoSync.Config.ConflictPolicy","OptoSync.Config.Flags2EnvConfig","OptoSync.Config.EnvBinding","OptoSync.Config.SyncPolicy","OptoSync.Config.OptoSyncClientConfig","OptoSync.Config.OptoSyncServerConfig","OptoSync.Config.OptoSyncConfig"]'
+          verification: .typespec-json-schema-validator/product/verification.json
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+      - name: Verify executable Contract IR consumer negative cases
+        run: node --test contract-admission/*.test.mjs
+      - name: Install pinned SDK schema validator
+        working-directory: schema
+        run: npm ci --ignore-scripts
+      - name: Run actual SDK API, telemetry, consistency and stream validation
+        working-directory: schema
+        run: npm test
+      - name: Verify independent authority source and product schema immutability
+        run: git diff --exit-code -- schema/ contract-admission/
+      - name: Keep Contract IR and fail-closed evidence on failure
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: opto-client-config-contract-${{ github.run_id }}
+          path: .typespec-json-schema-validator/product/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
