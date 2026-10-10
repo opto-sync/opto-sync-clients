@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync, mkdtempSync, mkdirSync, rmSync} from 'node:fs';
+import {readFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync, symlinkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {verifyStagedOreslang, listSdkPaths} from '../scripts/verify-oreslang-staging.mjs';
@@ -53,5 +53,44 @@ test('deny missing or malformed matrix and directory inventory', () => {
   }
   for (const bad of [null, {}, ['clients/rust', 12]]) {
     assert.throws(() => verifyStagedOreslang({matrix, presentPaths: bad}), /invalid client directory inventory/);
+  }
+});
+
+test('deny disguised .ores source files even under a non-Oreslang SDK directory', () => {
+  const temp = mkdtempSync(join(tmpdir(), 'oreslang-file-'));
+  try {
+    mkdirSync(join(temp, 'clients/custom'), {recursive: true});
+    writeFileSync(join(temp, 'clients/custom/bridge.ores'), 'define module Demo as end\n');
+    const actual = listSdkPaths(temp);
+    assert.ok(actual.includes('clients/custom/bridge.ores'));
+    assert.throws(() => verifyStagedOreslang({matrix, presentPaths: actual}), /lacks native admission/);
+  } finally {
+    rmSync(temp, {recursive: true, force: true});
+  }
+});
+
+test('deny uninspected symlinks rather than assuming source tree isolation', () => {
+  const temp = mkdtempSync(join(tmpdir(), 'oreslang-symlink-'));
+  try {
+    mkdirSync(join(temp, 'clients'), {recursive: true});
+    symlinkSync(temp, join(temp, 'clients/alias'), 'dir');
+    assert.throws(() => listSdkPaths(temp), /uninspected symbolic link/);
+  } finally {
+    rmSync(temp, {recursive: true, force: true});
+  }
+});
+
+test('deny source-tree paths deeper than the bounded inventory traversal', () => {
+  const temp = mkdtempSync(join(tmpdir(), 'oreslang-deep-'));
+  try {
+    let dir = join(temp, 'clients');
+    mkdirSync(dir);
+    for (let i = 0; i < 19; i++) {
+      dir = join(dir, 'd' + i);
+      mkdirSync(dir);
+    }
+    assert.throws(() => listSdkPaths(temp), /exceeds admission scan depth/);
+  } finally {
+    rmSync(temp, {recursive: true, force: true});
   }
 });
