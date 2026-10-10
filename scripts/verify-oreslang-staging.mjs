@@ -16,11 +16,16 @@ export function listSdkPaths(repositoryRoot) {
   if (!existsSync(clients)) throw new Error('clients directory is missing');
   const paths = [];
   function visit(dir, relativePath, depth) {
-    if (depth > 4) return;
+    if (depth > 16) throw new Error('SDK tree exceeds admission scan depth');
     for (const entry of readdirSync(dir, {withFileTypes: true})) {
-      if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+      // Any .ores source is an unadmitted compiler target, even when its
+      // path is disguised as another SDK (e.g. clients/custom/bridge.ores).
+      const sourceFile = entry.isFile() && /\.ores$/i.test(entry.name);
+      if (!entry.isDirectory() && !entry.isSymbolicLink() && !sourceFile) continue;
       const local = relativePath ? posix.join(relativePath, entry.name) : entry.name;
+      if (entry.isSymbolicLink()) throw new Error('SDK tree contains an uninspected symbolic link: ' + local);
       paths.push(posix.join('clients', local));
+      if (paths.length > 25000) throw new Error('SDK tree exceeds admission scan size');
       if (entry.isDirectory()) visit(join(dir, entry.name), local, depth + 1);
     }
   }
@@ -69,7 +74,7 @@ export function verifyStagedOreslang({matrix, presentPaths}) {
     }
   }
   for (const path of presentPaths) {
-    if (ORESLANG.test(path.replaceAll('\\', '/'))) {
+    if (ORESLANG.test(path.replaceAll('\\', '/')) || /\.ores$/i.test(path)) {
       throw new Error('Oreslang SDK candidate directory lacks native admission: ' + path);
     }
   }
