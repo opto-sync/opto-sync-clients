@@ -67,7 +67,9 @@ export function decideTransactionGroup(
     return Object.freeze({status: 'ambiguous', resolvedIds: [], rejectedIds: []});
   }
   const outcomes = receipt.outcomes;
-  if (!outcomes || outcomes.length !== group.members.length) fail('non_exact_ack');
+  if (!outcomes || outcomes.length !== group.members.length) {
+    throw new GroupContractError('non_exact_ack');
+  }
   const ids = group.members.map(m => m.mutationId);
   for (let i = 0; i < ids.length; ++i) {
     if (outcomes[i].mutationId !== ids[i] ||
