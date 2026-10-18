@@ -1,0 +1,22 @@
+name: shared-desktop-reducer
+on:
+  pull_request:
+    paths:
+      - 'clients/desktop-rust/src/sync_lifecycle.rs'
+      - 'clients/desktop-rust/src/lib.rs'
+      - '.github/workflows/shared-desktop-reducer.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  exact-source-regressions:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Run exact checked-out source regression
+        run: |
+          set -euo pipefail
+          rustc --edition=2021 --test clients/desktop-rust/src/sync_lifecycle.rs -o "$RUNNER_TEMP/lifecycle-tests" && "$RUNNER_TEMP/lifecycle-tests"
