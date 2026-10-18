@@ -7,6 +7,7 @@
 //! boundary if a process dies after a remote commit but before local release.
 
 pub mod session_lifecycle;
+pub mod sync_lifecycle;
 pub mod sqlite;
 
 use std::collections::BTreeMap;
