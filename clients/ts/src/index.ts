@@ -37,6 +37,7 @@ export * as schema from './schema/ingest.js';
 export * as telemetry from './telemetry.js';
 export * as observability from './observability.js';
 export * as consistency from './consistency.js';
+export * as transactionGroups from './transaction-groups.js';
 
 /*
  * CURATED TOP-LEVEL NAMES — the everyday API, re-exported once each (never
@@ -205,3 +206,7 @@ export type {
   ReadReconciliationInput,
   Provenance,
 } from './consistency.js';
+
+// Transport batch IDs never define application transaction semantics.
+export { makeTransactionGroup, assertSameTransactionGroup, decideTransactionGroup, GroupContractError } from './transaction-groups.js';
+export type { TransactionGroup, GroupMember, GroupReceipt, GroupDecision, TransactionCapability, MutationOutcome } from './transaction-groups.js';
