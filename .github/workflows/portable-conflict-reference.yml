@@ -1,0 +1,24 @@
+name: portable-conflict source regression
+on:
+  pull_request:
+    paths:
+      - 'clients/ts/src/portable-conflict-policy.ts'
+      - 'clients/ts/test/portable-conflict-policy.test.js'
+      - '.github/workflows/portable-conflict-reference.yml'
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  focused:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af
+        with:
+          node-version: '22.16.0'
+      - name: Execute exact checked-out regression
+        run: |
+          set -euo pipefail
+          cd clients/ts && npm ci && npm run build && node --test test/portable-conflict-policy.test.js
