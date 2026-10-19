@@ -205,3 +205,7 @@ export type {
   ReadReconciliationInput,
   Provenance,
 } from './consistency.js';
+
+export * as portableConflicts from './portable-conflict-policy.js';
+export {admitPortablePolicy, assertPortablePolicyFrozen, resolvePortableConflict, UnsupportedPortablePolicyError} from './portable-conflict-policy.js';
+export type {PortablePolicy, PortablePolicyId, ConflictCandidate} from './portable-conflict-policy.js';
