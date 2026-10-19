@@ -2,7 +2,7 @@
 const test=require('node:test');
 const assert=require('node:assert/strict');
 const {admitPortablePolicy, assertPortablePolicyFrozen, resolvePortableConflict, UnsupportedPortablePolicyError}
-  = require('../dist/portable-conflict-policy.js');
+  = require('../src/portable-conflict-policy.ts');
 const policy={id:'opto.lww.identity.v1',version:1,tieBreaker:'mutation_id_utf16'};
 const a={mutationId:'a',logicalTime:'18446744073709551614',tombstone:true,canonicalPayload:'null'};
 const b={mutationId:'b',logicalTime:'18446744073709551614',tombstone:false,canonicalPayload:'{"v":1}'};
