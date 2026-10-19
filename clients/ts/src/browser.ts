@@ -274,3 +274,7 @@ export async function createOptoSyncClient(
   await initOptoSync(init);
   return new OptoSyncClient(clientOptions);
 }
+
+export * as portableConflicts from './portable-conflict-policy.js';
+export {admitPortablePolicy, assertPortablePolicyFrozen, resolvePortableConflict, UnsupportedPortablePolicyError} from './portable-conflict-policy.js';
+export type {PortablePolicy, PortablePolicyId, ConflictCandidate} from './portable-conflict-policy.js';
