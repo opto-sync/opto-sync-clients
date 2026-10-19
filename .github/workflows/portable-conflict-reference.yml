@@ -21,4 +21,4 @@ jobs:
       - name: Execute exact checked-out regression
         run: |
           set -euo pipefail
-          cd clients/ts && npm ci && npm run build && node --test test/portable-conflict-policy.test.js
+          cd clients/ts && node --experimental-strip-types --test test/portable-conflict-policy.test.js
