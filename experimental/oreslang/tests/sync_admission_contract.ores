@@ -1,0 +1,25 @@
+// Only a real Oreslang compiler/runtime can certify this fixture.
+// Expected process exit: 0. All other exit codes are failures.
+import module sync_admission from "../src/sync_admission";
+
+pub routine main(): int {
+  if !sync_admission.valid_checkpoint(2, 5, 5) ||
+    !sync_admission.valid_checkpoint(2, 5, 2); then return 11; fi
+  if sync_admission.valid_checkpoint(2, 5, 1) ||
+    sync_admission.valid_checkpoint(2, 5, 6) ||
+    sync_admission.valid_checkpoint(-1, 5, 3) ||
+    sync_admission.valid_checkpoint(6, 5, 6); then return 12; fi
+
+  if !sync_admission.valid_generation(7, 7, 7); then return 13; fi
+  if sync_admission.valid_generation(6, 7, 7) ||
+    sync_admission.valid_generation(7, 7, 6) ||
+    sync_admission.valid_generation(0, 0, 0); then return 14; fi
+
+  if !sync_admission.within_retry_budget(100, 200, 199) ||
+    !sync_admission.within_retry_budget(100, 200, 100); then return 15; fi
+  if sync_admission.within_retry_budget(100, 200, 200) ||
+    sync_admission.within_retry_budget(100, 200, 99) ||
+    sync_admission.within_retry_budget(100, 99, 100) ||
+    sync_admission.within_retry_budget(-1, 200, 100); then return 16; fi
+  return 0;
+}

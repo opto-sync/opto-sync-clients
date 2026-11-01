@@ -1,0 +1,29 @@
+// Experimental Oreslang source: pure, bounded scalar admission only.
+// This is NOT a transport, reconciliation engine or published SDK.
+define module sync_admission as
+  // Durable local checkpoint cannot exceed applied state or move backward.
+  pub fnc valid_checkpoint(int durable, int applied, int proposed): bool {
+    if durable < 0 || applied < durable ||
+      proposed < durable || proposed > applied; then
+      return false;
+    fi
+    return true;
+  }
+
+  // A stale worker/actor generation may never claim current work.
+  pub fnc valid_generation(int observed, int current, int claim): bool {
+    if current <= 0 || observed != current || claim != current; then
+      return false;
+    fi
+    return true;
+  }
+
+  // One monotonic elapsed-time budget; never reset it on retry.
+  pub fnc within_retry_budget(int started_ms, int deadline_ms, int now_ms): bool {
+    if started_ms < 0 || deadline_ms < started_ms ||
+      now_ms < started_ms || now_ms >= deadline_ms; then
+      return false;
+    fi
+    return true;
+  }
+end
