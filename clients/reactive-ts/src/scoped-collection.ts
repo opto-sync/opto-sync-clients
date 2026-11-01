@@ -198,6 +198,9 @@ export class ScopedCollection<T> {
       if (this.ready && this.checkpoint !== null && incoming < decimal(this.checkpoint)) {
         throw new RangeError('stale scoped snapshot');
       }
+      if (!Array.isArray(snapshot.records) || snapshot.records.length > this.scope.recordIds.length) {
+        throw new RangeError('oversized or invalid scoped snapshot');
+      }
       const next = new Map<string, ScopedRecord<T>>();
       for (const row of snapshot.records) {
         this.validateRecord(row);
@@ -220,6 +223,10 @@ export class ScopedCollection<T> {
       const from = decimal(page.fromCheckpoint);
       const to = decimal(page.checkpoint);
       if (to < from) throw new RangeError('scoped checkpoint regressed');
+      if (!Array.isArray(page.changes) || page.changes.length > 1000 ||
+          (page.hasMore && page.changes.length === 0 && to === from)) {
+        throw new RangeError('invalid scoped pull page');
+      }
       const next = new Map(this.records);
       let previous = from;
       for (const change of page.changes) {
@@ -249,12 +256,13 @@ export class ScopedCollection<T> {
   }
 
   /** RESET_REQUIRED invalidates the scoped head, never the application's queue. */
-  requireSnapshot(): void {
-    this.assertOpen();
-    this.ready = false;
-    this.checkpoint = null;
-    this.records.clear();
-    this.publish();
+  requireSnapshot(): Promise<void> {
+    return this.queue(async () => {
+      this.ready = false;
+      this.checkpoint = null;
+      this.records = new Map();
+      this.publish();
+    });
   }
 
   close(): void {
