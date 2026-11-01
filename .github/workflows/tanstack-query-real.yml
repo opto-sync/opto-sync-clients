@@ -1,0 +1,36 @@
+name: TanStack Query real host conformance
+on:
+  pull_request:
+    paths:
+      - 'clients/reactive-ts/**'
+      - '.github/workflows/tanstack-query-real.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: tanstack-query-real-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  query-core-host:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact PR head SHA
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+      - name: Install pinned RxJS client dependencies
+        run: npm ci --prefix clients/reactive-ts --ignore-scripts
+      - name: Install exact TanStack Query core host version
+        run: npm install --prefix clients/reactive-ts --no-save --ignore-scripts --package-lock=false '@tanstack/query-core@5.104.4'
+      - name: Run real QueryClient and QueryObserver integration test
+        run: node --experimental-strip-types --test clients/reactive-ts/test/tanstack-query-host.test.mjs
