@@ -143,8 +143,11 @@ export function bridgeElectricShape<T extends Record<string, unknown>>(
           caughtUp = false;
         } else if (control === 'up-to-date') {
           caughtUp = true;
+        } else if (control === 'snapshot-end') {
+          // Electric's snapshot-end marks a snapshot boundary but is not the
+          // catch-up barrier; do not publish a resumable cursor yet.
         } else {
-          throw new Error('unsupported Electric control message');
+          throw new Error('unsupported Electric control message: ' + control);
         }
         continue;
       }

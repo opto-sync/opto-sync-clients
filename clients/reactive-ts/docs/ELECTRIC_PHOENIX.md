@@ -24,8 +24,8 @@ For UI consumption, use the existing Opto Sync `localView` projection to
 replay pending edits over the materialized authoritative rows.
 
 Electric shape offsets are NOT Opto Sync protocol checkpoints, revisions,
-or push acknowledgements. Subset move events and snapshot/subset-end controls
-currently **fail closed** until a dedicated subset-aware adapter exists.
+or push acknowledgements. Subset move events and subset-end controls
+currently **fail closed** until a dedicated subset-aware adapter exists. The standard\n\`snapshot-end\` control is accepted as an intermediate marker, but only\n\`up-to-date\` can finalize a resumable authoritative snapshot.
 Delete keys stay opaque. An application must not assume a JSON-encoded key
 contains its record's primary key.
 

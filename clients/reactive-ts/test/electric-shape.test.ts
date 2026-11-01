@@ -88,7 +88,7 @@ test('rejects subset events, malformed rows, and invalid operations', async () =
     [{ headers: { event: 'move-out' } }],
     [{ key: '', value: { id: '1', title: 'x' }, headers: { operation: 'insert' } }],
     [{ key: 'x', headers: { operation: 'insert' } }],
-    [{ headers: { control: 'snapshot-end' } }],
+    [{ headers: { control: 'subset-end' } }],
   ];
   for (const messages of cases) {
     const stream = new FakeStream();
@@ -143,4 +143,18 @@ test('rejects ambiguous control and operation header', async () => {
     headers: { control: 'up-to-date', operation: 'insert' } }], '4_0');
   await assert.rejects(bridge.idle(), /ambiguous/);
   assert.equal(stream.stopped, true);
+});
+
+test('snapshot-end is recognized but never treated as up-to-date', async () => {
+  const stream = new FakeStream();
+  const batches: ElectricShapeBatch<Row>[] = [];
+  const bridge = bridgeElectricShape({ stream, scopeKey: 'scope-A',
+    transact: async batch => { batches.push(batch); } });
+  await stream.send([row('1', 'initial'), control('snapshot-end')], '3_0');
+  assert.equal(batches[0]?.complete, false);
+  assert.equal(batches[0]?.cursor, null);
+  await stream.send([control('up-to-date')], '4_0');
+  assert.equal(batches[1]?.complete, true);
+  assert.equal(batches[1]?.cursor?.offset, '4_0');
+  bridge.close();
 });
