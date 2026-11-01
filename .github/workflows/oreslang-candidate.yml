@@ -1,0 +1,23 @@
+name: Experimental Oreslang host-side admission checks
+on:
+  pull_request:
+    paths:
+      - 'experimental/oreslang/**'
+      - 'scripts/run-oreslang-parity.mjs'
+      - '.github/workflows/oreslang-candidate.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  host-only-not-native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Test negative admission and forged-receipt rejection (HOST ONLY)
+        run: node --test experimental/oreslang/tests/host-admission.test.mjs
