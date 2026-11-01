@@ -160,3 +160,54 @@ test('listeners unsubscribe and close prevents additional commits', async () => 
     fromCheckpoint: '1', checkpoint: '2', hasMore: false, changes: [],
   }), /closed/);
 });
+
+
+test('duplicate or regressing record revision cannot rewind an accepted update', async () => {
+  const collection = fixture();
+  await collection.installSnapshot({
+    protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64),
+    checkpoint: '20',
+    records: [{ recordId: 'a', revision: '10', record: { title: 'latest' } }],
+  });
+  for (const revision of ['9', '10']) {
+    await assert.rejects(collection.applyPullPage({
+      protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64),
+      fromCheckpoint: '20', checkpoint: '21', hasMore: false,
+      changes: [{ checkpoint: '21', recordId: 'a', revision,
+        operation: 'upsert', record: { title: 'older' } }],
+    }), /stale or duplicate/);
+    assert.equal(collection.getView().checkpoint, '20');
+    assert.equal(collection.getView().rows.get('a')?.title, 'latest');
+  }
+});
+
+test('hasMore cannot advance with zero scoped events and a malformed page', async () => {
+  const collection = fixture();
+  await collection.installSnapshot({
+    protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64),
+    checkpoint: '3', records: [],
+  });
+  await assert.rejects(collection.applyPullPage({
+    protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64),
+    fromCheckpoint: '3', checkpoint: '10', hasMore: true, changes: [],
+  }), /invalid scoped pull page/);
+  assert.equal(collection.getView().checkpoint, '3');
+});
+
+test('scope token rotation requires reset before accepting another snapshot', async () => {
+  const collection = fixture();
+  await collection.installSnapshot({
+    protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64),
+    checkpoint: '8', records: [],
+  });
+  await assert.rejects(collection.installSnapshot({
+    protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'b'.repeat(64),
+    checkpoint: '9', records: [],
+  }), /authorization scope changed/);
+  await collection.requireSnapshot();
+  await collection.installSnapshot({
+    protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'b'.repeat(64),
+    checkpoint: '9', records: [],
+  });
+  assert.equal(collection.getScopeToken(), 'b'.repeat(64));
+});
