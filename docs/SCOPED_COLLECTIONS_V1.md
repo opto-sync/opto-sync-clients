@@ -25,6 +25,8 @@ The additive TypeScript API is exported by @opto-sync/reactive:
     const unsubscribe = collection.subscribe((view) => render(view.rows));
     await collection.installSnapshot(snapshot);
     await collection.applyPullPage(page);
+    // Or call syncScopedCollectionOnce(collection, {baseUrl, headers}) to
+    // fetch a snapshot and bounded authoritative pull pages over HTTP.
     collection.notifyLocalChange();
     // Following RESET_REQUIRED:
     await collection.requireSnapshot();
@@ -66,15 +68,22 @@ render above are application-supplied pseudocode, NOT SDK exports.
   predicates, columns, SQL, joins, TanStack DB integration, push mutation
   transactions, or full cross-runtime parity.
 
-## Server and integration follow-up
+## Server companion and integration follow-up
 
-Implement a server-owned record-ID-scoped snapshot and pull source using the
+An experimental server companion is staged in opto-sync/opto-sync-e2e PR #67.
+It implements POST /v1/sync/scopes/snapshot and /v1/sync/scopes/pull.
+The client now validates the server-issued scopeToken, which binds the server-
+verified subject/tenant to the exact canonical ID set; retain it in the memory
+projection and request a new snapshot after process restart. A matching server-
+owned scoped snapshot and pull source uses the
 existing tenant-authenticated Postgres protocol state and commit log, with
-record-level authorization and bounded payloads. Carry scopeKey and
+existing tenant-level authorization and bounded payloads. Deployment-specific
+record-level authorization must be added before using it with ACL-protected rows. Carry scopeKey and
 fromCheckpoint on every response. Use actual Postgres isolation to test
 snapshot racing with a commit, pagination, retention reset, authorization
-revocation, and server-side filtering. Wire that service through an injected
-transport; avoid a second reconciliation or checkpoint engine.
+revocation, and server-side filtering. The injected HTTP transport adapter syncScopedCollectionOnce does this for the
+reference server. It does not continuously poll, start a WebSocket, or connect
+TanStack DB itself; applications own scheduling, wake hints and cancellation.
 
 For TanStack DB, wrap its collection sync lifecycle in an adapter that receives
 these pages but continues to use Opto Sync's pending mutation ledger as the
