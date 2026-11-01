@@ -97,3 +97,49 @@ test('no implicit checkpoint advancement on malformed HTTP page', async () => {
   assert.equal(collection.getView().checkpoint, '8');
   assert.equal(collection.getView().rows.get('a')?.title, 'safe');
 });
+
+
+test('streaming limit rejects 18 MiB payload despite spoofed tiny Content-Length', async () => {
+  const collection = client();
+  const state = { cancelled: false };
+  const fake: typeof fetch = async () => new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(9 * 1024 * 1024));
+        controller.enqueue(new Uint8Array(9 * 1024 * 1024));
+      },
+      cancel() { state.cancelled = true; },
+    }),
+    { status: 200, headers: { 'content-length': '1' } },
+  );
+  await assert.rejects(syncScopedCollectionOnce(collection, {
+    baseUrl: 'https://sync.example.invalid',
+    headers: () => ({}),
+    fetchImpl: fake,
+  }), (err: unknown) => {
+    assert.ok(err instanceof ScopedHttpError);
+    assert.equal(err.code, 'RESPONSE_TOO_LARGE');
+    return true;
+  });
+  assert.equal(state.cancelled, true, 'oversized response body must be cancelled');
+  assert.equal(collection.getView().ready, false);
+});
+
+test('noncanonical scoped change revision cannot advance checkpoint', async () => {
+  const collection = client();
+  await collection.installSnapshot({
+    protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: token,
+    checkpoint: '8', records: [],
+  });
+  await assert.rejects(syncScopedCollectionOnce(collection, {
+    baseUrl: 'https://sync.example.invalid',
+    headers: () => ({}),
+    fetchImpl: async () => new Response(JSON.stringify({
+      protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: token,
+      fromCheckpoint: '8', checkpoint: '9', hasMore: false,
+      changes: [{ checkpoint: '9', recordId: 'a', revision: '01',
+        operation: 'upsert', record: { title: 'invalid' } }],
+    }), { status: 200 }),
+  }), /noncanonical decimal/);
+  assert.equal(collection.getView().checkpoint, '8');
+});
