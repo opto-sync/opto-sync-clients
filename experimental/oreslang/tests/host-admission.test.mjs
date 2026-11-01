@@ -16,18 +16,18 @@ test('fail closed on unsupported release claims and duplicate fixtures',()=>{
 });
 test('forged receipts, mismatched identity and values are rejected',()=>{
   const h='a'.repeat(64), d='b'.repeat(64);
-  const valid={sourceSha256:h,driverSha256:d,kind:'value',value:14,
+  const valid={backend:'llvm',sourceSha256:h,driverSha256:d,kind:'value',value:14,
     compilerSha256:h,runtimeSha256:h,artifactSha256:h};
-  assert.equal(validate_receipt(valid,m.cases[0],h,d),true);
+  assert.equal(validate_receipt(valid,m.cases[0],h,d,'llvm'),true);
   for (const bad of [
-    {...valid,value:15},{...valid,kind:'reject'},{...valid,sourceSha256:d},
+    {...valid,backend:'java'},{...valid,value:15},{...valid,kind:'reject'},{...valid,sourceSha256:d},
     {...valid,driverSha256:h},{...valid,compilerSha256:''},
     {...valid,runtimeSha256:'0'},{...valid,artifactSha256:null},
-  ]) assert.throws(()=>validate_receipt(bad,m.cases[0],h,d),/receipt/);
-  assert.throws(()=>validate_receipt({...valid,kind:'reject',value:14},m.cases[3],h,d),/receipt/);
+  ]) assert.throws(()=>validate_receipt(bad,m.cases[0],h,d,'llvm'),/receipt/);
+  assert.throws(()=>validate_receipt({...valid,kind:'reject',value:14},m.cases[3],h,d,'llvm'),/receipt/);
   const negative={...valid,kind:'reject',artifactSha256:null}; delete negative.value;
-  assert.equal(validate_receipt(negative,m.cases[3],h,d),true);
-  assert.throws(()=>validate_receipt({...negative,artifactSha256:h},m.cases[3],h,d),/receipt/);
+  assert.equal(validate_receipt(negative,m.cases[3],h,d,'llvm'),true);
+  assert.throws(()=>validate_receipt({...negative,artifactSha256:h},m.cases[3],h,d,'llvm'),/receipt/);
 
 });
 test('external driver commands require pinning, no shell interpolation',()=>{
