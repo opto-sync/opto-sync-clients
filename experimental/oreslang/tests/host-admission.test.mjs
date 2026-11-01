@@ -25,6 +25,10 @@ test('forged receipts, mismatched identity and values are rejected',()=>{
     {...valid,runtimeSha256:'0'},{...valid,artifactSha256:null},
   ]) assert.throws(()=>validate_receipt(bad,m.cases[0],h,d),/receipt/);
   assert.throws(()=>validate_receipt({...valid,kind:'reject',value:14},m.cases[3],h,d),/receipt/);
+  const negative={...valid,kind:'reject',artifactSha256:null}; delete negative.value;
+  assert.equal(validate_receipt(negative,m.cases[3],h,d),true);
+  assert.throws(()=>validate_receipt({...negative,artifactSha256:h},m.cases[3],h,d),/receipt/);
+
 });
 test('external driver commands require pinning, no shell interpolation',()=>{
   for (const bad of [
