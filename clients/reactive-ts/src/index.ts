@@ -1,5 +1,6 @@
 export * from './contracts.ts';
 export * from './desktop.ts';
+export * from './electric-shape.ts';
 export * from './hints.ts';
 export * from './http-transport.ts';
 export * from './live-hints.ts';

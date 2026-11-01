@@ -1,0 +1,44 @@
+name: Electric / PostgreSQL live read integration
+on:
+  pull_request:
+    paths:
+      - "clients/reactive-ts/**"
+      - ".github/workflows/electric-postgres-interop.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: electric-postgres-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  electric-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact PR head SHA
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+      - name: Set up Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+      - name: Start PostgreSQL with logical replication and Electric 1.8.1
+        run: |
+          set -euo pipefail
+          docker compose -f clients/reactive-ts/e2e/electric.compose.yml up -d --wait
+      - name: Exercise real Electric HTTP shape against PostgreSQL WAL
+        run: |
+          set -euo pipefail
+          node --experimental-strip-types --test clients/reactive-ts/test/electric-postgres-live.test.mjs
+      - name: Collect services logs on failure
+        if: failure()
+        run: docker compose -f clients/reactive-ts/e2e/electric.compose.yml logs --no-color --timestamps || true
+      - name: Tear down test services and volumes
+        if: always()
+        run: docker compose -f clients/reactive-ts/e2e/electric.compose.yml down -v --remove-orphans || true

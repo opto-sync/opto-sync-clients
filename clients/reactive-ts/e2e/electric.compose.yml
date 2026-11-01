@@ -1,0 +1,25 @@
+# Ephemeral, loopback-only integration services; NEVER use this insecure Electric
+# configuration in production. CI must not expose PostgreSQL or Electric publicly.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: local-test-only
+      POSTGRES_DB: opto
+    command: ["postgres", "-c", "wal_level=logical", "-c", "max_replication_slots=10", "-c", "max_wal_senders=10"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d opto"]
+      interval: 2s
+      timeout: 3s
+      retries: 25
+  electric:
+    image: electricsql/electric:1.8.1
+    environment:
+      DATABASE_URL: postgresql://postgres:local-test-only@postgres:5432/opto?sslmode=disable
+      ELECTRIC_INSECURE: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:39100:3000"
