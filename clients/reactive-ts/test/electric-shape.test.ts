@@ -61,7 +61,7 @@ test('rejects cross-tenant shape cursors and unannounced shape rotation', async 
   const stream = new FakeStream();
   const bridge = bridgeElectricShape({ stream, scopeKey: 'scope-A', restoredCursor: cursor, transact: async () => {} });
   stream.shapeHandle = 'shape-B';
-  await assert.rejects(stream.send([row('1', 'bad')], '5_0'), /handle changed/);
+  await stream.send([row('1', 'bad')], '5_0');
   assert.equal(stream.stopped, true);
   await assert.rejects(bridge.idle(), /handle changed/);
 });
@@ -78,7 +78,7 @@ test('never interprets opaque Electric delete keys as Opto Sync primary keys', a
 test('failed atomic write stops stream without advancing cursor', async () => {
   const stream = new FakeStream();
   const bridge = bridgeElectricShape({ stream, scopeKey: 'scope-A', transact: async () => { throw new Error('disk full'); } });
-  await assert.rejects(stream.send([row('1', 'x'), control('up-to-date')], '2_0'), /disk full/);
+  await stream.send([row('1', 'x'), control('up-to-date')], '2_0');
   assert.equal(stream.stopped, true);
   await assert.rejects(bridge.idle(), /disk full/);
 });
@@ -93,7 +93,7 @@ test('rejects subset events, malformed rows, and invalid operations', async () =
   for (const messages of cases) {
     const stream = new FakeStream();
     const bridge = bridgeElectricShape({ stream, scopeKey: 'scope-A', transact: async () => {} });
-    await assert.rejects(stream.send(messages, '1_0'));
+    await stream.send(messages, '1_0');
     assert.equal(stream.stopped, true);
     await assert.rejects(bridge.idle());
   }
@@ -111,4 +111,17 @@ test('concurrent callbacks commit in delivery order and capture their own offset
   await Promise.all([first, second]);
   assert.deepEqual(saved, ['4_0', '5_0']);
   bridge.close();
+});
+
+test('Electric error callback is contained and the bridge fails closed', async () => {
+  const stream = new FakeStream();
+  const errors: string[] = [];
+  const bridge = bridgeElectricShape({
+    stream, scopeKey: 'scope-A', restoredCursor: cursor,
+    transact: async () => {}, onError: e => { errors.push(e.message); },
+  });
+  stream.fail(new Error('expired authorization'));
+  await assert.rejects(bridge.idle(), /expired authorization/);
+  assert.deepEqual(errors, ['expired authorization']);
+  assert.equal(stream.stopped, true);
 });
