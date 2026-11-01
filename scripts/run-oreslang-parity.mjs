@@ -39,8 +39,9 @@ export function validate_manifest(value) {
 }
 validate_manifest(manifest);
 
-export function validate_receipt(receipt, testCase, expectedSource, expectedDriver) {
+export function validate_receipt(receipt, testCase, expectedSource, expectedDriver, expectedBackend) {
   if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt) ||
+      receipt.backend !== expectedBackend || !backends.includes(receipt.backend) ||
       receipt.sourceSha256 !== expectedSource ||
       receipt.driverSha256 !== expectedDriver ||
       receipt.kind !== testCase.kind ||
@@ -99,7 +100,7 @@ export function verify_with_drivers(config) {
         }
         let receipt;
         try {receipt = JSON.parse(result.stdout);} catch {throw new Error('non-JSON driver evidence');}
-        validate_receipt(receipt, c, hash, driver.sha256);
+        validate_receipt(receipt, c, hash, driver.sha256, backend);
         if (receipt.compilerSha256 !== driver.compilerSha256 ||
             receipt.runtimeSha256 !== driver.runtimeSha256) {
           throw new Error('compiler/runtime provenance mismatch: ' + backend);
