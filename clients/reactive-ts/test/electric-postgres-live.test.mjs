@@ -40,7 +40,9 @@ class HttpShapeStream {
     const params = new URLSearchParams({ table: 'public.docs', offset: this.lastOffset });
     if (this.shapeHandle && this.lastOffset !== '-1') params.set('handle', this.shapeHandle);
     const response = await fetch(url + '?' + params, { signal: AbortSignal.timeout(10_000) });
-    assert.equal(response.status, 200, 'Electric HTTP ' + response.status + ': ' + await response.text());
+    if (response.status !== 200) {
+      throw new Error('Electric HTTP ' + response.status + ': ' + await response.text());
+    }
     const nextHandle = response.headers.get('electric-handle');
     const nextOffset = response.headers.get('electric-offset');
     assert.ok(nextHandle && nextOffset, 'Electric must return handle and offset');
