@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "checkpointComparisons": [
+    { "local": "0", "target": "0", "reached": true },
+    { "local": "9", "target": "10", "reached": false },
+    { "local": "10", "target": "10", "reached": true },
+    { "local": "11", "target": "10", "reached": true },
+    { "local": "100000000000000000000", "target": "99", "reached": true }
+  ],
+  "invalidCheckpoints": ["", "00", "01", "-1", "+1", "1.0", " 1", "1 "],
+  "targets": [
+    {
+      "value": { "protocolVersion": 1, "checkpoint": "42" },
+      "valid": true
+    },
+    {
+      "value": { "protocolVersion": 1, "checkpoint": "42", "generation": "scope-a" },
+      "valid": true,
+      "expectedGeneration": "scope-a"
+    },
+    {
+      "value": { "protocolVersion": 1, "checkpoint": "42", "generation": "scope-b" },
+      "valid": false,
+      "expectedGeneration": "scope-a",
+      "error": "CAUGHT_UP_INVALIDATED"
+    },
+    {
+      "value": { "protocolVersion": 2, "checkpoint": "42" },
+      "valid": false,
+      "error": "CAUGHT_UP_INVALID_TARGET"
+    },
+    {
+      "value": { "protocolVersion": 1, "checkpoint": "01" },
+      "valid": false,
+      "error": "CAUGHT_UP_INVALID_TARGET"
+    },
+    {
+      "value": { "protocolVersion": 1, "checkpoint": "42", "generation": "" },
+      "valid": false,
+      "error": "CAUGHT_UP_INVALID_TARGET"
+    }
+  ],
+  "terminalCodes": [
+    "CAUGHT_UP_INVALID_TARGET",
+    "CAUGHT_UP_INVALID_LOCAL_CHECKPOINT",
+    "CAUGHT_UP_INVALIDATED",
+    "CAUGHT_UP_TIMEOUT",
+    "CAUGHT_UP_CANCELLED",
+    "CAUGHT_UP_OFFLINE"
+  ]
+}

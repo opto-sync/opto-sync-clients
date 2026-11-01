@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opto-sync.dev/schema/opto-sync-checkpoint-barrier.v1.schema.json",
+  "title": "Opto Sync Checkpoint Barrier v1",
+  "type": "object",
+  "$defs": {
+    "checkpoint": {
+      "type": "string",
+      "pattern": "^(?:0|[1-9]\\d*)$"
+    },
+    "authoritativeCheckpointTarget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocolVersion", "checkpoint"],
+      "properties": {
+        "protocolVersion": { "const": 1 },
+        "checkpoint": { "$ref": "#/$defs/checkpoint" },
+        "generation": { "type": "string", "minLength": 1 }
+      }
+    },
+    "caughtUpBarrierErrorCode": {
+      "enum": [
+        "CAUGHT_UP_INVALID_TARGET",
+        "CAUGHT_UP_INVALID_LOCAL_CHECKPOINT",
+        "CAUGHT_UP_INVALIDATED",
+        "CAUGHT_UP_TIMEOUT",
+        "CAUGHT_UP_CANCELLED",
+        "CAUGHT_UP_OFFLINE"
+      ]
+    },
+    "caughtUpResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "targetCheckpoint",
+        "checkpoint",
+        "elapsedMs",
+        "cycles",
+        "alreadyCaughtUp"
+      ],
+      "properties": {
+        "targetCheckpoint": { "$ref": "#/$defs/checkpoint" },
+        "checkpoint": { "$ref": "#/$defs/checkpoint" },
+        "generation": { "type": "string", "minLength": 1 },
+        "elapsedMs": { "type": "integer", "minimum": 0 },
+        "cycles": { "type": "integer", "minimum": 0 },
+        "alreadyCaughtUp": { "type": "boolean" }
+      }
+    }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/authoritativeCheckpointTarget" },
+    { "$ref": "#/$defs/caughtUpResult" }
+  ]
+}
