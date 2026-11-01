@@ -20,6 +20,7 @@ export interface ScopedRecord<T> {
 export interface ScopedSnapshotV1<T> {
   readonly protocolVersion: 1;
   readonly scopeKey: string;
+  readonly scopeToken: string;
   readonly checkpoint: string;
   readonly records: readonly ScopedRecord<T>[];
 }
@@ -35,6 +36,7 @@ export interface ScopedChange<T> {
 export interface ScopedPullPageV1<T> {
   readonly protocolVersion: 1;
   readonly scopeKey: string;
+  readonly scopeToken: string;
   readonly fromCheckpoint: string;
   readonly checkpoint: string;
   readonly hasMore: boolean;
@@ -113,6 +115,7 @@ export class ScopedCollection<T> {
   private readonly options: ScopedCollectionOptions<T>;
   private records = new Map<string, ScopedRecord<T>>();
   private checkpoint: string | null = null;
+  private scopeToken: string | null = null;
   private ready = false;
   private closed = false;
   private serial: Promise<void> = Promise.resolve();
@@ -142,15 +145,19 @@ export class ScopedCollection<T> {
     return next;
   }
 
-  private async commit(nextRows: Map<string, ScopedRecord<T>>, nextCheckpoint: string): Promise<void> {
+  private async commit(nextRows: Map<string, ScopedRecord<T>>, nextCheckpoint: string, nextToken: string): Promise<void> {
     this.assertOpen();
     await this.options.persist?.(new Map(nextRows), nextCheckpoint);
     this.assertOpen();
     this.records = nextRows;
     this.checkpoint = nextCheckpoint;
+    this.scopeToken = nextToken;
     this.ready = true;
     this.publish();
   }
+
+  /** Server-issued scope binding for follow-up authenticated pull requests. */
+  getScopeToken(): string | null { return this.scopeToken; }
 
   getView(): ScopedCollectionView<T> {
     const rows = new Map<string, T>();
@@ -194,6 +201,12 @@ export class ScopedCollection<T> {
       if (snapshot.protocolVersion !== 1 || snapshot.scopeKey !== this.scopeKey) {
         throw new RangeError('scope or protocol mismatch in snapshot');
       }
+      if (!/^[0-9a-f]{64}$/.test(snapshot.scopeToken)) {
+        throw new RangeError('invalid server scope token');
+      }
+      if (this.ready && this.scopeToken !== null && this.scopeToken !== snapshot.scopeToken) {
+        throw new RangeError('authorization scope changed; reset required');
+      }
       const incoming = decimal(snapshot.checkpoint);
       if (this.ready && this.checkpoint !== null && incoming < decimal(this.checkpoint)) {
         throw new RangeError('stale scoped snapshot');
@@ -207,7 +220,7 @@ export class ScopedCollection<T> {
         if (next.has(row.recordId)) throw new RangeError('duplicate snapshot record');
         next.set(row.recordId, row);
       }
-      await this.commit(next, snapshot.checkpoint);
+      await this.commit(next, snapshot.checkpoint, snapshot.scopeToken);
     });
   }
 
@@ -217,7 +230,7 @@ export class ScopedCollection<T> {
         throw new Error('scoped snapshot required before applying deltas');
       }
       if (page.protocolVersion !== 1 || page.scopeKey !== this.scopeKey ||
-          page.fromCheckpoint !== this.checkpoint) {
+          page.scopeToken !== this.scopeToken || page.fromCheckpoint !== this.checkpoint) {
         throw new RangeError('scope or starting checkpoint mismatch');
       }
       const from = decimal(page.fromCheckpoint);
@@ -251,7 +264,7 @@ export class ScopedCollection<T> {
       }
       // The caller may advance across invisible commits, but the server must
       // generate its scope-filtered page from a consistent source snapshot.
-      await this.commit(next, page.checkpoint);
+      await this.commit(next, page.checkpoint, page.scopeToken);
     });
   }
 
@@ -260,6 +273,7 @@ export class ScopedCollection<T> {
     return this.queue(async () => {
       this.ready = false;
       this.checkpoint = null;
+      this.scopeToken = null;
       this.records = new Map();
       this.publish();
     });
