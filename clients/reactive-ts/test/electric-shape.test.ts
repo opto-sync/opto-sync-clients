@@ -6,7 +6,7 @@ import type { ElectricShapeBatch, ElectricShapeMessage } from '../src/electric-s
 type Row = { id: string; title: string };
 class FakeStream {
   shapeHandle = 'shape-A';
-  lastOffset = '1_0';
+  lastOffset = '3_0';
   private onMessage?: (messages: ElectricShapeMessage<Row>[]) => void | Promise<void>;
   private onError?: (error: Error) => void;
   stopped = false;
@@ -123,5 +123,24 @@ test('Electric error callback is contained and the bridge fails closed', async (
   stream.fail(new Error('expired authorization'));
   await assert.rejects(bridge.idle(), /expired authorization/);
   assert.deepEqual(errors, ['expired authorization']);
+  assert.equal(stream.stopped, true);
+});
+
+test('rejects restored cursor if the stream did not resume at exactly that position', () => {
+  const stream = new FakeStream();
+  stream.lastOffset = '2_0';
+  assert.throws(() => bridgeElectricShape({
+    stream, scopeKey: 'scope-A', restoredCursor: cursor, transact: async () => {},
+  }), /not constructed with the restored/);
+});
+
+test('rejects ambiguous control and operation header', async () => {
+  const stream = new FakeStream();
+  const bridge = bridgeElectricShape({
+    stream, scopeKey: 'scope-A', transact: async () => {},
+  });
+  await stream.send([{ key: 'x', value: { id: 'x', title: 'y' },
+    headers: { control: 'up-to-date', operation: 'insert' } }], '4_0');
+  await assert.rejects(bridge.idle(), /ambiguous/);
   assert.equal(stream.stopped, true);
 });
