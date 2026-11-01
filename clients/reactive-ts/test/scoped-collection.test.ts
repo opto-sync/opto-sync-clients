@@ -155,7 +155,7 @@ test('listeners unsubscribe and close prevents additional commits', async () => 
   collection.notifyLocalChange();
   assert.equal(events, 1);
   collection.close();
-  await assert.rejects(collection.applyPullPage({
+  assert.throws(() => collection.applyPullPage({
     protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64),
     fromCheckpoint: '1', checkpoint: '2', hasMore: false, changes: [],
   }), /closed/);
