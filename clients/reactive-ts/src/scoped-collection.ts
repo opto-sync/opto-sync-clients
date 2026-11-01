@@ -236,8 +236,8 @@ export class ScopedCollection<T> {
       const from = decimal(page.fromCheckpoint);
       const to = decimal(page.checkpoint);
       if (to < from) throw new RangeError('scoped checkpoint regressed');
-      if (!Array.isArray(page.changes) || page.changes.length > 1000 ||
-          (page.hasMore && page.changes.length === 0 && to === from)) {
+      if (typeof page.hasMore !== 'boolean' || !Array.isArray(page.changes) ||
+          page.changes.length > 1000 || (page.hasMore && page.changes.length === 0)) {
         throw new RangeError('invalid scoped pull page');
       }
       const next = new Map(this.records);
@@ -246,7 +246,11 @@ export class ScopedCollection<T> {
         if (!this.allowed.has(change.recordId)) throw new RangeError('change outside scope');
         const at = decimal(change.checkpoint);
         if (at <= previous || at > to) throw new RangeError('out-of-order scoped change');
-        decimal(change.revision);
+        const revision = decimal(change.revision);
+        const prior = next.get(change.recordId);
+        if (prior !== undefined && revision <= decimal(prior.revision)) {
+          throw new RangeError('stale or duplicate scoped record revision');
+        }
         if (change.operation === 'delete') {
           if (change.record !== undefined) throw new RangeError('delete cannot carry record');
           next.delete(change.recordId);
