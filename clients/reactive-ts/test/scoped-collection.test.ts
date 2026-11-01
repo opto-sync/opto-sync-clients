@@ -32,15 +32,15 @@ test('snapshot, filtered pull, deletes, and invisible checkpoint jumps', async (
   const views: unknown[] = [];
   collection.subscribe((view) => views.push([...view.rows].map(([k, v]) => [k, v.title])));
   await assert.rejects(collection.applyPullPage({
-    protocolVersion: 1, scopeKey: collection.scopeKey,
+    protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64),
     fromCheckpoint: '0', checkpoint: '1', hasMore: false, changes: [],
   }), /snapshot required/);
   await collection.installSnapshot({
-    protocolVersion: 1, scopeKey: collection.scopeKey, checkpoint: '9',
+    protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64), checkpoint: '9',
     records: [{ recordId: 'a', revision: '2', record: { title: 'old' } }],
   });
   await collection.applyPullPage({
-    protocolVersion: 1, scopeKey: collection.scopeKey,
+    protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64),
     fromCheckpoint: '9', checkpoint: '100', hasMore: false,
     changes: [
       { checkpoint: '21', recordId: 'b', revision: '1', operation: 'upsert', record: { title: 'new' } },
@@ -58,10 +58,10 @@ test('snapshot, filtered pull, deletes, and invisible checkpoint jumps', async (
 test('reject stale, duplicate, out-of-order, out-of-shape changes atomically', async () => {
   const collection = fixture();
   await collection.installSnapshot({
-    protocolVersion: 1, scopeKey: collection.scopeKey, checkpoint: '3',
+    protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64), checkpoint: '3',
     records: [{ recordId: 'a', revision: '1', record: { title: 'original' } }],
   });
-  const base = { protocolVersion: 1 as const, scopeKey: collection.scopeKey,
+  const base = { protocolVersion: 1 as const, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64),
     fromCheckpoint: '3', checkpoint: '8', hasMore: false };
   await assert.rejects(collection.applyPullPage({
     ...base, changes: [
@@ -78,13 +78,13 @@ test('reject stale, duplicate, out-of-order, out-of-shape changes atomically', a
     ...base, fromCheckpoint: '2', changes: [],
   }), /mismatch/);
   await assert.rejects(collection.installSnapshot({
-    protocolVersion: 1, scopeKey: 'other-user', checkpoint: '9', records: [],
+    protocolVersion: 1, scopeKey: 'other-user', scopeToken: 'a'.repeat(64), checkpoint: '9', records: [],
   }), /mismatch/);
   await assert.rejects(collection.installSnapshot({
-    protocolVersion: 1, scopeKey: collection.scopeKey, checkpoint: '2', records: [],
+    protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64), checkpoint: '2', records: [],
   }), /stale/);
   await assert.rejects(collection.installSnapshot({
-    protocolVersion: 1, scopeKey: collection.scopeKey, checkpoint: '4',
+    protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64), checkpoint: '4',
     records: [
       { recordId: 'a', revision: '1', record: { title: 'one' } },
       { recordId: 'a', revision: '1', record: { title: 'two' } },
@@ -104,7 +104,7 @@ test('persistence failure does not acknowledge a checkpoint and retry is possibl
       persisted = checkpoint;
     },
   });
-  const snapshot = { protocolVersion: 1 as const, scopeKey: collection.scopeKey,
+  const snapshot = { protocolVersion: 1 as const, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64),
     checkpoint: '8', records: [{ recordId: 'a', revision: '1', record: { title: 'safe' } }] };
   await assert.rejects(collection.installSnapshot(snapshot), /disk full/);
   assert.equal(collection.getView().ready, false);
@@ -122,11 +122,11 @@ test('host-owned optimistic overlay survives authoritative changes and reset', a
   });
   pending.set('a', { title: 'local-unconfirmed' });
   await collection.installSnapshot({
-    protocolVersion: 1, scopeKey: collection.scopeKey, checkpoint: '10',
+    protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64), checkpoint: '10',
     records: [{ recordId: 'a', revision: '1', record: { title: 'server-old' } }],
   });
   await collection.applyPullPage({
-    protocolVersion: 1, scopeKey: collection.scopeKey,
+    protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64),
     fromCheckpoint: '10', checkpoint: '11', hasMore: false,
     changes: [{ checkpoint: '11', recordId: 'a', revision: '2',
       operation: 'upsert', record: { title: 'server-new' } }],
@@ -135,7 +135,7 @@ test('host-owned optimistic overlay survives authoritative changes and reset', a
   await collection.requireSnapshot();
   assert.equal(collection.getView().ready, false);
   await collection.installSnapshot({
-    protocolVersion: 1, scopeKey: collection.scopeKey, checkpoint: '15',
+    protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64), checkpoint: '15',
     records: [{ recordId: 'a', revision: '3', record: { title: 'server-latest' } }],
   });
   assert.equal(collection.getView().rows.get('a')?.title, 'local-unconfirmed');
@@ -149,14 +149,14 @@ test('listeners unsubscribe and close prevents additional commits', async () => 
   let events = 0;
   const unsubscribe = collection.subscribe(() => { events++; });
   await collection.installSnapshot({
-    protocolVersion: 1, scopeKey: collection.scopeKey, checkpoint: '1', records: [],
+    protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64), checkpoint: '1', records: [],
   });
   unsubscribe();
   collection.notifyLocalChange();
   assert.equal(events, 1);
   collection.close();
   await assert.rejects(collection.applyPullPage({
-    protocolVersion: 1, scopeKey: collection.scopeKey,
+    protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64),
     fromCheckpoint: '1', checkpoint: '2', hasMore: false, changes: [],
   }), /closed/);
 });
