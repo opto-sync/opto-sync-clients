@@ -91,8 +91,10 @@ test('real Postgres WAL to Electric: initial snapshot, pending projection, updat
   query("CREATE TABLE IF NOT EXISTS public.docs (id text PRIMARY KEY, title text NOT NULL);");
   query("INSERT INTO public.docs(id,title) VALUES ('doc-1','server-initial') ON CONFLICT (id) DO UPDATE SET title=EXCLUDED.title;");
   const first = new HttpShapeStream();
-  const bridge = bridgeElectricShape({ stream: first, scopeKey, transact });
-  await until(() => first.poll(), () => batches.some(b => b.complete));
+  const bridge = bridgeElectricShape({ stream: first, scopeKey, transact,
+    onError: error => console.error('Electric initial bridge error:', error.message) });
+  await until(async () => { const messages = await first.poll(); await bridge.idle(); return messages; },
+    () => batches.some(b => b.complete));
   assert.ok(cursor?.shapeHandle && cursor?.offset, 'complete snapshot must persist Electric cursor');
   assert.equal([...rows.values()].find(row => row.id === 'doc-1')?.title, 'server-initial');
   assert.equal(projectedTitle('doc-1'), 'optimistic-local', 'server snapshot must not erase pending write');
