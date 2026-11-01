@@ -211,3 +211,66 @@ test('scope token rotation requires reset before accepting another snapshot', as
   });
   assert.equal(collection.getScopeToken(), 'b'.repeat(64));
 });
+
+
+test('a delete tombstone retains the highest revision and rejects stale resurrection', async () => {
+  const collection = fixture();
+  await collection.installSnapshot({
+    protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64),
+    checkpoint: '100',
+    records: [{ recordId: 'a', revision: '9', record: { title: 'live' } }],
+  });
+  await collection.applyPullPage({
+    protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64),
+    fromCheckpoint: '100', checkpoint: '101', hasMore: false,
+    changes: [{ checkpoint: '101', recordId: 'a', revision: '10', operation: 'delete' }],
+  });
+  assert.equal(collection.getView().rows.has('a'), false);
+  for (const revision of ['9', '10']) {
+    await assert.rejects(collection.applyPullPage({
+      protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64),
+      fromCheckpoint: '101', checkpoint: '102', hasMore: false,
+      changes: [{ checkpoint: '102', recordId: 'a', revision, operation: 'upsert',
+        record: { title: 'stale-resurrection' } }],
+    }), /stale or duplicate scoped record revision/);
+    assert.equal(collection.getView().checkpoint, '101');
+    assert.equal(collection.getView().rows.has('a'), false);
+  }
+  await collection.applyPullPage({
+    protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64),
+    fromCheckpoint: '101', checkpoint: '103', hasMore: false,
+    changes: [{ checkpoint: '103', recordId: 'a', revision: '11',
+      operation: 'upsert', record: { title: 'authorized-resurrection' } }],
+  });
+  assert.equal(collection.getView().rows.get('a')?.title, 'authorized-resurrection');
+});
+
+test('failed persistence cannot install tombstone revision or change in-memory head', async () => {
+  const state = { rejectOnce: true };
+  const collection = createScopedCollection<{ title: string }>({
+    scope, sessionPartition: partition,
+    persist: async (_rows, checkpoint) => {
+      if (checkpoint === '3' && state.rejectOnce) {
+        state.rejectOnce = false;
+        throw new Error('atomic transaction rolled back');
+      }
+    },
+  });
+  await collection.installSnapshot({
+    protocolVersion: 1, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64),
+    checkpoint: '2', records: [
+      { recordId: 'a', revision: '2', record: { title: 'persisted' } },
+    ],
+  });
+  const page = {
+    protocolVersion: 1 as const, scopeKey: collection.scopeKey, scopeToken: 'a'.repeat(64),
+    fromCheckpoint: '2', checkpoint: '3', hasMore: false,
+    changes: [{ checkpoint: '3', recordId: 'a', revision: '3', operation: 'delete' as const }],
+  };
+  await assert.rejects(collection.applyPullPage(page), /rolled back/);
+  assert.equal(collection.getView().checkpoint, '2');
+  assert.equal(collection.getView().rows.get('a')?.title, 'persisted');
+  await collection.applyPullPage(page);
+  assert.equal(collection.getView().checkpoint, '3');
+  assert.equal(collection.getView().rows.has('a'), false);
+});
