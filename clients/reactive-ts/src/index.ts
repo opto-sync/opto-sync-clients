@@ -10,3 +10,4 @@ export * from './sync-lifecycle.ts';
 export * from './sqlite-desktop.ts';
 export * from './scoped-collection.ts';
 export * from './scoped-http.ts';
+export * from './tanstack-query.ts';
