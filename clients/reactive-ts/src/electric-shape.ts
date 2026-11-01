@@ -94,6 +94,10 @@ export function bridgeElectricShape<T extends Record<string, unknown>>(
   if (restored && (!validCursor(restored) || restored.scopeKey !== scopeKey)) {
     throw new Error('Electric cursor does not match the authenticated shape scope');
   }
+  if (restored && (stream.shapeHandle !== restored.shapeHandle ||
+                   stream.lastOffset !== restored.offset)) {
+    throw new Error('Electric stream was not constructed with the restored handle/offset');
+  }
 
   let ready = restored !== null;
   let resetPending = restored === null;
@@ -125,6 +129,9 @@ export function bridgeElectricShape<T extends Record<string, unknown>>(
         throw new Error('malformed Electric message');
       }
       const { operation, control, event, txids } = message.headers;
+      if ([operation, control, event].filter(x => x !== undefined).length !== 1) {
+        throw new Error('Electric message has ambiguous header discriminator');
+      }
       if (event !== undefined) {
         throw new Error('Electric subset move events require a separate adapter');
       }
