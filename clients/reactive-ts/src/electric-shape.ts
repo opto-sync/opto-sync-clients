@@ -103,13 +103,12 @@ export function bridgeElectricShape<T extends Record<string, unknown>>(
   let unsubscribe: (() => void) | undefined;
   let pending: Promise<void> = Promise.resolve();
 
-  const fail = (error: unknown): never => {
+  const fail = (error: unknown): void => {
     const e = error instanceof Error ? error : new Error(String(error));
     failure = e;
     closed = true;
     unsubscribe?.();
-    options.onError?.(e);
-    throw e;
+    try { options.onError?.(e); } catch { /* observers cannot change failure handling */ }
   };
 
   const process = async (
@@ -187,7 +186,8 @@ export function bridgeElectricShape<T extends Record<string, unknown>>(
   };
 
   const receive = (messages: ElectricShapeMessage<T>[]): Promise<void> => {
-    if (failure) return Promise.reject(failure);
+    // Electric's publisher rethrows rejected subscriber callbacks on a
+    // microtask. Contain storage errors and expose them through idle/onError.
     if (closed) return Promise.resolve();
     // Capture immediately: later events may advance the mutable stream cursor.
     const handle = stream.shapeHandle;
@@ -204,6 +204,9 @@ export function bridgeElectricShape<T extends Record<string, unknown>>(
   if (closed) unsubscribe();
   return {
     close() { closed = true; unsubscribe?.(); },
-    idle() { return pending; },
+    async idle() {
+      await pending;
+      if (failure) throw failure;
+    },
   };
 }
