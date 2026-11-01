@@ -114,6 +114,8 @@ export class ScopedCollection<T> {
   private readonly listeners = new Set<(view: ScopedCollectionView<T>) => void>();
   private readonly options: ScopedCollectionOptions<T>;
   private records = new Map<string, ScopedRecord<T>>();
+  /** Include delete tombstones so a stale resurrection cannot reuse an old revision. */
+  private revisions = new Map<string, string>();
   private checkpoint: string | null = null;
   private scopeToken: string | null = null;
   private ready = false;
@@ -145,11 +147,17 @@ export class ScopedCollection<T> {
     return next;
   }
 
-  private async commit(nextRows: Map<string, ScopedRecord<T>>, nextCheckpoint: string, nextToken: string): Promise<void> {
+  private async commit(
+    nextRows: Map<string, ScopedRecord<T>>,
+    nextCheckpoint: string,
+    nextToken: string,
+    nextRevisions: Map<string, string>,
+  ): Promise<void> {
     this.assertOpen();
     await this.options.persist?.(new Map(nextRows), nextCheckpoint);
     this.assertOpen();
     this.records = nextRows;
+    this.revisions = nextRevisions;
     this.checkpoint = nextCheckpoint;
     this.scopeToken = nextToken;
     this.ready = true;
@@ -220,7 +228,8 @@ export class ScopedCollection<T> {
         if (next.has(row.recordId)) throw new RangeError('duplicate snapshot record');
         next.set(row.recordId, row);
       }
-      await this.commit(next, snapshot.checkpoint, snapshot.scopeToken);
+      const nextRevisions = new Map([...next].map(([id, row]) => [id, row.revision]));
+      await this.commit(next, snapshot.checkpoint, snapshot.scopeToken, nextRevisions);
     });
   }
 
@@ -241,14 +250,15 @@ export class ScopedCollection<T> {
         throw new RangeError('invalid scoped pull page');
       }
       const next = new Map(this.records);
+      const nextRevisions = new Map(this.revisions);
       let previous = from;
       for (const change of page.changes) {
         if (!this.allowed.has(change.recordId)) throw new RangeError('change outside scope');
         const at = decimal(change.checkpoint);
         if (at <= previous || at > to) throw new RangeError('out-of-order scoped change');
         const revision = decimal(change.revision);
-        const prior = next.get(change.recordId);
-        if (prior !== undefined && revision <= decimal(prior.revision)) {
+        const prior = nextRevisions.get(change.recordId);
+        if (prior !== undefined && revision <= decimal(prior)) {
           throw new RangeError('stale or duplicate scoped record revision');
         }
         if (change.operation === 'delete') {
@@ -264,11 +274,12 @@ export class ScopedCollection<T> {
         } else {
           throw new RangeError('unknown change operation');
         }
+        nextRevisions.set(change.recordId, change.revision);
         previous = at;
       }
       // The caller may advance across invisible commits, but the server must
       // generate its scope-filtered page from a consistent source snapshot.
-      await this.commit(next, page.checkpoint, page.scopeToken);
+      await this.commit(next, page.checkpoint, page.scopeToken, nextRevisions);
     });
   }
 
@@ -279,6 +290,7 @@ export class ScopedCollection<T> {
       this.checkpoint = null;
       this.scopeToken = null;
       this.records = new Map();
+      this.revisions = new Map();
       this.publish();
     });
   }
