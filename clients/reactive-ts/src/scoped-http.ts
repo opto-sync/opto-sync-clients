@@ -56,12 +56,38 @@ async function postJson(
   if (declared !== null && Number(declared) > maxBytes) {
     throw new ScopedHttpError(response.status, 'RESPONSE_TOO_LARGE');
   }
-  // Read as text to enforce a hard application-level size bound before parsing.
-  const raw = await response.text();
-  if (raw.length > maxBytes) throw new ScopedHttpError(response.status, 'RESPONSE_TOO_LARGE');
+  // Bound *bytes before buffering*: response.text() would buffer an arbitrarily
+  // large response in memory before our size check could run.
+  if (response.body === null) throw new ScopedHttpError(response.status, 'INVALID_RESPONSE');
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const item = await reader.read();
+      if (item.done) break;
+      size += item.value.byteLength;
+      if (size > maxBytes) {
+        await reader.cancel();
+        throw new ScopedHttpError(response.status, 'RESPONSE_TOO_LARGE');
+      }
+      chunks.push(item.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
   let value: unknown;
-  try { value = JSON.parse(raw); }
-  catch { throw new ScopedHttpError(response.status, 'INVALID_RESPONSE'); }
+  try {
+    value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  } catch {
+    throw new ScopedHttpError(response.status, 'INVALID_RESPONSE');
+  }
   return { status: response.status, value };
 }
 
