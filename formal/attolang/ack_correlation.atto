@@ -1,0 +1,28 @@
+// Source-level AttoLang response-correlation candidate for Opto Sync.
+// This does not claim real-client refinement or backend execution.
+fnc accepts_ack(int in_flight, int response_id, int server_committed): int {
+  if in_flight == 0; do
+    return 0;
+  fi
+  if response_id != in_flight; do
+    return 0;
+  fi
+  if server_committed < response_id; do
+    return 0;
+  fi
+  return 1;
+}
+
+pub routine main(): void {
+  stdio.stdout.write("ack|exact|");
+  stdio.stdout.println(accepts_ack(2, 2, 2));
+  stdio.stdout.write("ack|stale|");
+  stdio.stdout.println(accepts_ack(2, 1, 2));
+  stdio.stdout.write("ack|future|");
+  stdio.stdout.println(accepts_ack(2, 3, 2));
+  stdio.stdout.write("ack|uncommitted|");
+  stdio.stdout.println(accepts_ack(2, 2, 1));
+  stdio.stdout.write("ack|none|");
+  stdio.stdout.println(accepts_ack(0, 1, 1));
+  return;
+}
