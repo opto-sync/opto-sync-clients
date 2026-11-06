@@ -12,7 +12,11 @@ isolates the acknowledge-after-commit boundary for future AttoLang refinement.
 * Client acknowledgement cannot exceed the server commit position.
 
 Run `node formal/attolang/model-check.mjs` for finite exhaustive coverage,
-including lost responses, replay, malformed response, and two negative mutations.
+including lost responses, replay, exhaustive response identities in [-1, 3],
+accepted/rejected response witnesses, and three negative mutations:
+precommit ACK, a stale response clearing a newer in-flight request,
+and duplicate server effect application. Exact transition checks reject these
+even when coarse watermark conservation happens to hold.
 Bounds: two mutation identities and one in-flight mutation. The model does
 **not** assert durability, atomic database commits, network fairness, or actual
 client implementation refinement.
