@@ -100,7 +100,10 @@ jobs:
         run: |
           set -euo pipefail
           dart pub get
-          dart format --output=none --set-exit-if-changed lib tool
+          # Format only this job's ephemeral checkout and show the exact diff
+          # when a contributor needs to repair Dart source. No source is pushed.
+          dart format --output=write lib tool
+          git diff --exit-code -- lib tool
           dart analyze
           dart run tool/self_test.dart
           dart run tool/background_failure_test.dart
