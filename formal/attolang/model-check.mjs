@@ -130,7 +130,7 @@ assert.throws(() => checkResponseStep(uncommitted,
 // A weakened '<=' match violates the immutable in-flight response identity.
 assert.throws(() => checkResponseStep(waitingTwo,
   { ...waitingTwo, acknowledged: 1, inFlight: 0 }, 1),
-  /invalid response must not advance acknowledgement/,
+  /invalid response must not clear in-flight request/,
   "stale but plausible acknowledgement mutation must fail");
 
 // Mutation 3: a duplicate replay that applies the committed effect again.
