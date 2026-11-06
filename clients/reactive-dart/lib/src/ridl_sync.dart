@@ -3,6 +3,7 @@ import 'dart:async';
 import 'contracts.dart';
 import 'optimism.dart';
 import 'ridl_rpc.dart';
+import 'reactive_record.dart';
 
 /// Adapters joining the ridl RPC transport to the optimism layer.
 ///
