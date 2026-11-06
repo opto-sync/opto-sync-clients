@@ -91,7 +91,9 @@ jobs:
 
       - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
-          sdk: stable
+          # Match the supported package SDK and formal-methods replay job.
+          # Unbounded stable drifts Dart formatter/analyzer behavior per release.
+          sdk: '3.12.1'
 
       - name: Resolve and test the RxDart package
         working-directory: clients/reactive-dart
