@@ -5,7 +5,7 @@ import {createHash} from 'node:crypto';
 import {mkdtempSync, writeFileSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {verify_with_drivers} from '../../../scripts/run-oreslang-parity.mjs';
+import {verify_with_drivers, verify_java_llvm_stage} from '../../../scripts/run-oreslang-parity.mjs';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const names = ['java','llvm','wasm','forge','net','js'];
@@ -84,5 +84,42 @@ test('reject unpinned compiler or runtime, and omission of executable arguments'
   withSyntheticDrivers('valid', config => {
     config.drivers.java.args = ['java','{source}','{artifact}'];
     assert.throws(() => verify_with_drivers(config), /invalid driver definition/);
+  });
+});
+
+test('separate Java/LLVM stage uses ten strict compiler/guest receipts, host synthetic only', () => {
+  withSyntheticDrivers('valid', config => {
+    const stage = {schemaVersion:1, drivers:{java:config.drivers.java, llvm:config.drivers.llvm}};
+    assert.equal(verify_java_llvm_stage(stage), 10);
+    assert.throws(() => verify_with_drivers(stage), /all six independent drivers/);
+  });
+});
+
+test('Java/LLVM stage refuses missing, extra or substituted driver lanes', () => {
+  withSyntheticDrivers('valid', config => {
+    assert.throws(() => verify_java_llvm_stage(config), /exactly two independently pinned/);
+    assert.throws(() => verify_java_llvm_stage({
+      schemaVersion:1, drivers:{java:config.drivers.java}
+    }), /exactly two independently pinned/);
+    assert.throws(() => verify_java_llvm_stage({
+      schemaVersion:1, drivers:{java:config.drivers.java, wasm:config.drivers.wasm}
+    }), /exactly two independently pinned/);
+    const staged = {schemaVersion:1, drivers:{java:config.drivers.java, llvm:{...config.drivers.llvm, compilerSha256:'0'.repeat(64)}}};
+    assert.throws(() => verify_java_llvm_stage(staged), /unpinned toolchain executable/);
+  });
+});
+
+test('Java/LLVM stage rejects forged native guest exits and artifact links', () => {
+  withSyntheticDrivers('bad-exit', config => {
+    const staged={schemaVersion:1,drivers:{java:config.drivers.java,llvm:config.drivers.llvm}};
+    assert.throws(() => verify_java_llvm_stage(staged), /mismatched compiler-backed receipt/);
+  });
+  withSyntheticDrivers('symlink', config => {
+    const staged={schemaVersion:1,drivers:{java:config.drivers.java,llvm:config.drivers.llvm}};
+    assert.throws(() => verify_java_llvm_stage(staged), /artifact missing or digest mismatch/);
+  });
+  withSyntheticDrivers('dangling', config => {
+    const staged={schemaVersion:1,drivers:{java:config.drivers.java,llvm:config.drivers.llvm}};
+    assert.throws(() => verify_java_llvm_stage(staged), /rejected source nevertheless published artifact/);
   });
 });

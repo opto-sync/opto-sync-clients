@@ -25,3 +25,30 @@ Do **not** add `oreslang` to SDK matrices, shipping manifests, or release packag
 
 Run host tests: `node --test experimental/oreslang/tests/host-admission.test.mjs`.
 Run configured real toolchains only after drivers have been built and peer-reviewed: `node scripts/run-oreslang-parity.mjs /absolute/drivers.json`.
+
+## Java/GraalVM + LLVM first compiler stage (NOT full parity)
+
+The existing all-six driver entrypoint remains strict. To execute just the
+**first two** compiler/guest lanes with the **same** hash-pinned snapshot,
+compiler exit, guest exit, positive/negative fixture and artifact enforcement:
+
+```sh
+node scripts/run-oreslang-parity.mjs --stage-java-llvm /absolute/reviewed-java-llvm-drivers.json
+```
+
+The JSON must contain `schemaVersion: 1` and **exactly** `java` and `llvm`
+drivers, using the same absolute `binary`, `compiler`, `runtime`, SHA-256
+pins and `args` token rules as the six-lane mode. Each backend runs all five
+scalar fixtures (10 expected driver receipts). No missing, extra, fake backend,
+invalid compiler/guest exit, symlink output, or artifact from rejected source
+can be admitted. Any driver failure exits nonzero; no skip is counted as pass.
+A strict six-backend run **rejects** this two-driver configuration.
+
+This stage proves **only reported scalar compiler/guest fixture behavior** when
+actually run against reviewed, pinned *real* AttoLang toolchains with independent
+stepful logs. Host synthetic tests prove the gate's rejection behavior only.
+Passing two-lane receipts is **not** full backend parity, not an actor/HTTP SDK,
+not NativeAOT or GraalVM AOT unless separately evidenced, and not an AttoLang
+product support or release claim. Until real pinned compiler inputs are supplied
+and this command executes, real Java/LLVM AttoLang guest evidence is
+**NOT_EXECUTED**. Never silently substitute a JS/Rust implementation.
