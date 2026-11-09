@@ -24,9 +24,9 @@ jobs:
         run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
-          node-version: 22.16.0
+          node-version: 22.18.0
       - name: Require fresh compiler-backed peer parity
-        uses: ORESoftware/typespec-json-schema-validator@bd503465dab8c5148fee722b443ed04ff126c9bf
+        uses: ORESoftware/typespec-json-schema-validator@f386c78e44c93309029e186799d926c652cb0d96
         with:
           typespec: test/fixtures/schema-authority-canary/main.tsp
           schema: test/fixtures/schema-authority-canary/authored.schema.json
@@ -35,7 +35,7 @@ jobs:
           output_dir: .typespec-json-schema-validator/regressions/generated
           max_probes: "64"
       - name: Require positive admission and nineteen canonical refusals
-        uses: ORESoftware/typespec-json-schema-validator/actions/test-consumer-admission@bd503465dab8c5148fee722b443ed04ff126c9bf
+        uses: ORESoftware/typespec-json-schema-validator/actions/test-consumer-admission@f386c78e44c93309029e186799d926c652cb0d96
         with:
           contract_ir: .typespec-json-schema-validator/regressions/contract-ir.json
           report: .typespec-json-schema-validator/regressions/report.json

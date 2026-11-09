@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "status": "candidate-not-admitted",
+  "language": "oreslang",
+  "backends": [
+    "java",
+    "llvm",
+    "wasm",
+    "forge",
+    "net",
+    "js"
+  ],
+  "note": "One-function i64 smoke tests are separate from the full source contract. This manifest cannot certify runtime or SDK support.",
+  "cases": [
+    {
+      "file": "scalar-order.ores",
+      "kind": "value",
+      "expected": 14
+    },
+    {
+      "file": "scalar-parens.ores",
+      "kind": "value",
+      "expected": 42
+    },
+    {
+      "file": "scalar-boundary.ores",
+      "kind": "value",
+      "expected": 1
+    },
+    {
+      "file": "reject-overflow.ores",
+      "kind": "reject"
+    },
+    {
+      "file": "reject-invalid.ores",
+      "kind": "reject"
+    }
+  ],
+  "admission": {
+    "sdkPublished": false,
+    "jsTranspileVerified": false,
+    "wasmGuestVerified": false,
+    "fullToolchainParityVerified": false
+  }
+}
