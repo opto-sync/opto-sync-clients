@@ -222,6 +222,7 @@ def main() -> None:
 
     seen_targets: set[str] = set()
     declared_dirs: list[Path] = []
+    implementation_drift: list[str] = []
     for entry in targets:
         if not isinstance(entry, dict):
             fail("contract manifest target entries must be objects")
@@ -245,7 +246,7 @@ def main() -> None:
             expected_file_count != implementation_file_count
             or expected_digest != implementation_digest
         ):
-            fail(
+            implementation_drift.append(
                 f"target {target} implementation source or export metadata drifted: "
                 f"expected count={expected_file_count!r} sha256={expected_digest!r}; "
                 f"actual count={implementation_file_count} sha256={implementation_digest}"
@@ -269,6 +270,10 @@ def main() -> None:
         marker_digest = marker / ".zed-api-surface.sha256"
         if not marker_digest.is_file() or marker_digest.read_text(encoding="utf-8").strip() != surface_digest:
             fail(f"target {target} API fingerprint is missing or stale")
+
+    if implementation_drift:
+        fail("implementation evidence mismatches (all targets; fail closed):\\n" +
+             "\\n".join(implementation_drift))
 
     language_dirs = sorted(
         path
