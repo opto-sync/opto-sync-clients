@@ -52,9 +52,9 @@ class RidlRpcTransport {
     required RidlChannel channel,
     String Function()? nextId,
     Map<String, Object?> Function()? metaFor,
-  })  : _channel = channel,
-        _nextId = nextId,
-        _metaFor = metaFor {
+  }) : _channel = channel,
+       _nextId = nextId,
+       _metaFor = metaFor {
     _inbound = _channel.frames.map(RidlFrame.decode).share();
     _inboundDone = _inbound.listen(
       null,
@@ -109,62 +109,70 @@ class RidlRpcTransport {
 
     controller = StreamController<Object?>(
       onListen: () {
-        sub = _inbound.where((f) => f.id == id).listen(
-          (frame) {
-            switch (frame.type) {
-              case RidlFrameType.data:
-                controller.add(frame.body);
-                break;
-              case RidlFrameType.end:
-                settled = true;
+        sub = _inbound
+            .where((f) => f.id == id)
+            .listen(
+              (frame) {
+                switch (frame.type) {
+                  case RidlFrameType.data:
+                    controller.add(frame.body);
+                    break;
+                  case RidlFrameType.end:
+                    settled = true;
+                    controller.close();
+                    break;
+                  case RidlFrameType.error:
+                    settled = true;
+                    controller.addError(
+                      RidlRpcError(
+                        id: id,
+                        code: frame.code ?? 'unknown',
+                        message: frame.message,
+                      ),
+                    );
+                    controller.close();
+                    break;
+                  case RidlFrameType.cancel:
+                    // The peer abandoned it; close quietly rather than erroring.
+                    settled = true;
+                    controller.close();
+                    break;
+                  case RidlFrameType.call:
+                    // A call frame addressed to our own id is a protocol fault.
+                    settled = true;
+                    controller.addError(
+                      RidlRpcError(
+                        id: id,
+                        code: 'protocol',
+                        message: 'unexpected call frame on an open exchange',
+                      ),
+                    );
+                    controller.close();
+                    break;
+                }
+              },
+              onError: controller.addError,
+              onDone: () {
+                if (!settled) {
+                  controller.addError(RidlChannelClosed(id));
+                }
                 controller.close();
-                break;
-              case RidlFrameType.error:
-                settled = true;
-                controller.addError(RidlRpcError(
-                  id: id,
-                  code: frame.code ?? 'unknown',
-                  message: frame.message,
-                ));
-                controller.close();
-                break;
-              case RidlFrameType.cancel:
-                // The peer abandoned it; close quietly rather than erroring.
-                settled = true;
-                controller.close();
-                break;
-              case RidlFrameType.call:
-                // A call frame addressed to our own id is a protocol fault.
-                settled = true;
-                controller.addError(RidlRpcError(
-                  id: id,
-                  code: 'protocol',
-                  message: 'unexpected call frame on an open exchange',
-                ));
-                controller.close();
-                break;
-            }
-          },
-          onError: controller.addError,
-          onDone: () {
-            if (!settled) {
-              controller.addError(RidlChannelClosed(id));
-            }
-            controller.close();
-          },
-        );
+              },
+            );
 
         try {
-          _channel.send(RidlFrame.call(
-            id: id,
-            key: key,
-            method: method,
-            path: path,
-            query: query,
-            body: body,
-            hasBody: hasBody,
-            meta: meta ?? _metaFor?.call(),
-          ).encode());
+          _channel.send(
+            RidlFrame.call(
+              id: id,
+              key: key,
+              method: method,
+              path: path,
+              query: query,
+              body: body,
+              hasBody: hasBody,
+              meta: meta ?? _metaFor?.call(),
+            ).encode(),
+          );
         } catch (error, stack) {
           controller.addError(error, stack);
           controller.close();

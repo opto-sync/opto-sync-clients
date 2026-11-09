@@ -91,14 +91,19 @@ jobs:
 
       - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
-          sdk: stable
+          # Match the supported package SDK and formal-methods replay job.
+          # Unbounded stable drifts Dart formatter/analyzer behavior per release.
+          sdk: '3.12.1'
 
       - name: Resolve and test the RxDart package
         working-directory: clients/reactive-dart
         run: |
           set -euo pipefail
           dart pub get
-          dart format --output=none --set-exit-if-changed lib tool
+          # Format only this job's ephemeral checkout and show the exact diff
+          # when a contributor needs to repair Dart source. No source is pushed.
+          dart format --output=write lib tool
+          git diff --exit-code -- lib tool
           dart analyze
           dart run tool/self_test.dart
           dart run tool/background_failure_test.dart
