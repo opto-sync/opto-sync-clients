@@ -218,7 +218,7 @@
       "coordinate": "opto-sync/opto-sync-clients",
       "dir": "clients/typescript/nodejs",
       "implementationFileCount": 2,
-      "implementationSha256": "ba4741e0a299c5204a2142aa1090df805134f19ad455154d8d10fe0f4a9fd324",
+      "implementationSha256": "66cbc3aeba8563c868fe7c41c936d08bb80142017c633aeb862964bad1faa86b",
       "runtime": "nodejs",
       "schemaId": "https://zpkg.tech/schemas/client-api.schema.json",
       "schemaVersion": 1,
