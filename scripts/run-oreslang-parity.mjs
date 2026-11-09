@@ -2,7 +2,7 @@
 // unless the configured immutable driver is invoked and returns validated evidence.
 // Usage: node scripts/run-oreslang-parity.mjs /absolute/drivers.json
 // Drivers are reviewed locally by maintainers; NO repo-secret/token use.
-import {readFileSync, realpathSync, statSync, existsSync, mkdtempSync, rmSync} from 'node:fs';
+import {readFileSync, writeFileSync, realpathSync, statSync, lstatSync, existsSync, mkdtempSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {createHash} from 'node:crypto';
 import {resolve, join, dirname} from 'node:path';
@@ -46,7 +46,10 @@ export function validate_receipt(receipt, testCase, expectedSource, expectedDriv
       receipt.driverSha256 !== expectedDriver ||
       receipt.kind !== testCase.kind ||
       (testCase.kind === 'value' && receipt.value !== testCase.expected) ||
-      (testCase.kind === 'reject' && ('value' in receipt)) ||
+      (testCase.kind === 'reject' && ('value' in receipt || 'guestExitCode' in receipt)) ||
+      (testCase.kind === 'value' && (receipt.compilerExitCode !== 0 || receipt.guestExitCode !== testCase.expected)) ||
+      (testCase.kind === 'reject' &&
+        (!Number.isInteger(receipt.compilerExitCode) || receipt.compilerExitCode === 0)) ||
       typeof receipt.compilerSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(receipt.compilerSha256) ||
       typeof receipt.runtimeSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(receipt.runtimeSha256) ||
       (testCase.kind === 'value' && (typeof receipt.artifactSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(receipt.artifactSha256))) ||
@@ -61,7 +64,8 @@ export function validate_driver(d) {
       !/^[a-f0-9]{64}$/.test(d.sha256) ||
       !Array.isArray(d.args) || d.args.length > 16 ||
       !d.args.includes('{source}') || !d.args.includes('{artifact}') ||
-      d.args.some(x => typeof x !== 'string' || x.length > 1000)) {
+      !d.args.includes('{compiler}') || !d.args.includes('{runtime}') ||
+      d.args.some(x => typeof x !== 'string' || x.length > 1000 || x.includes('\\0'))) {
     throw new Error('invalid driver definition');
   }
   for (const [pathKey, shaKey] of [['binary','sha256'],['compiler','compilerSha256'],['runtime','runtimeSha256']]) {
@@ -75,6 +79,14 @@ export function validate_driver(d) {
     }
   }
 }
+// existsSync follows dangling symlinks; negative compiler fixtures must reject
+// even an artifact symlink whose target does not exist.
+function lstatExists(path) {
+  try { lstatSync(path); return true; } catch (error) {
+    if (error?.code === 'ENOENT') return false;
+    throw error;
+  }
+}
 export function verify_with_drivers(config) {
   if (config?.schemaVersion !== 1 || !config.drivers ||
       Object.keys(config.drivers).sort().join(',') !== [...backends].sort().join(',')) {
@@ -85,14 +97,38 @@ export function verify_with_drivers(config) {
     const driver = config.drivers[backend];
     validate_driver(driver);
     for (const c of manifest.cases) {
-      const sourcePath = join(fixtures, c.file), hash = digest(sourcePath);
+      const sourcePath = join(fixtures, c.file);
       const scratch = mkdtempSync(join(tmpdir(), 'oreslang-parity-'));
       const artifact = join(scratch, 'guest-artifact');
+      const source = join(scratch, 'source.ores');
       try {
-        const args = driver.args.map(x => x.replaceAll('{source}', sourcePath).replaceAll('{artifact}', artifact));
-        const result = spawnSync(driver.binary, args, {
-          cwd: root, shell: false, encoding: 'utf8', timeout: 120000,
-          maxBuffer: 8192, env: {PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? ''},
+        // Snapshot the exact bytes handed to the driver. Never invoke mutable
+        // original paths after checking provenance: that would permit swapping
+        // a pinned executable or fixture between the digest and spawn.
+        writeFileSync(source, readFileSync(sourcePath), {flag:'wx', mode:0o400});
+        const hash = digest(source);
+        const staged = {};
+        for (const [key, pin] of [
+          ['binary','sha256'], ['compiler','compilerSha256'], ['runtime','runtimeSha256']
+        ]) {
+          const bytes = readFileSync(realpathSync(driver[key]));
+          if (sha(bytes) !== driver[pin]) {
+            throw new Error('toolchain changed after pin verification: ' + key);
+          }
+          staged[key] = join(scratch, key + '-executable');
+          writeFileSync(staged[key], bytes, {flag:'wx', mode:0o500});
+          if (digest(staged[key]) !== driver[pin]) {
+            throw new Error('staged toolchain digest mismatch: ' + key);
+          }
+        }
+        const args = driver.args.map(x => x
+          .replaceAll('{source}', source)
+          .replaceAll('{artifact}', artifact)
+          .replaceAll('{compiler}', staged.compiler)
+          .replaceAll('{runtime}', staged.runtime));
+        const result = spawnSync(staged.binary, args, {
+          cwd: scratch, shell: false, encoding: 'utf8', timeout: 120000,
+          maxBuffer: 8192, env: {PATH: process.env.PATH ?? '', HOME: scratch},
         });
         if (result.error || result.status !== 0 || result.signal ||
             typeof result.stdout !== 'string' || result.stdout.length > 4096) {
@@ -106,11 +142,14 @@ export function verify_with_drivers(config) {
           throw new Error('compiler/runtime provenance mismatch: ' + backend);
         }
         if (c.kind === 'value') {
-          if (!existsSync(artifact) || !statSync(artifact).isFile() ||
+          // Do not follow a symlink controlled by an external driver. Its
+          // target could be an unrelated sensitive host file with a forged SHA.
+          if (!existsSync(artifact) || !lstatSync(artifact).isFile() ||
+              realpathSync(artifact) !== artifact ||
               digest(artifact) !== receipt.artifactSha256) {
             throw new Error('compiled artifact missing or digest mismatch: ' + backend);
           }
-        } else if (existsSync(artifact)) {
+        } else if (existsSync(artifact) || lstatExists(artifact)) {
           throw new Error('rejected source nevertheless published artifact: ' + backend);
         }
         count++;
