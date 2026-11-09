@@ -16,8 +16,14 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '24'
-      - name: Test negative admission and forged-receipt rejection (HOST ONLY)
-        run: node --test experimental/oreslang/tests/host-admission.test.mjs
+      - name: Assert exact source head and run synthetic hostile drivers (HOST ONLY)
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          node --test experimental/oreslang/tests/*.test.mjs
