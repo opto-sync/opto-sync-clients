@@ -52,7 +52,11 @@ EXEMPT_PATH = re.compile(
     r"|\.(g|freezed|pb|generated)\.[a-z]+$"
     r"|\.(test|spec)\.[a-z]+$"
     r"|(^|/)build\.rs$"
-    r"|(^|/)migrations?/",
+    r"|(^|/)migrations?/"
+    # Explicit Dart tool/ files that are *test harnesses*, not shipped SDK code.
+    # This mirrors the existing test/fixtures exemption without exempting all
+    # tool/ scripts, which may contain production CLI behavior.
+    r"|(^|/)tool/(?:[^/]*_(?:self_test|failure_test|contract_test|itf_replay|conformance_child|desktop_child|child)\\.dart|formal_itf_replay/[^/]+\\.dart)$",
     re.IGNORECASE,
 )
 
