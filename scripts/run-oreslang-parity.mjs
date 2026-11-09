@@ -125,7 +125,8 @@ export function verify_with_drivers(config) {
           .replaceAll('{source}', source)
           .replaceAll('{artifact}', artifact)
           .replaceAll('{compiler}', staged.compiler)
-          .replaceAll('{runtime}', staged.runtime));
+          .replaceAll('{runtime}', staged.runtime)
+          .replaceAll('{case}', c.file));
         const result = spawnSync(staged.binary, args, {
           cwd: scratch, shell: false, encoding: 'utf8', timeout: 120000,
           maxBuffer: 8192, env: {PATH: process.env.PATH ?? '', HOME: scratch},
