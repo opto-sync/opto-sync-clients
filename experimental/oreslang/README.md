@@ -79,3 +79,13 @@ LLVM [oreslang-source.llvm#1639](https://github.com/ores-truffle-oreslang/oresla
 All three repositories must keep all five Git blob SHAs identical at their
 **current exact PR heads**. Neither the host synthetic checks nor a no-runner
 source-org Actions failure is actual AttoLang guest proof.
+
+## Frozen scalar-v1 fixture identity gate
+
+The scalar-v1 harness now rejects candidate manifest changes to fixture order,
+positive expected exits, negative-case kinds, extra case metadata or the five
+canonical source-file SHA-256 hashes. The canonical bytes were checked against
+Java compiler PR #2751 and LLVM compiler PR #1639 at their exact heads.
+This protects future compiler-admission evidence against host-side oracle drift.
+It is **not** an actual AttoLang compiler build or executed guest receipt;
+never use a passing host gate as promotion evidence.
