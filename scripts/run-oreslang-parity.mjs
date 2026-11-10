@@ -16,14 +16,25 @@ const backends = ['java', 'llvm', 'wasm', 'forge', 'net', 'js'];
 const sha = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const digest = (p) => sha(readFileSync(p));
 
+// Frozen candidate v1 scalar corpus: independently matched to the exact-byte
+// Java #2751 and LLVM #1639 source fixtures. Neither a mutable manifest nor
+// host-only synthetic driver can silently redefine successful guest behavior.
+const scalarV1 = Object.freeze([
+  {file:'scalar-order.ores', kind:'value', expected:14, sha256:'0dedccfdeff013995e1e5d784bf1767acf61b0c0485fa50aba6aa9dd473331f2'},
+  {file:'scalar-parens.ores', kind:'value', expected:42, sha256:'c1be02a97cbf9c02a3ff6ed2c3452cbde2e7adca77b03c93ea2a185b87fd5a8f'},
+  {file:'scalar-boundary.ores', kind:'value', expected:1, sha256:'48e5c6d9a4284d5d9c05bab779fa74a53341a981d5e6c63ce6cc5c52cbf323dd'},
+  {file:'reject-overflow.ores', kind:'reject', sha256:'dbc6368f793beef3465a061983134ef85621d9084bc179f8d53c096fa0242461'},
+  {file:'reject-invalid.ores', kind:'reject', sha256:'dce35f88681548d3e3e4e1d04394924a9b70f27925acc37a53689d74237ec33a'},
+]);
+
 export function validate_manifest(value) {
   if (value?.schemaVersion !== 1 || value.status !== 'candidate-not-admitted' ||
-      !Array.isArray(value.cases) || value.cases.length < 5 ||
+      !Array.isArray(value.cases) || value.cases.length !== scalarV1.length ||
       JSON.stringify(value.backends) !== JSON.stringify(backends)) {
     throw new Error('invalid candidate manifest');
   }
   const seen = new Set();
-  for (const c of value.cases) {
+  for (const [index, c] of value.cases.entries()) {
     if (typeof c.file !== 'string' || !/^(scalar|reject)-[a-z-]+\.ores$/.test(c.file) ||
         seen.has(c.file) || !['value','reject'].includes(c.kind) ||
         (c.kind === 'value' && (!Number.isSafeInteger(c.expected) || c.expected < 0 || c.expected > 255)) ||
@@ -31,6 +42,15 @@ export function validate_manifest(value) {
     seen.add(c.file);
     const p = realpathSync(join(fixtures, c.file));
     if (dirname(p) !== fixtures || !statSync(p).isFile()) throw new Error('unsafe fixture path');
+    const canonical = scalarV1[index];
+    if (c.file !== canonical.file || c.kind !== canonical.kind ||
+        c.expected !== canonical.expected || Object.keys(c).sort().join(',') !==
+        (canonical.kind === 'value' ? 'expected,file,kind' : 'file,kind')) {
+      throw new Error('invalid canonical scalar v1 fixture contract');
+    }
+    if (sha(readFileSync(p)) !== canonical.sha256) {
+      throw new Error('scalar v1 fixture byte digest mismatch: ' + c.file);
+    }
   }
   if (value.admission?.sdkPublished !== false ||
       value.admission?.fullToolchainParityVerified !== false ||
@@ -65,7 +85,7 @@ export function validate_driver(d) {
       !Array.isArray(d.args) || d.args.length > 16 ||
       !d.args.includes('{source}') || !d.args.includes('{artifact}') ||
       !d.args.includes('{compiler}') || !d.args.includes('{runtime}') ||
-      d.args.some(x => typeof x !== 'string' || x.length > 1000 || x.includes('\\0'))) {
+      d.args.some(x => typeof x !== 'string' || x.length > 1000 || x.includes('\0'))) {
     throw new Error('invalid driver definition');
   }
   for (const [pathKey, shaKey] of [['binary','sha256'],['compiler','compilerSha256'],['runtime','runtimeSha256']]) {
@@ -87,13 +107,16 @@ function lstatExists(path) {
     throw error;
   }
 }
-export function verify_with_drivers(config) {
+// Exactly-scoped toolchain stages share the SAME immutable pin, compiler/guest
+// exit, artifact and negative-case gates. A partial stage can never be passed
+// to the six-backend release qualification entrypoint.
+function run_driver_matrix(config, requiredBackends, invalidScope) {
   if (config?.schemaVersion !== 1 || !config.drivers ||
-      Object.keys(config.drivers).sort().join(',') !== [...backends].sort().join(',')) {
-    throw new Error('all six independent drivers are required');
+      Object.keys(config.drivers).sort().join(',') !== [...requiredBackends].sort().join(',')) {
+    throw new Error(invalidScope);
   }
   let count = 0;
-  for (const backend of backends) {
+  for (const backend of requiredBackends) {
     const driver = config.drivers[backend];
     validate_driver(driver);
     for (const c of manifest.cases) {
@@ -161,10 +184,38 @@ export function verify_with_drivers(config) {
   }
   return count;
 }
+
+// Only the existing portable scalar fixtures are supported by this first
+// independently reviewed compiler stage. Structured sync SDK/actor APIs are
+// outside its scope; see the .ores source contracts and promotion gates.
+export function verify_java_llvm_stage(config) {
+  return run_driver_matrix(config, ['java', 'llvm'],
+    'java/llvm stage requires exactly two independently pinned drivers');
+}
+
+// This original all-six entrypoint MUST NOT accept a partial stage config.
+export function verify_with_drivers(config) {
+  return run_driver_matrix(config, backends, 'all six independent drivers are required');
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  if (process.argv.length !== 3) throw new Error('provide absolute, reviewed drivers.json');
-  const configPath = process.argv[2];
+  const stage = process.argv[2] === '--stage-java-llvm';
+  if (stage ? process.argv.length !== 4 : process.argv.length !== 3) {
+    throw new Error('provide reviewed absolute drivers.json; optional --stage-java-llvm');
+  }
+  const configPath = process.argv[stage ? 3 : 2];
   if (!configPath.startsWith('/')) throw new Error('config path must be absolute');
-  const count = verify_with_drivers(JSON.parse(readFileSync(configPath, 'utf8')));
-  console.log('Validated ' + count + ' configured toolchain/fixture receipts; inspect compiler guest execution logs before promotion');
+  const config = JSON.parse(readFileSync(configPath, 'utf8'));
+  const count = stage ? verify_java_llvm_stage(config) : verify_with_drivers(config);
+  if (stage) {
+    console.log(JSON.stringify({
+      scope: 'java-llvm-scalar-fixtures-only',
+      driverReceipts: count,
+      fullToolchainParity: 'NOT_CERTIFIED',
+      sdk: 'NOT_PUBLISHED',
+      evidence: 'DRIVER_REPORTED_REQUIRES_INDEPENDENT_GUEST_LOGS'
+    }));
+  } else {
+    console.log('Validated ' + count + ' configured toolchain/fixture receipts; inspect compiler guest execution logs before promotion');
+  }
 }

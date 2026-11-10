@@ -31,3 +31,61 @@ Run configured real toolchains only after drivers have been built and peer-revie
 The draft [AttoLang LLVM Opto Sync PR #1621](https://github.com/ores-truffle-oreslang/oreslang-source.llvm/pull/1621) adds seven source-pinned native `.atto` fixtures: five checkpoint/generation/deadline/ACK/tenant-cursor guards and two compiler-negative cases. Its LLVM/Clang O0/O2 workflow resides in the actual compiler repo; it does not bypass private source boundaries or introduce an Opto Sync SDK. Exact source head: `b93dbef076d583101b527e376bb88fa8c0e87cba`.
 
 [Native guest run #42556978496](https://github.com/ores-truffle-oreslang/oreslang-source.llvm/actions/runs/42556978496) failed before any job steps executed. LLVM compiler/guest execution remains **NOT_EXECUTED / NOT_CERTIFIED**. A new run on an approved source-side runner must actually build the compiler, execute native O0/O2 guests and reject invalid sources. The host-only checks in this PR cannot certify backend parity.
+
+## Java/GraalVM + LLVM first compiler stage (NOT full parity)
+
+The existing all-six driver entrypoint remains strict. To execute just the
+**first two** compiler/guest lanes with the **same** hash-pinned snapshot,
+compiler exit, guest exit, positive/negative fixture and artifact enforcement:
+
+```sh
+node scripts/run-oreslang-parity.mjs --stage-java-llvm /absolute/reviewed-java-llvm-drivers.json
+```
+
+The JSON must contain `schemaVersion: 1` and **exactly** `java` and `llvm`
+drivers, using the same absolute `binary`, `compiler`, `runtime`, SHA-256
+pins and `args` token rules as the six-lane mode. Each backend runs all five
+scalar fixtures (10 expected driver receipts). No missing, extra, fake backend,
+invalid compiler/guest exit, symlink output, or artifact from rejected source
+can be admitted. Any driver failure exits nonzero; no skip is counted as pass.
+A strict six-backend run **rejects** this two-driver configuration.
+
+This stage proves **only reported scalar compiler/guest fixture behavior** when
+actually run against reviewed, pinned *real* AttoLang toolchains with independent
+stepful logs. Host synthetic tests prove the gate's rejection behavior only.
+Passing two-lane receipts is **not** full backend parity, not an actor/HTTP SDK,
+not NativeAOT or GraalVM AOT unless separately evidenced, and not an AttoLang
+product support or release claim. Until real pinned compiler inputs are supplied
+and this command executes, real Java/LLVM AttoLang guest evidence is
+**NOT_EXECUTED**. Never silently substitute a JS/Rust implementation.
+
+## Canonical scalar grammar and compile-negative contract (2026-11-10)
+
+The five scalar smoke fixtures use `pub fnc main(): int`, the existing
+executable common-subset declaration spelling in both Java and LLVM
+`contracts/v1/fixtures/literal-42.ores` sources. The original speculative
+`define pub fnc` spelling is no longer used by these strict smoke cases.
+
+`reject-overflow` is an **out-of-range signed-i64 integer literal**
+(`9223372036854775808`), which both canonical compiler scalar suites
+already classify as a compile-time rejection. It is **not** a claim
+that the in-range expression `MAX_I64 + 1` must be compile-rejected:
+checked arithmetic can trap during guest execution and requires a
+separate explicit runtime-overflow contract and real compiler evidence.
+
+Companion exact-byte source PRs: Java
+[oreslang-source.java#2751](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/2751),
+LLVM [oreslang-source.llvm#1639](https://github.com/ores-truffle-oreslang/oreslang-source.llvm/pull/1639).
+All three repositories must keep all five Git blob SHAs identical at their
+**current exact PR heads**. Neither the host synthetic checks nor a no-runner
+source-org Actions failure is actual AttoLang guest proof.
+
+## Frozen scalar-v1 fixture identity gate
+
+The scalar-v1 harness now rejects candidate manifest changes to fixture order,
+positive expected exits, negative-case kinds, extra case metadata or the five
+canonical source-file SHA-256 hashes. The canonical bytes were checked against
+Java compiler PR #2751 and LLVM compiler PR #1639 at their exact heads.
+This protects future compiler-admission evidence against host-side oracle drift.
+It is **not** an actual AttoLang compiler build or executed guest receipt;
+never use a passing host gate as promotion evidence.

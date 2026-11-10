@@ -11,9 +11,26 @@ test('fixtures are explicit, bounded and unadmitted',()=>{
 });
 test('fail closed on unsupported release claims and duplicate fixtures',()=>{
   assert.throws(()=>validate_manifest({...m,admission:{...m.admission,sdkPublished:true}}),/support claim/);
-  assert.throws(()=>validate_manifest({...m,cases:[...m.cases,m.cases[0]]}),/invalid fixture/);
+  assert.throws(()=>validate_manifest({...m,cases:[...m.cases,m.cases[0]]}),/invalid (candidate manifest|fixture)/);
   assert.throws(()=>validate_manifest({...m,backends:['java']}),/manifest/);
 });
+test('canonical v1 fixture names, expected exits and exact source bytes cannot drift',()=>{
+  assert.doesNotThrow(()=>validate_manifest(m));
+  const modifiedExpected = structuredClone(m);
+  modifiedExpected.cases[0].expected = 15;
+  assert.throws(()=>validate_manifest(modifiedExpected),/canonical scalar v1/);
+  const reshuffled = structuredClone(m);
+  [reshuffled.cases[0],reshuffled.cases[1]] = [reshuffled.cases[1],reshuffled.cases[0]];
+  assert.throws(()=>validate_manifest(reshuffled),/canonical scalar v1/);
+  const forgedKind = structuredClone(m);
+  forgedKind.cases[3].kind = 'value';
+  forgedKind.cases[3].expected = 0;
+  assert.throws(()=>validate_manifest(forgedKind),/canonical scalar v1/);
+  const extraField = structuredClone(m);
+  extraField.cases[0].sourceSha256 = '0'.repeat(64);
+  assert.throws(()=>validate_manifest(extraField),/canonical scalar v1/);
+});
+
 test('forged receipts, mismatched identity and values are rejected',()=>{
   const h='a'.repeat(64), d='b'.repeat(64);
   const valid={backend:'llvm',sourceSha256:h,driverSha256:d,kind:'value',value:14,

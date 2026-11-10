@@ -1,1 +1,1 @@
-define pub fnc main(): int { return unknown_operation(1); }
+pub fnc main(): int { return unknown_operation(1); }
