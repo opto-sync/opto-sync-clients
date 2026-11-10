@@ -76,3 +76,14 @@ whose target did not exist at the time of an `exists`-style check. The
 security boundary still requires an OS-protected parent directory; lstat
 alone cannot prevent a malicious directory owner swapping path components
 between inspection and SQLite open.
+
+## Executed crash-window test requirements
+
+A separate Node process begins a SQLite `BEGIN IMMEDIATE` transaction,
+changes `last_ack`, and terminates without `COMMIT`. Reopening the journal
+must observe the old committed value: an in-flight SQLite write is not durable.
+A second check suspends an HTTP exchange, acquires a newer supervisor
+generation, then releases the old reply; `dispatch` must reject that stale
+reply, leave pending work in SQLite, and let the new generation replay the
+original mutation. This fences local retirement only: the remote server still
+requires its own generation-aware admission protocol.

@@ -249,6 +249,49 @@ test('database path symlink is denied without touching the target',t=>{
   assert.equal(lstatSync(alias).isSymbolicLink(),true);
 });
 
+test('uncommitted SQLite WAL row update is rolled back after real child process exit',t=>{
+  const {path,open}=mk(t);
+  const j=open();
+  j.close();
+  const child=`import {DatabaseSync} from 'node:sqlite';
+const db=new DatabaseSync(${JSON.stringify(path)});
+db.exec('BEGIN IMMEDIATE');
+db.prepare('UPDATE journal SET last_ack=? WHERE singleton=1').run('99');
+process.exit(31); // intentionally NO COMMIT/ROLLBACK
+`;
+  const died=spawnSync(process.execPath,['--input-type=module','-e',child],{
+    encoding:'utf8',timeout:30000,env:{...process.env,NODE_NO_WARNINGS:'1'}});
+  assert.equal(died.status,31,died.stderr);
+  const reopened=open();
+  assert.equal(reopened.snapshot().lastAck,'0');
+  assert.equal(reopened.snapshot().pending,null);
+  reopened.close();
+});
+
+test('supervisor acquisition while HTTP request is in-flight discards its late ACK',async t=>{
+  let release;
+  const pending=new Promise(resolve=>{release=resolve;});
+  const {open}=mk(t,async e=>{
+    await pending;
+    return good_reply(e);
+  });
+  const old=open();
+  const stage=old.stage_mutation(MUTATION);
+  const in_flight=old.dispatch(stage,'150');
+  assert.throws(()=>old.snapshot(),/reentrant/);
+  const renewed=open(e=>good_reply(e,'duplicate'));
+  assert.equal(renewed.snapshot().generation,'2');
+  release();
+  await assert.rejects(in_flight,/fenced: stale journal generation/);
+  assert.equal(renewed.snapshot().lastAck,'0');
+  assert.equal(renewed.snapshot().pending.mutationId,'1');
+  const accepted=await renewed.dispatch(renewed.recovered_stage_receipt(),'151');
+  renewed.retire_verified(accepted.ack_receipt);
+  assert.equal(renewed.snapshot().lastAck,'1');
+  old.close();
+  renewed.close();
+});
+
 test('two-process crash after verified server ACK and before local retirement replays same ID',async t=>{
   const {path,open}=mk(t);
   const source=fileURLToPath(new URL('../sqlite_journal.host.mjs',import.meta.url));
