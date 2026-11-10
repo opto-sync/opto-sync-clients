@@ -1,0 +1,53 @@
+// EXPERIMENTAL AttoLang source candidate. NOT an executed compiler guest.
+// The real durability and identity authority is the journal/transport adapter.
+define module sync_actor_policy as
+  // Keep signed-i64 arithmetic inside range. No stage may wrap MAX_I64.
+  pub fnc valid_next_id(int last_ack, int next_id, bool has_pending): bool {
+    if has_pending || last_ack < 0 || last_ack >= 9223372036854775807; then
+      return false;
+    fi
+    return next_id > 0 && next_id == last_ack + 1;
+  }
+
+  // Do not accept another actor incarnation's work or a forged claim.
+  pub fnc valid_generation(int observed, int current, int claimed): bool {
+    return current > 0 && observed == current && claimed == current;
+  }
+
+  // Deadline is bound to the original attempt, NEVER reset upon retry.
+  pub fnc within_retry_budget(int started_ms, int deadline_ms, int now_ms): bool {
+    if started_ms < 0 || deadline_ms <= started_ms || now_ms < started_ms; then
+      return false;
+    fi
+    return now_ms < deadline_ms;
+  }
+
+  // Phase 2 means local mutation journal was durably committed (fsync + rename
+  // + parent-directory fsync). No send can happen in phase 1.
+  pub fnc may_send(int phase, int last_ack, int pending_id,
+                   int started_ms, int deadline_ms, int now_ms): bool {
+    return phase == 2 &&
+      valid_next_id(last_ack, pending_id, false) &&
+      within_retry_budget(started_ms, deadline_ms, now_ms);
+  }
+
+  // Transport must authenticate the entire scoped ACK, not only an integer.
+  // Phase 3 is an outstanding request with a durable local mutation.
+  pub fnc valid_server_ack(int phase, int current_gen, int observed_gen,
+                           int claimed_gen, int pending_id, int ack_id,
+                           bool tenant_ok, bool client_ok,
+                           bool server_durable): bool {
+    return phase == 3 && pending_id > 0 && ack_id == pending_id &&
+      valid_generation(observed_gen, current_gen, claimed_gen) &&
+      tenant_ok && client_ok && server_durable;
+  }
+
+  // Only the trusted storage adapter may call this predicate after fsync of
+  // the local retired-journal record. A caller-controlled bool is NOT proof.
+  pub fnc may_publish_retirement(int phase, int current_gen, int storage_gen,
+                                 int last_ack, int pending_id,
+                                 bool storage_fsynced): bool {
+    return phase == 4 && current_gen > 0 && storage_gen == current_gen &&
+      storage_fsynced && valid_next_id(last_ack, pending_id, false);
+  }
+end
