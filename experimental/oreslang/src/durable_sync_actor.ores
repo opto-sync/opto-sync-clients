@@ -1,0 +1,120 @@
+// EXPERIMENTAL, NON-SHIPPING AttoLang actor transition source.
+// No compiled-guest, SQL, HTTP, actor persistence or API support is certified.
+// This actor is intentionally an ownership/transition kernel, NOT a usable SDK.
+// Trusted storage/transport adapters and supervisor restore are NOT implemented.
+// Actor methods named note_* are PRIVATE. They MUST be called only inside an
+// actor mailbox turn after a capability-authenticated adapter result.
+// A boolean or integer argument alone cannot attest fsync or server identity.
+import module sync_actor_policy from "./sync_actor_policy";
+
+// Phases: 0 idle; 1 stage awaiting local fsync; 2 durable and ready to send;
+// 3 transport outcome pending; 4 scoped server ACK awaiting local retire fsync.
+define actor DurableSyncActor as
+  state {
+    generation: int = 1;
+    last_ack: int = 0;
+    pending_id: int = 0;
+    phase: int = 0;
+    retry_started_ms: int = 0;
+    retry_deadline_ms: int = 0;
+  }
+
+  // Public request reserves a mutation ID. TRUE does NOT mean durable.
+  // The caller must NOT send or acknowledge the mutation at this stage.
+  pub fnc reserve_mutation(int expected_gen, int mutation_id,
+                           int started_ms, int deadline_ms): bool {
+    let bool reserved = false;
+    self.handle_state(critical-write |s| -> {
+      if s.phase == 0 &&
+         sync_actor_policy.valid_generation(expected_gen, s.generation, expected_gen) &&
+         sync_actor_policy.valid_next_id(s.last_ack, mutation_id, false) &&
+         deadline_ms > started_ms && started_ms >= 0; then
+        s.pending_id = mutation_id;
+        s.retry_started_ms = started_ms;
+        s.retry_deadline_ms = deadline_ms;
+        s.phase = 1;
+        reserved = true;
+      fi
+    });
+    return reserved;
+  }
+
+  // PRIVATE trusted journal adapter completion, after file fsync,
+  // atomic rename and parent-directory fsync. No await within critical.
+  note_stage_fsynced(int expected_gen, int mutation_id): bool {
+    let bool accepted = false;
+    self.handle_state(critical-write |s| -> {
+      if s.phase == 1 &&
+         expected_gen == s.generation && mutation_id == s.pending_id; then
+        s.phase = 2;
+        accepted = true;
+      fi
+    });
+    return accepted;
+  }
+
+  // Atomically enter inflight, only after a durable stage.
+  begin_dispatch(int expected_gen, int now_ms): bool {
+    let bool admitted = false;
+    self.handle_state(critical-write |s| -> {
+      if expected_gen == s.generation &&
+         sync_actor_policy.may_send(s.phase, s.last_ack, s.pending_id,
+                                   s.retry_started_ms, s.retry_deadline_ms, now_ms); then
+        s.phase = 3;
+        admitted = true;
+      fi
+    });
+    return admitted;
+  }
+
+  // Unknown HTTP outcome is NOT a failed mutation and does not reset retry
+  // origin/deadline or generate a new mutation identity.
+  note_unknown_transport_outcome(int expected_gen, int mutation_id): bool {
+    let bool accepted = false;
+    self.handle_state(critical-write |s| -> {
+      if s.phase == 3 && expected_gen == s.generation &&
+         mutation_id == s.pending_id; then
+        s.phase = 2;
+        accepted = true;
+      fi
+    });
+    return accepted;
+  }
+
+  // PRIVATE trusted transport adapter completion: server-confirmed durable
+  // status with exact tenant/client/mutation/generation correlation.
+  // The pending mutation remains in the journal until local retire fsync.
+  note_verified_server_ack(int observed_gen, int claimed_gen, int ack_id,
+                           bool tenant_ok, bool client_ok,
+                           bool server_durable): bool {
+    let bool accepted = false;
+    self.handle_state(critical-write |s| -> {
+      if sync_actor_policy.valid_server_ack(
+           s.phase, s.generation, observed_gen, claimed_gen,
+           s.pending_id, ack_id, tenant_ok, client_ok, server_durable); then
+        s.phase = 4;
+        accepted = true;
+      fi
+    });
+    return accepted;
+  }
+
+  // PRIVATE trusted durable journal retirement. No last_ack advance until
+  // the replacement journal has been fsynced and the parent dir synced.
+  note_retirement_fsynced(int storage_gen, bool storage_fsynced): bool {
+    let bool accepted = false;
+    self.handle_state(critical-write |s| -> {
+      if sync_actor_policy.may_publish_retirement(
+           s.phase, s.generation, storage_gen,
+           s.last_ack, s.pending_id, storage_fsynced); then
+        s.last_ack = s.pending_id;
+        s.pending_id = 0;
+        s.phase = 0;
+        s.retry_started_ms = 0;
+        s.retry_deadline_ms = 0;
+        accepted = true;
+      fi
+    });
+    return accepted;
+  }
+end

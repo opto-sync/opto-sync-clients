@@ -1,0 +1,47 @@
+// Must be compiled and executed by actual AttoLang backend; host-only test
+// cannot certify the module. Expected process exit 0; other exits are failure.
+import module sync_actor_policy from "../src/sync_actor_policy";
+
+pub routine main(): int {
+  if !sync_actor_policy.valid_next_id(0, 1, false) ||
+     !sync_actor_policy.valid_next_id(8, 9, false); then return 11; fi
+  if sync_actor_policy.valid_next_id(8, 10, false) ||
+     sync_actor_policy.valid_next_id(8, 9, true) ||
+     sync_actor_policy.valid_next_id(-1, 0, false) ||
+     sync_actor_policy.valid_next_id(9223372036854775807, 0, false); then
+    return 12;
+  fi
+
+  if !sync_actor_policy.valid_generation(3, 3, 3) ||
+     sync_actor_policy.valid_generation(3, 4, 4) ||
+     sync_actor_policy.valid_generation(4, 4, 3) ||
+     sync_actor_policy.valid_generation(0, 0, 0); then return 13; fi
+
+  if !sync_actor_policy.within_retry_budget(100, 200, 100) ||
+     !sync_actor_policy.within_retry_budget(100, 200, 199) ||
+     sync_actor_policy.within_retry_budget(100, 200, 200) ||
+     sync_actor_policy.within_retry_budget(100, 100, 100) ||
+     sync_actor_policy.within_retry_budget(-1, 200, 100); then return 14; fi
+
+  if !sync_actor_policy.may_send(2, 0, 1, 100, 200, 199) ||
+     sync_actor_policy.may_send(1, 0, 1, 100, 200, 199) ||
+     sync_actor_policy.may_send(3, 0, 1, 100, 200, 199) ||
+     sync_actor_policy.may_send(2, 0, 2, 100, 200, 199) ||
+     sync_actor_policy.may_send(2, 0, 1, 100, 200, 200); then return 15; fi
+
+  if !sync_actor_policy.valid_server_ack(3, 2, 2, 2, 7, 7, true, true, true) ||
+     sync_actor_policy.valid_server_ack(2, 2, 2, 2, 7, 7, true, true, true) ||
+     sync_actor_policy.valid_server_ack(3, 2, 2, 2, 7, 8, true, true, true) ||
+     sync_actor_policy.valid_server_ack(3, 2, 1, 2, 7, 7, true, true, true) ||
+     sync_actor_policy.valid_server_ack(3, 2, 2, 2, 7, 7, false, true, true) ||
+     sync_actor_policy.valid_server_ack(3, 2, 2, 2, 7, 7, true, true, false); then
+    return 16;
+  fi
+
+  if !sync_actor_policy.may_publish_retirement(4, 2, 2, 6, 7, true) ||
+     sync_actor_policy.may_publish_retirement(3, 2, 2, 6, 7, true) ||
+     sync_actor_policy.may_publish_retirement(4, 2, 2, 6, 7, false) ||
+     sync_actor_policy.may_publish_retirement(4, 2, 1, 6, 7, true) ||
+     sync_actor_policy.may_publish_retirement(4, 2, 2, 6, 8, true); then return 17; fi
+  return 0;
+}
