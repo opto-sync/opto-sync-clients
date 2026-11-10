@@ -63,3 +63,12 @@ AttoLang source and cannot certify actor, runtime, persistence or network.
    after-ACK-before-retire, forged-ACK, stale-writer and duplicate-ACK cases.
 5. Compare against existing `opto-sync/opto-sync-e2e` PR #70 PostgreSQL
    reference oracle. Do not promote host-only or zero-runner steps.
+
+## Exact proposed AttoLang source identity
+
+`actor-source-pins.v1.json` pins the three AttoLang candidate source Git
+blob identities. The host CI checks their exact bytes before any model tests.
+This is file-identity evidence only; it does not assert successful parsing,
+compilation or guest execution. An authorized real compiler acceptance run
+must separately bind the exact PR head and root Git tree and preserve the
+stepful compiler and guest results.

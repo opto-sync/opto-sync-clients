@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "status": "candidate-not-executed",
+  "files": [
+    {
+      "path": "src/sync_actor_policy.ores",
+      "gitBlobSha1": "5bcfc71061ec754f9a46ba7cad1f045fbab1af44"
+    },
+    {
+      "path": "src/durable_sync_actor.ores",
+      "gitBlobSha1": "affa57550b6bc0a6318455248095f06e7c53d640"
+    },
+    {
+      "path": "tests/sync_actor_policy_contract.ores",
+      "gitBlobSha1": "997ac7adc410f06dac8810fd224afdb980b15323"
+    }
+  ]
+}

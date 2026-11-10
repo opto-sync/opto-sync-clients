@@ -3,6 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {createHash} from 'node:crypto';
 
 const MAX_I64 = (1n << 63n) - 1n;
 const Phase = Object.freeze({idle:0, stage_fsync:1, ready:2, inflight:3, retire_fsync:4});
@@ -72,6 +73,24 @@ function retire(s,gen,fsynced) {
 const goodAck = (mutationId=1n,generation=1n) => ({
   mutationId,observedGen:generation,claimedGen:generation,
   tenantOk:true,clientOk:true,serverDurable:true
+});
+
+test('proposed AttoLang source and guest contract match frozen exact Git blobs',()=>{
+  const pins=JSON.parse(readFileSync(new URL('../actor-source-pins.v1.json',import.meta.url),'utf8'));
+  assert.equal(pins.schemaVersion,1);
+  assert.equal(pins.status,'candidate-not-executed');
+  assert.deepEqual(pins.files.map(x=>x.path),[
+    'src/sync_actor_policy.ores',
+    'src/durable_sync_actor.ores',
+    'tests/sync_actor_policy_contract.ores'
+  ]);
+  for(const {path,gitBlobSha1} of pins.files) {
+    assert.match(gitBlobSha1,/^[0-9a-f]{40}$/);
+    const bytes=readFileSync(new URL('../'+path,import.meta.url));
+    const header=Buffer.from('blob '+bytes.length+'\\0','utf8');
+    const actual=createHash('sha1').update(header).update(bytes).digest('hex');
+    assert.equal(actual,gitBlobSha1,'candidate source drift: '+path);
+  }
 });
 
 test('actor source owns a sealed state and gates all writes behind critical-write',()=>{
