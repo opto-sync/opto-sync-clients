@@ -67,3 +67,12 @@ node --test experimental/oreslang/tests/*.test.mjs
 For actual AttoLang, follow the guest compiler admission blocked in Java
 #2751 and LLVM #1639, and replace the adapter boundary with an audited native
 storage capability whose receipt construction is inaccessible to user actors.
+
+## Path guard hardening
+
+The adapter uses `lstat` directly, rejecting both existing symlinks and
+**dangling** symlinks before opening SQLite. This avoids following a link
+whose target did not exist at the time of an `exists`-style check. The
+security boundary still requires an OS-protected parent directory; lstat
+alone cannot prevent a malicious directory owner swapping path components
+between inspection and SQLite open.

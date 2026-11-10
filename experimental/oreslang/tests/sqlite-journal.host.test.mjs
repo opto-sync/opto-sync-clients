@@ -1,7 +1,7 @@
 // Real SQLite host execution, not compiled AttoLang. Node 24+.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync, rmSync, readFileSync, lstatSync, symlinkSync} from 'node:fs';
+import {mkdtempSync, rmSync, lstatSync, symlinkSync, existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {spawnSync} from 'node:child_process';
@@ -191,6 +191,52 @@ test('lastAck MAX_I64 fails closed before next-ID arithmetic',t=>{
   assert.throws(()=>next.stage_mutation(MUTATION),/mutation ID exhausted/);
   assert.equal(next.snapshot().lastAck,'9223372036854775807');
   next.close();
+});
+
+test('dangling journal symlink fails closed before SQLite opens the path',t=>{
+  const {dir}=mk(t);
+  const missing=join(dir,'nonexistent-target.sqlite');
+  const alias=join(dir,'dangling-alias.sqlite');
+  symlinkSync(missing,alias);
+  assert.equal(existsSync(alias),false,'this is a genuine dangling link');
+  assert.equal(lstatSync(alias).isSymbolicLink(),true);
+  assert.throws(()=>open_sqlite_sync_journal(alias,{...ID}),/regular file/);
+  assert.equal(existsSync(missing),false,'the rejected link did not create its target');
+});
+
+test('stage and verified-ACK receipts cannot cross journal sessions',async t=>{
+  const first=mk(t),second=mk(t);
+  const a=first.open();
+  const b=second.open();
+  const stageA=a.stage_mutation(MUTATION);
+  const stageB=b.stage_mutation(MUTATION);
+  await assert.rejects(b.dispatch(stageA,'150'),/trusted stage receipt/);
+  await assert.rejects(a.dispatch(stageB,'150'),/trusted stage receipt/);
+  const verifiedA=await a.dispatch(stageA,'150');
+  const verifiedB=await b.dispatch(stageB,'150');
+  assert.throws(()=>b.retire_verified(verifiedA.ack_receipt),/trusted verified ACK receipt/);
+  assert.throws(()=>a.retire_verified(verifiedB.ack_receipt),/trusted verified ACK receipt/);
+  a.retire_verified(verifiedA.ack_receipt);
+  b.retire_verified(verifiedB.ack_receipt);
+  assert.equal(a.snapshot().lastAck,'1');
+  assert.equal(b.snapshot().lastAck,'1');
+  a.close();
+  b.close();
+});
+
+test('non-lossless JSON and noncanonical clock values cannot stage a mutation',t=>{
+  const {open}=mk(t);
+  const s=open();
+  for(const bad of [
+    {...MUTATION,payload:{illegal:NaN}},
+    {...MUTATION,payload:{missing:undefined}},
+    {...MUTATION,payload:[1,2]},
+    {...MUTATION,started_ms:'01'},
+    {...MUTATION,deadline_ms:'100'},
+    {...MUTATION,base_revision:'001'}
+  ]) assert.throws(()=>s.stage_mutation(bad));
+  assert.equal(s.snapshot().pending,null);
+  s.close();
 });
 
 test('database path symlink is denied without touching the target',t=>{

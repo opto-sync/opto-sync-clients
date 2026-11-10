@@ -2,7 +2,7 @@
 // The supervisor exclusively owns this module and its database file permissions.
 // An injected exchange callback is trusted infrastructure, never actor/user code.
 import {DatabaseSync} from 'node:sqlite';
-import {mkdirSync, existsSync, lstatSync, chmodSync} from 'node:fs';
+import {mkdirSync, lstatSync, chmodSync} from 'node:fs';
 import {dirname, resolve} from 'node:path';
 import {isDeepStrictEqual} from 'node:util';
 
@@ -76,9 +76,13 @@ export function open_sqlite_sync_journal(path, {tenant, client_id, exchange} = {
     'trusted transport exchange must be a function');
   const filename = resolve(path);
   mkdirSync(dirname(filename), {recursive:true, mode:0o700});
-  if (existsSync(filename)) {
+  // lstat, NOT existsSync: existsSync follows dangling symlinks and may
+  // report false for an existing link to a currently missing target.
+  try {
     const stat = lstatSync(filename);
     require_value(stat.isFile() && !stat.isSymbolicLink(), 'journal path must be a regular file');
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
   }
   const db = new DatabaseSync(filename, {timeout:1500});
   let closed = false;
