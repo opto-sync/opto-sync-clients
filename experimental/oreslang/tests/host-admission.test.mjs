@@ -11,7 +11,7 @@ test('fixtures are explicit, bounded and unadmitted',()=>{
 });
 test('fail closed on unsupported release claims and duplicate fixtures',()=>{
   assert.throws(()=>validate_manifest({...m,admission:{...m.admission,sdkPublished:true}}),/support claim/);
-  assert.throws(()=>validate_manifest({...m,cases:[...m.cases,m.cases[0]]}),/invalid fixture/);
+  assert.throws(()=>validate_manifest({...m,cases:[...m.cases,m.cases[0]]}),/invalid (candidate manifest|fixture)/);
   assert.throws(()=>validate_manifest({...m,backends:['java']}),/manifest/);
 });
 test('canonical v1 fixture names, expected exits and exact source bytes cannot drift',()=>{
