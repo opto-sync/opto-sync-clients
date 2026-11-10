@@ -87,7 +87,7 @@ test('proposed AttoLang source and guest contract match frozen exact Git blobs',
   for(const {path,gitBlobSha1} of pins.files) {
     assert.match(gitBlobSha1,/^[0-9a-f]{40}$/);
     const bytes=readFileSync(new URL('../'+path,import.meta.url));
-    const header=Buffer.from('blob '+bytes.length+'\\0','utf8');
+    const header=Buffer.concat([Buffer.from('blob '+bytes.length,'utf8'),Buffer.from([0])]);
     const actual=createHash('sha1').update(header).update(bytes).digest('hex');
     assert.equal(actual,gitBlobSha1,'candidate source drift: '+path);
   }
