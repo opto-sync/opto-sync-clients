@@ -52,3 +52,24 @@ not NativeAOT or GraalVM AOT unless separately evidenced, and not an AttoLang
 product support or release claim. Until real pinned compiler inputs are supplied
 and this command executes, real Java/LLVM AttoLang guest evidence is
 **NOT_EXECUTED**. Never silently substitute a JS/Rust implementation.
+
+## Canonical scalar grammar and compile-negative contract (2026-11-10)
+
+The five scalar smoke fixtures use `pub fnc main(): int`, the existing
+executable common-subset declaration spelling in both Java and LLVM
+`contracts/v1/fixtures/literal-42.ores` sources. The original speculative
+`define pub fnc` spelling is no longer used by these strict smoke cases.
+
+`reject-overflow` is an **out-of-range signed-i64 integer literal**
+(`9223372036854775808`), which both canonical compiler scalar suites
+already classify as a compile-time rejection. It is **not** a claim
+that the in-range expression `MAX_I64 + 1` must be compile-rejected:
+checked arithmetic can trap during guest execution and requires a
+separate explicit runtime-overflow contract and real compiler evidence.
+
+Companion exact-byte source PRs: Java
+[oreslang-source.java#2751](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/2751),
+LLVM [oreslang-source.llvm#1639](https://github.com/ores-truffle-oreslang/oreslang-source.llvm/pull/1639).
+All three repositories must keep all five Git blob SHAs identical at their
+**current exact PR heads**. Neither the host synthetic checks nor a no-runner
+source-org Actions failure is actual AttoLang guest proof.
