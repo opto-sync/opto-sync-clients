@@ -10,24 +10,12 @@ name: fp-conformance
 # Language-native checks (cargo clippy, eslint, dart analyze) are configured in
 # the tree but not run here, to keep Actions minutes low. See FP-GUIDELINES.md.
 
+# Required by main branch protection: every PR must produce this status.
+# Path filtering silently blocks docs-only / policy-only PRs.
 on:
   pull_request:
-    paths:
-      - '**.rs'
-      - '**.ts'
-      - '**.tsx'
-      - '**.dart'
-      - 'tools/fp-conformance/**'
-      - '.github/workflows/fp-conformance.yml'
   push:
     branches: [main, dev]
-    paths:
-      - '**.rs'
-      - '**.ts'
-      - '**.tsx'
-      - '**.dart'
-      - 'tools/fp-conformance/**'
-      - '.github/workflows/fp-conformance.yml'
   workflow_dispatch:
 
 permissions:

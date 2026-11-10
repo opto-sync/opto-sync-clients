@@ -1,15 +1,11 @@
 name: Workflow supply-chain contract
 
+# This is a required branch-protection check: never path-filter it.
+# Workflow provenance applies to every PR, including docs-only changes.
 on:
   pull_request:
-    paths:
-      - '.github/workflows/**'
-      - 'scripts/check-workflow-supply-chain.py'
   push:
     branches: [main]
-    paths:
-      - '.github/workflows/**'
-      - 'scripts/check-workflow-supply-chain.py'
   workflow_dispatch:
 
 permissions:
@@ -23,5 +19,14 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Assert exact review head and record source tree
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git rev-parse HEAD^{tree}
       - name: Reject moving actions, refs, and persisted checkout credentials
         run: python3 scripts/check-workflow-supply-chain.py
