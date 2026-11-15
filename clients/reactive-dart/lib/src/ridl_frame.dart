@@ -51,7 +51,17 @@ const int kRidlFrameVersion = 1;
 
 /// The order keys must appear in for byte-for-byte conformance.
 const List<String> _keyOrder = <String>[
-  'v', 'id', 't', 'key', 'method', 'path', 'query', 'body', 'code', 'message', 'meta',
+  'v',
+  'id',
+  't',
+  'key',
+  'method',
+  'path',
+  'query',
+  'body',
+  'code',
+  'message',
+  'meta',
 ];
 
 class RidlFrame {
@@ -80,18 +90,17 @@ class RidlFrame {
     Object? body,
     bool hasBody = false,
     Map<String, Object?>? meta,
-  }) =>
-      RidlFrame(
-        id: id,
-        type: RidlFrameType.call,
-        key: key,
-        method: method,
-        path: path,
-        query: query,
-        body: body,
-        hasBody: hasBody || body != null,
-        meta: meta,
-      );
+  }) => RidlFrame(
+    id: id,
+    type: RidlFrameType.call,
+    key: key,
+    method: method,
+    path: path,
+    query: query,
+    body: body,
+    hasBody: hasBody || body != null,
+    meta: meta,
+  );
 
   /// One payload. `body` is nullable *and* always present, so it is written
   /// even when null — `data-null` in the fixture is `{"v":1,"id":"1","t":"data","body":null}`.
@@ -105,8 +114,12 @@ class RidlFrame {
     required String id,
     required String code,
     String? message,
-  }) =>
-      RidlFrame(id: id, type: RidlFrameType.error, code: code, message: message);
+  }) => RidlFrame(
+    id: id,
+    type: RidlFrameType.error,
+    code: code,
+    message: message,
+  );
 
   factory RidlFrame.cancel({required String id}) =>
       RidlFrame(id: id, type: RidlFrameType.cancel);
@@ -173,14 +186,17 @@ class RidlFrame {
   Uint8List encodeWithLengthPrefix() {
     final payload = encodeBytes();
     final out = BytesBuilder(copy: false)
-      ..add((ByteData(4)..setUint32(0, payload.length, Endian.big)).buffer.asUint8List())
+      ..add(
+        (ByteData(
+          4,
+        )..setUint32(0, payload.length, Endian.big)).buffer.asUint8List(),
+      )
       ..add(payload);
     return out.takeBytes();
   }
 
-  static RidlFrame decode(String wire) => fromJson(
-        jsonDecode(wire) as Map<String, Object?>,
-      );
+  static RidlFrame decode(String wire) =>
+      fromJson(jsonDecode(wire) as Map<String, Object?>);
 
   static RidlFrame fromJson(Map<String, Object?> json) {
     final rawType = json['t'];
@@ -202,9 +218,12 @@ class RidlFrame {
       query: rawQuery == null
           ? null
           : (rawQuery as List<Object?>)
-              .map((pair) =>
-                  (pair as List<Object?>).map((e) => e as String).toList(growable: false))
-              .toList(growable: false),
+                .map(
+                  (pair) => (pair as List<Object?>)
+                      .map((e) => e as String)
+                      .toList(growable: false),
+                )
+                .toList(growable: false),
       body: json['body'],
       hasBody: json.containsKey('body'),
       code: json['code'] as String?,

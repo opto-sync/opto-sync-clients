@@ -37,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14, windows-2022]
+        os: [ubuntu-latest, macos-15, windows-2022]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -45,6 +45,17 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify immutable source revision and checkout tree
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          echo "OPTO_CLIENT_SOURCE_SHA=$EXPECTED_HEAD"
+          echo "OPTO_CLIENT_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -68,7 +79,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14, windows-2022]
+        os: [ubuntu-latest, macos-15, windows-2022]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -76,6 +87,17 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify immutable source revision and checkout tree
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          echo "OPTO_CLIENT_SOURCE_SHA=$EXPECTED_HEAD"
+          echo "OPTO_CLIENT_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
 
       - uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
@@ -107,7 +129,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-14, windows-2022]
+        os: [ubuntu-latest, macos-15, windows-2022]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -115,6 +137,17 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Verify immutable source revision and checkout tree
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          echo "OPTO_CLIENT_SOURCE_SHA=$EXPECTED_HEAD"
+          echo "OPTO_CLIENT_SOURCE_TREE=$(git rev-parse 'HEAD^{tree}')"
 
       - uses: dtolnay/rust-toolchain@39b0b3842c7e8bbf6904c0bfc3d9006fdd4dc4e0 # 1.88.0
         with:

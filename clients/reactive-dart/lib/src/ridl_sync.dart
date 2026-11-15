@@ -3,6 +3,7 @@ import 'dart:async';
 import 'contracts.dart';
 import 'optimism.dart';
 import 'ridl_rpc.dart';
+import 'reactive_record.dart';
 
 /// Adapters joining the ridl RPC transport to the optimism layer.
 ///
@@ -25,13 +26,13 @@ class RidlRemoteWriter<T> implements RemoteConfirmedWriter<T> {
     required T Function(Object? payload) decode,
     String method = 'POST',
     Map<String, Object?> Function()? meta,
-  })  : _transport = transport,
-        _routeKey = routeKey,
-        _path = path,
-        _encode = encode,
-        _decode = decode,
-        _method = method,
-        _meta = meta;
+  }) : _transport = transport,
+       _routeKey = routeKey,
+       _path = path,
+       _encode = encode,
+       _decode = decode,
+       _method = method,
+       _meta = meta;
 
   final RidlRpcTransport _transport;
   final String _routeKey;
@@ -72,7 +73,8 @@ SyncRecordSource<T> ridlRecordSource<T>({
   required SyncRecordEvent<T>? Function(
     Object? payload,
     SyncSessionIdentity identity,
-  ) decodeEvent,
+  )
+  decodeEvent,
   String method = 'GET',
   List<List<String>> Function(SyncSessionIdentity identity)? query,
   Map<String, Object?> Function(SyncSessionIdentity identity)? meta,
@@ -108,12 +110,12 @@ class RidlForegroundSync implements ForegroundSyncCycle<Object?> {
     required String syncRouteKey,
     required String syncPath,
     void Function(Object error, StackTrace stackTrace)? onHintError,
-  })  : _transport = transport,
-        _hintRouteKey = hintRouteKey,
-        _hintPath = hintPath,
-        _syncRouteKey = syncRouteKey,
-        _syncPath = syncPath,
-        _onHintError = onHintError;
+  }) : _transport = transport,
+       _hintRouteKey = hintRouteKey,
+       _hintPath = hintPath,
+       _syncRouteKey = syncRouteKey,
+       _syncPath = syncPath,
+       _onHintError = onHintError;
 
   final RidlRpcTransport _transport;
   final String _hintRouteKey;
@@ -128,18 +130,15 @@ class RidlForegroundSync implements ForegroundSyncCycle<Object?> {
       _transport
           .unary(key: _hintRouteKey, method: 'POST', path: _hintPath)
           .catchError((Object error, StackTrace stack) {
-        // A dropped hint is recoverable: the next syncNow or background wake
-        // still carries the queued work. Surface it, do not fail the write.
-        _onHintError?.call(error, stack);
-        return null;
-      }),
+            // A dropped hint is recoverable: the next syncNow or background wake
+            // still carries the queued work. Surface it, do not fail the write.
+            _onHintError?.call(error, stack);
+            return null;
+          }),
     );
   }
 
   @override
-  Future<Object?> syncNow() => _transport.unary(
-        key: _syncRouteKey,
-        method: 'POST',
-        path: _syncPath,
-      );
+  Future<Object?> syncNow() =>
+      _transport.unary(key: _syncRouteKey, method: 'POST', path: _syncPath);
 }
